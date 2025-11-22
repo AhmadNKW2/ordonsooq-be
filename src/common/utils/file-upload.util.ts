@@ -43,6 +43,11 @@ export const videoFileFilter = (req: any, file: Express.Multer.File, cb: any) =>
   }
 };
 
+export const editFileName = (req: any, file: Express.Multer.File, cb: any) => {
+  const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${extname(file.originalname)}`;
+  cb(null, uniqueName);
+};
+
 export const imageOrVideoFileFilter = (req: any, file: Express.Multer.File, cb: any) => {
   const allowedTypes = [...ALLOWED_IMAGE_TYPES, ...ALLOWED_VIDEO_TYPES];
   if (allowedTypes.includes(file.mimetype)) {

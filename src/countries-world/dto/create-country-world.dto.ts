@@ -1,6 +1,6 @@
 import { IsString, IsNotEmpty } from 'class-validator';
 
-export class CreateAttributeDto {
+export class CreateCountryWorldDto {
   @IsString()
   @IsNotEmpty()
   name_en: string;
@@ -8,4 +8,8 @@ export class CreateAttributeDto {
   @IsString()
   @IsNotEmpty()
   name_ar: string;
+
+  @IsString()
+  @IsNotEmpty()
+  image_url: string;
 }

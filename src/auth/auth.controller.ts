@@ -35,18 +35,7 @@ export class AuthController {
         };
     }
 
-    // GET /auth/profile - Protected route (requires JWT token)
-    @Get('profile')
-    @UseGuards(AuthGuard('jwt'))
-    getProfile(@Request() req) {
-        return {
-            id: req.user.id,
-            email: req.user.email,
-            firstName: req.user.firstName,
-            lastName: req.user.lastName,
-            role: req.user.role,
-        };
-    }
+    // NOTE: profile route removed per project requirements
 
     // POST /auth/forgot-password
     @Post('forgot-password')

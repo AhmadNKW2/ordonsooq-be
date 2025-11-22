@@ -1,35 +1,19 @@
-import {
-  Entity,
-  PrimaryGeneratedColumn,
-  Column,
-  CreateDateColumn,
-  UpdateDateColumn,
-  OneToMany,
-} from 'typeorm';
-import { AttributeValue } from './attribute-value.entity';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 
 @Entity('attributes')
 export class Attribute {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ unique: true })
+  @Column({ name: 'name_en', length: 100 })
   name_en: string;
 
-  @Column()
+  @Column({ name: 'name_ar', length: 100, nullable: true })
   name_ar: string;
 
-  @Column({ default: true })
-  is_active: boolean;
+  @CreateDateColumn({ name: 'created_at' })
+  createdAt: Date;
 
-  @OneToMany(() => AttributeValue, (value) => value.attribute, {
-    cascade: true,
-  })
-  values: AttributeValue[];
-
-  @CreateDateColumn()
-  created_at: Date;
-
-  @UpdateDateColumn()
-  updated_at: Date;
+  @UpdateDateColumn({ name: 'updated_at' })
+  updatedAt: Date;
 }

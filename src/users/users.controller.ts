@@ -20,21 +20,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 export class UsersController {
   constructor(private readonly usersService: UsersService) { }
 
-  // Create user (Admin only) - Can specify role during creation
-  @Post()
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
-  create(@Body() createUserDto: CreateUserDto) {
-    return this.usersService.create(createUserDto);
-  }
-
-  // Filter users (Admin only)
-  @Post('filter')
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
-  filterUsers(@Body() filterDto: FilterUserDto) {
-    return this.usersService.findAll(filterDto);
-  }
+  // Note: user creation and filtering endpoints removed per project requirements
 
   // Get all users (Admin only)
   @Get()
@@ -52,13 +38,7 @@ export class UsersController {
     return this.usersService.findOne(id);
   }
 
-  // Update user (Admin only) - Can update role here
-  @Patch(':id')
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
-  update(@Param('id') id: number, @Body() updateUserDto: UpdateUserDto) {
-    return this.usersService.update(id, updateUserDto);
-  }
+  // Note: updating users via PATCH removed per project requirements
 
   // Delete user (Admin only)
   @Delete(':id')

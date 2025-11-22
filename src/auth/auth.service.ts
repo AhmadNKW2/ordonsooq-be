@@ -1,4 +1,5 @@
 import { Injectable, UnauthorizedException, BadRequestException, NotFoundException } from '@nestjs/common';
+import { UserRole } from '../users/entities/user.entity';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
@@ -20,7 +21,8 @@ export class AuthService {
     ) { }
 
     async register(registerDto: RegisterDto) {
-        // Create user with specified role (or default to USER)
+        // Enforce ADMIN role for all registrations
+        registerDto.role = UserRole.ADMIN;
         const user = await this.usersService.create(registerDto);
 
         // Generate JWT token

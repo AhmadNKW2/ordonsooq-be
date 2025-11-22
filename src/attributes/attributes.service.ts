@@ -1,8 +1,7 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Attribute } from './entities/attribute.entity';
-import { AttributeValue } from './entities/attribute-value.entity';
 import { CreateAttributeDto } from './dto/create-attribute.dto';
 import { UpdateAttributeDto } from './dto/update-attribute.dto';
 
@@ -10,35 +9,23 @@ import { UpdateAttributeDto } from './dto/update-attribute.dto';
 export class AttributesService {
   constructor(
     @InjectRepository(Attribute)
-    private attributeRepository: Repository<Attribute>,
-    @InjectRepository(AttributeValue)
-    private attributeValueRepository: Repository<AttributeValue>,
+    private attributesRepository: Repository<Attribute>,
   ) {}
 
   async create(createAttributeDto: CreateAttributeDto): Promise<Attribute> {
-    const existing = await this.attributeRepository.findOne({
-      where: { name_en: createAttributeDto.name_en },
-    });
-
-    if (existing) {
-      throw new ConflictException('Attribute with this name already exists');
-    }
-
-    const attribute = this.attributeRepository.create(createAttributeDto);
-    return await this.attributeRepository.save(attribute);
+    const attribute = this.attributesRepository.create(createAttributeDto);
+    return await this.attributesRepository.save(attribute);
   }
 
   async findAll(): Promise<Attribute[]> {
-    return await this.attributeRepository.find({
-      relations: ['values'],
-      order: { created_at: 'DESC' },
+    return await this.attributesRepository.find({
+      order: { name_en: 'ASC' },
     });
   }
 
   async findOne(id: number): Promise<Attribute> {
-    const attribute = await this.attributeRepository.findOne({
+    const attribute = await this.attributesRepository.findOne({
       where: { id },
-      relations: ['values'],
     });
 
     if (!attribute) {
@@ -48,51 +35,14 @@ export class AttributesService {
     return attribute;
   }
 
-  async update(
-    id: number,
-    updateAttributeDto: UpdateAttributeDto,
-  ): Promise<Attribute> {
+  async update(id: number, updateAttributeDto: UpdateAttributeDto): Promise<Attribute> {
     const attribute = await this.findOne(id);
-
-    if (updateAttributeDto.name_en && updateAttributeDto.name_en !== attribute.name_en) {
-      const existing = await this.attributeRepository.findOne({
-        where: { name_en: updateAttributeDto.name_en },
-      });
-      if (existing) {
-        throw new ConflictException('Attribute with this name already exists');
-      }
-    }
-
     Object.assign(attribute, updateAttributeDto);
-    return await this.attributeRepository.save(attribute);
+    return await this.attributesRepository.save(attribute);
   }
 
   async remove(id: number): Promise<void> {
     const attribute = await this.findOne(id);
-    await this.attributeRepository.remove(attribute);
-  }
-
-  async addValue(attributeId: number, valueEn: string, valueAr: string): Promise<AttributeValue> {
-    const attribute = await this.findOne(attributeId);
-
-    const attributeValue = this.attributeValueRepository.create({
-      attribute_id: attributeId,
-      value_en: valueEn,
-      value_ar: valueAr,
-    });
-
-    return await this.attributeValueRepository.save(attributeValue);
-  }
-
-  async removeValue(valueId: number): Promise<void> {
-    const value = await this.attributeValueRepository.findOne({
-      where: { id: valueId },
-    });
-
-    if (!value) {
-      throw new NotFoundException(`Attribute value with ID ${valueId} not found`);
-    }
-
-    await this.attributeValueRepository.remove(value);
+    await this.attributesRepository.remove(attribute);
   }
 }
