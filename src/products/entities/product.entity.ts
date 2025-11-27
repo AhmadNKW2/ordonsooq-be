@@ -7,10 +7,18 @@ import {
     CreateDateColumn,
     UpdateDateColumn,
     JoinColumn,
-    BeforeInsert
+    BeforeInsert,
+    Index,
 } from 'typeorm';
 import { Category } from '../../categories/entities/category.entity';
 import { Vendor } from '../../vendors/entities/vendor.entity';
+import { ProductVariant } from './product-variant.entity';
+import { ProductPriceGroup } from './product-price-group.entity';
+import { ProductWeightGroup } from './product-weight-group.entity';
+import { ProductMedia } from './product-media.entity';
+import { ProductMediaGroup } from './product-media-group.entity';
+import { ProductStock } from './product-stock.entity';
+import { ProductAttribute } from './product-attribute.entity';
 
 export enum PricingType {
     SINGLE = 'single',
@@ -18,6 +26,10 @@ export enum PricingType {
 }
 
 @Entity('products')
+@Index('idx_products_category_id', ['category_id'])
+@Index('idx_products_vendor_id', ['vendor_id'])
+@Index('idx_products_is_active', ['is_active'])
+@Index('idx_products_sku', ['sku'])
 export class Product {
     @PrimaryGeneratedColumn('increment')
     id: number;
@@ -69,37 +81,33 @@ export class Product {
     @Column({ nullable: true })
     vendor_id: number;
 
-    // Media relationship
-    @OneToMany('ProductMedia', 'product')
-    media: any[];
+    // Variants relationship (for variant products)
+    @OneToMany(() => ProductVariant, (variant) => variant.product)
+    variants: ProductVariant[];
 
-    // Pricing relationship
-    @OneToMany('ProductPricing', 'product')
-    pricing: any[];
+    // Media relationship (unified - works for both simple and variant)
+    @OneToMany(() => ProductMedia, (media) => media.product)
+    media: ProductMedia[];
 
-    // Weight relationship
-    @OneToMany('ProductWeight', 'product')
-    weight: any[];
+    // Media groups relationship
+    @OneToMany(() => ProductMediaGroup, (group) => group.product)
+    mediaGroups: ProductMediaGroup[];
 
-    // Stock relationship
-    @OneToMany('ProductVariantStock', 'product')
-    stock: any[];
+    // Price groups relationship
+    @OneToMany(() => ProductPriceGroup, (group) => group.product)
+    priceGroups: ProductPriceGroup[];
 
-    // Variant pricing relationship
-    @OneToMany('ProductVariantPricing', 'product')
-    variant_pricing: any[];
+    // Weight groups relationship
+    @OneToMany(() => ProductWeightGroup, (group) => group.product)
+    weightGroups: ProductWeightGroup[];
 
-    // Variant media relationship
-    @OneToMany('ProductVariantMedia', 'product')
-    variant_media: any[];
-
-    // Variant weight relationship
-    @OneToMany('ProductVariantWeight', 'product')
-    variant_weight: any[];
+    // Stock relationship (unified - works for both simple and variant)
+    @OneToMany(() => ProductStock, (stock) => stock.product)
+    stock: ProductStock[];
 
     // Product attributes relationship
-    @OneToMany('ProductAttribute', 'product')
-    attributes: any[];
+    @OneToMany(() => ProductAttribute, (attr) => attr.product)
+    attributes: ProductAttribute[];
 
     // Ratings relationship
     @OneToMany('Rating', 'product')

@@ -7,16 +7,18 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
 import { WalletTransaction } from './wallet-transaction.entity';
 
 @Entity('wallets')
+@Index('idx_wallets_user_id', ['userId'])
 export class Wallet {
   @PrimaryGeneratedColumn('increment')
   id: number;
 
-  @ManyToOne(() => User)
+  @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'userId' })
   user: User;
 

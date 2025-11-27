@@ -5,6 +5,7 @@ import {
   ManyToOne,
   CreateDateColumn,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { Wallet } from './wallet.entity';
 
@@ -22,11 +23,12 @@ export enum TransactionSource {
 }
 
 @Entity('wallet_transactions')
+@Index('idx_wallet_transactions_wallet_id', ['walletId'])
 export class WalletTransaction {
   @PrimaryGeneratedColumn('increment')
   id: number;
 
-  @ManyToOne(() => Wallet, (wallet) => wallet.transactions)
+  @ManyToOne(() => Wallet, (wallet) => wallet.transactions, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'walletId' })
   wallet: Wallet;
 

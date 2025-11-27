@@ -4,6 +4,7 @@ import {
   PrimaryGeneratedColumn,
   CreateDateColumn,
   UpdateDateColumn,
+  Index,
 } from 'typeorm';
 
 export enum CouponType {
@@ -18,6 +19,8 @@ export enum CouponStatus {
 }
 
 @Entity('coupons')
+@Index('idx_coupons_code', ['code'])
+@Index('idx_coupons_status', ['status'])
 export class Coupon {
   @PrimaryGeneratedColumn('increment')
   id: number;

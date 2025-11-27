@@ -6,6 +6,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { Product } from '../../products/entities/product.entity';
 import { User } from '../../users/entities/user.entity';
@@ -17,6 +18,9 @@ export enum RatingStatus {
 }
 
 @Entity('ratings')
+@Index('idx_ratings_product_id', ['productId'])
+@Index('idx_ratings_user_id', ['userId'])
+@Index('idx_ratings_status', ['status'])
 export class Rating {
   @PrimaryGeneratedColumn('increment')
   id: number;
@@ -38,7 +42,7 @@ export class Rating {
   rejectionReason: string;
 
   // User who created the rating
-  @ManyToOne(() => User, { eager: true })
+  @ManyToOne(() => User, { eager: true, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'userId' })
   user: User;
 
@@ -46,7 +50,7 @@ export class Rating {
   userId: number;
 
   // Product being rated
-  @ManyToOne(() => Product, (product) => product.ratings)
+  @ManyToOne(() => Product, (product) => product.ratings, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'productId' })
   product: Product;
 

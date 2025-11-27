@@ -6,10 +6,13 @@ import {
     OneToMany,
     CreateDateColumn,
     UpdateDateColumn,
-    JoinColumn
+    JoinColumn,
+    Index,
 } from 'typeorm';
 
 @Entity('categories')
+@Index('idx_categories_parent_id', ['parentId'])
+@Index('idx_categories_is_active', ['isActive'])
 export class Category {
     @PrimaryGeneratedColumn('increment')
     id: number;
@@ -30,7 +33,7 @@ export class Category {
     isActive: boolean;
 
     // Self-referencing for parent category
-    @ManyToOne(() => Category, category => category.children, { nullable: true })
+    @ManyToOne(() => Category, category => category.children, { nullable: true, onDelete: 'SET NULL' })
     @JoinColumn({ name: 'parentId' })
     parent: Category;
 

@@ -4,34 +4,41 @@ import { ProductsService } from './products.service';
 import { ProductsController } from './products.controller';
 import { Product } from './entities/product.entity';
 import { ProductAttribute } from './entities/product-attribute.entity';
-import { ProductPricing } from './entities/product-pricing.entity';
-import { ProductVariantPricing } from './entities/product-variant-pricing.entity';
+import { ProductPriceGroup } from './entities/product-price-group.entity';
+import { ProductPriceGroupValue } from './entities/product-price-group-value.entity';
 import { ProductMedia } from './entities/product-media.entity';
-import { ProductVariantMedia } from './entities/product-variant-media.entity';
-import { ProductWeight } from './entities/product-weight.entity';
-import { ProductVariantWeight } from './entities/product-variant-weight.entity';
-import { ProductVariantStock } from './entities/product-variant-stock.entity';
+import { ProductMediaGroup } from './entities/product-media-group.entity';
+import { ProductMediaGroupValue } from './entities/product-media-group-value.entity';
+import { ProductWeightGroup } from './entities/product-weight-group.entity';
+import { ProductWeightGroupValue } from './entities/product-weight-group-value.entity';
+import { ProductStock } from './entities/product-stock.entity';
+import { ProductVariant } from './entities/product-variant.entity';
+import { ProductVariantCombination } from './entities/product-variant-combination.entity';
 import { AttributesModule } from '../attributes/attributes.module';
 import { ProductVariantsService } from './product-variants.service';
-import { ProductPricingService } from './product-pricing.service';
-import { ProductMediaService } from './product-media.service';
-import { ProductWeightService } from './product-weight.service';
-import { ProductVariantDataService } from './product-variant-data.service';
+import { ProductPriceGroupService } from './product-price-group.service';
+import { ProductMediaGroupService } from './product-media-group.service';
+import { ProductWeightGroupService } from './product-weight-group.service';
 import { AttributeValue } from '../attributes/entities/attribute-value.entity';
+import { Attribute } from '../attributes/entities/attribute.entity';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       Product,
       ProductAttribute,
-      ProductPricing,
-      ProductVariantPricing,
+      ProductPriceGroup,
+      ProductPriceGroupValue,
       ProductMedia,
-      ProductVariantMedia,
-      ProductWeight,
-      ProductVariantWeight,
-      ProductVariantStock,
+      ProductMediaGroup,
+      ProductMediaGroupValue,
+      ProductWeightGroup,
+      ProductWeightGroupValue,
+      ProductStock,
+      ProductVariant,
+      ProductVariantCombination,
       AttributeValue,
+      Attribute,
     ]),
     AttributesModule,
   ],
@@ -39,18 +46,16 @@ import { AttributeValue } from '../attributes/entities/attribute-value.entity';
   providers: [
     ProductsService,
     ProductVariantsService,
-    ProductPricingService,
-    ProductMediaService,
-    ProductWeightService,
-    ProductVariantDataService,
+    ProductPriceGroupService,
+    ProductMediaGroupService,
+    ProductWeightGroupService,
   ],
   exports: [
     ProductsService,
     ProductVariantsService,
-    ProductPricingService,
-    ProductMediaService,
-    ProductWeightService,
-    ProductVariantDataService,
+    ProductPriceGroupService,
+    ProductMediaGroupService,
+    ProductWeightGroupService,
   ],
 })
-export class ProductsModule { }
+export class ProductsModule {}

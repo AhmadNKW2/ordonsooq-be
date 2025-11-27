@@ -6,10 +6,12 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { Attribute } from './attribute.entity';
 
 @Entity('attribute_values')
+@Index('idx_attribute_values_attribute_id', ['attribute_id'])
 export class AttributeValue {
   @PrimaryGeneratedColumn()
   id: number;

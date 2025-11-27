@@ -5,10 +5,12 @@ import {
   ManyToOne,
   CreateDateColumn,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
 
 @Entity('password_reset_tokens')
+@Index('idx_password_reset_tokens_user_id', ['userId'])
 export class PasswordResetToken {
   @PrimaryGeneratedColumn('increment')
   id: number;
@@ -16,7 +18,7 @@ export class PasswordResetToken {
   @Column()
   token: string;
 
-  @ManyToOne(() => User)
+  @ManyToOne(() => User, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'userId' })
   user: User;
 
