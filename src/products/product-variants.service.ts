@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
-import { Product, PricingType } from './entities/product.entity';
+import { Product } from './entities/product.entity';
 import { ProductAttribute } from './entities/product-attribute.entity';
 import { ProductVariant } from './entities/product-variant.entity';
 import { ProductVariantCombination } from './entities/product-variant-combination.entity';
@@ -47,12 +47,6 @@ export class ProductVariantsService {
       throw new NotFoundException(`Product with ID ${productId} not found`);
     }
 
-    if (product.pricing_type !== PricingType.VARIANT && attributes.length > 0) {
-      throw new BadRequestException(
-        'Product must have pricing_type = "variant" to add attributes',
-      );
-    }
-
     const productAttributes: ProductAttribute[] = [];
 
     for (const attr of attributes) {
@@ -84,6 +78,75 @@ export class ProductVariantsService {
   }
 
   /**
+   * Upsert product attributes - add new or update existing
+   */
+  async upsertProductAttributes(
+    productId: number,
+    attributes: Array<{
+      attribute_id: number;
+      controls_pricing?: boolean;
+      controls_media?: boolean;
+      controls_weight?: boolean;
+    }>,
+  ): Promise<ProductAttribute[]> {
+    const product = await this.productRepository.findOne({
+      where: { id: productId },
+    });
+
+    if (!product) {
+      throw new NotFoundException(`Product with ID ${productId} not found`);
+    }
+
+    const productAttributes: ProductAttribute[] = [];
+
+    for (const attr of attributes) {
+      const existing = await this.productAttributeRepository.findOne({
+        where: {
+          product_id: productId,
+          attribute_id: attr.attribute_id,
+        },
+      });
+
+      if (existing) {
+        // Update existing attribute
+        existing.controls_pricing = attr.controls_pricing ?? existing.controls_pricing;
+        existing.controls_media = attr.controls_media ?? existing.controls_media;
+        existing.controls_weight = attr.controls_weight ?? existing.controls_weight;
+        productAttributes.push(await this.productAttributeRepository.save(existing));
+      } else {
+        // Add new attribute
+        const productAttr = this.productAttributeRepository.create({
+          product_id: productId,
+          attribute_id: attr.attribute_id,
+          controls_pricing: attr.controls_pricing || false,
+          controls_media: attr.controls_media || false,
+          controls_weight: attr.controls_weight || false,
+        });
+        productAttributes.push(await this.productAttributeRepository.save(productAttr));
+      }
+    }
+
+    return productAttributes;
+  }
+
+  /**
+   * Remove attribute from product by attribute ID
+   */
+  async removeProductAttributeByAttributeId(productId: number, attributeId: number): Promise<void> {
+    const productAttr = await this.productAttributeRepository.findOne({
+      where: { product_id: productId, attribute_id: attributeId },
+    });
+
+    if (!productAttr) {
+      throw new NotFoundException(
+        `Product attribute for product ${productId} with attribute ID ${attributeId} not found`,
+      );
+    }
+
+    await this.productAttributeRepository.remove(productAttr);
+  }
+
+  /**
    * Create a variant with its attribute value combinations
    * @param productId - The product ID
    * @param attributeValueIds - Array of attribute value IDs that define this variant (e.g., [5, 10] for Red + Small)
@@ -100,12 +163,6 @@ export class ProductVariantsService {
 
     if (!product) {
       throw new NotFoundException(`Product with ID ${productId} not found`);
-    }
-
-    if (product.pricing_type !== PricingType.VARIANT) {
-      throw new BadRequestException(
-        'Product must have pricing_type = "variant" to create variants',
-      );
     }
 
     // Check if this combination already exists
@@ -144,7 +201,6 @@ export class ProductVariantsService {
     // Create the variant
     const variant = this.variantRepository.create({
       product_id: productId,
-      sku_suffix: skuSuffix,
       is_active: true,
       combinations: attributeValueIds.map((valueId) =>
         this.variantCombinationRepository.create({ attribute_value_id: valueId }),
@@ -164,12 +220,6 @@ export class ProductVariantsService {
 
     if (!product) {
       throw new NotFoundException(`Product with ID ${productId} not found`);
-    }
-
-    if (product.pricing_type !== PricingType.VARIANT) {
-      throw new BadRequestException(
-        'Product must have pricing_type = "variant" to generate variants',
-      );
     }
 
     // Get all product attributes with their values
@@ -322,7 +372,7 @@ export class ProductVariantsService {
    */
   async updateVariant(
     variantId: number,
-    updates: { sku_suffix?: string; is_active?: boolean },
+    updates: { is_active?: boolean },
   ): Promise<ProductVariant> {
     const variant = await this.variantRepository.findOne({
       where: { id: variantId },
@@ -415,6 +465,38 @@ export class ProductVariantsService {
     }
 
     return await this.stockRepository.save(stock);
+  }
+
+  /**
+   * Set stock by attribute combination
+   * Finds or creates the variant matching the combination, then sets its stock
+   */
+  async setStockByCombination(
+    productId: number,
+    combination: Record<string, number>,
+    quantity: number,
+  ): Promise<ProductStock> {
+    const product = await this.productRepository.findOne({
+      where: { id: productId },
+    });
+
+    if (!product) {
+      throw new NotFoundException(`Product with ID ${productId} not found`);
+    }
+
+    // Get attribute value IDs from combination
+    const attributeValueIds = Object.values(combination);
+
+    // Find existing variant with this combination
+    let variant = await this.findVariantByCombination(productId, attributeValueIds);
+
+    // If no variant exists, create one
+    if (!variant) {
+      variant = await this.createVariant(productId, attributeValueIds);
+    }
+
+    // Set stock for this variant
+    return await this.setVariantStock(productId, variant.id, quantity);
   }
 
   /**
@@ -583,5 +665,26 @@ export class ProductVariantsService {
       where: { product_id: productId },
       relations: ['attribute', 'attribute.values'],
     });
+  }
+
+  /**
+   * Delete all attributes for a product
+   */
+  async deleteAllAttributesForProduct(productId: number): Promise<void> {
+    await this.productAttributeRepository.delete({ product_id: productId });
+  }
+
+  /**
+   * Delete all variants for a product
+   */
+  async deleteAllVariantsForProduct(productId: number): Promise<void> {
+    await this.variantRepository.delete({ product_id: productId });
+  }
+
+  /**
+   * Delete all stocks for a product
+   */
+  async deleteAllStocksForProduct(productId: number): Promise<void> {
+    await this.stockRepository.delete({ product_id: productId });
   }
 }

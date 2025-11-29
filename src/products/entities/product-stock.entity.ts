@@ -22,6 +22,8 @@ import { ProductVariant } from './product-variant.entity';
 @Unique('uq_product_variant_stock', ['product_id', 'variant_id'])
 @Index('idx_product_stock_product_id', ['product_id'])
 @Index('idx_product_stock_variant_id', ['variant_id'])
+@Index('idx_product_stock_quantity', ['quantity'])
+@Index('idx_product_stock_low', ['quantity', 'low_stock_threshold'])
 export class ProductStock {
   @PrimaryGeneratedColumn()
   id: number;
@@ -45,6 +47,12 @@ export class ProductStock {
 
   @Column({ default: 0 })
   quantity: number;
+
+  @Column({ default: 0 })
+  reserved_quantity: number;
+
+  @Column({ default: 10 })
+  low_stock_threshold: number;
 
   @CreateDateColumn()
   created_at: Date;

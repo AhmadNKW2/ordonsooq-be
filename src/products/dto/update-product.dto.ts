@@ -2,7 +2,6 @@ import {
     IsString,
     IsNumber,
     IsOptional,
-    IsEnum,
     IsBoolean,
     IsArray,
     ValidateNested,
@@ -11,23 +10,41 @@ import {
     IsObject,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { PricingType } from '../entities/product.entity';
 
-// ==================== MEDIA MANAGEMENT ====================
+// ==================== MEDIA ====================
 
 /**
- * Media management DTO
+ * Media item DTO for syncing media with products
+ * 
+ * - media_id: ID from /api/media/upload response (existing uploaded file)
+ * - is_primary: Whether this is the primary image (default: false)
+ * - sort_order: Display order (default: 0)
+ * - combination: Optional - for variant products, maps attribute_id -> attribute_value_id
+ *                to assign media to a specific variant group
  */
-export class MediaManagementDto {
-    @IsArray()
-    @IsNumber({}, { each: true })
+export class MediaItemDto {
+    @IsNumber()
+    media_id: number;
+
+    @IsBoolean()
     @IsOptional()
-    delete_media_ids?: number[];
+    is_primary?: boolean;
+
+    @IsNumber()
+    @IsOptional()
+    sort_order?: number;
+
+    @IsObject()
+    @IsOptional()
+    combination?: Record<string, number>;
 }
 
 // ==================== ATTRIBUTES MANAGEMENT ====================
 
-export class AddProductAttributeDto {
+/**
+ * Product attribute DTO - handles both add and update
+ */
+export class ProductAttributeDto {
     @IsNumber()
     attribute_id: number;
 
@@ -44,44 +61,17 @@ export class AddProductAttributeDto {
     controls_weight?: boolean;
 }
 
-export class UpdateProductAttributeDto {
-    @IsNumber()
-    attribute_id: number;
-
-    @IsBoolean()
-    @IsOptional()
-    controls_pricing?: boolean;
-
-    @IsBoolean()
-    @IsOptional()
-    controls_media?: boolean;
-
-    @IsBoolean()
-    @IsOptional()
-    controls_weight?: boolean;
-}
-
-// ==================== PRICING MANAGEMENT ====================
-
-export class UpdateSinglePricingDto {
-    @IsNumber()
-    cost: number;
-
-    @IsNumber()
-    price: number;
-
-    @IsNumber()
-    @IsOptional()
-    sale_price?: number;
-}
+// ==================== PRICING ====================
 
 /**
- * Price group update DTO
- * Uses combination object mapping attribute_id -> attribute_value_id
+ * Unified price DTO - works for both simple and variant products
+ * - For simple products: omit combination or use empty object
+ * - For variant products: provide combination mapping attribute_id -> attribute_value_id
  */
-export class UpdatePriceGroupDto {
+export class PriceDto {
     @IsObject()
-    combination: Record<string, number>;
+    @IsOptional()
+    combination?: Record<string, number>;
 
     @IsNumber()
     cost: number;
@@ -94,32 +84,17 @@ export class UpdatePriceGroupDto {
     sale_price?: number;
 }
 
-// ==================== WEIGHT MANAGEMENT ====================
-
-export class UpdateWeightDto {
-    @IsNumber()
-    weight: number;
-
-    @IsNumber()
-    @IsOptional()
-    length?: number;
-
-    @IsNumber()
-    @IsOptional()
-    width?: number;
-
-    @IsNumber()
-    @IsOptional()
-    height?: number;
-}
+// ==================== WEIGHT ====================
 
 /**
- * Weight group update DTO
- * Uses combination object mapping attribute_id -> attribute_value_id
+ * Unified weight DTO - works for both simple and variant products
+ * - For simple products: omit combination or use empty object
+ * - For variant products: provide combination mapping attribute_id -> attribute_value_id
  */
-export class UpdateWeightGroupDto {
+export class WeightDto {
     @IsObject()
-    combination: Record<string, number>;
+    @IsOptional()
+    combination?: Record<string, number>;
 
     @IsNumber()
     weight: number;
@@ -137,11 +112,17 @@ export class UpdateWeightGroupDto {
     height?: number;
 }
 
-// ==================== STOCK MANAGEMENT ====================
+// ==================== STOCK ====================
 
-export class UpdateVariantStockDto {
-    @IsNumber()
-    variant_id: number;
+/**
+ * Unified stock DTO - works for both simple and variant products
+ * - For simple products: omit combination or use empty object
+ * - For variant products: provide combination mapping attribute_id -> attribute_value_id
+ */
+export class StockDto {
+    @IsObject()
+    @IsOptional()
+    combination?: Record<string, number>;
 
     @IsNumber()
     @Min(0)
@@ -151,28 +132,26 @@ export class UpdateVariantStockDto {
 // ==================== MAIN UPDATE DTO ====================
 
 /**
- * Comprehensive update DTO for products
+ * Full update DTO for products (PUT request)
  * 
- * Updates are applied based on what fields are provided:
- * - Basic info: name, description, category, etc.
- * - Media: delete or set primary
- * - Attributes: add, update flags, or delete
- * - Pricing: update single or variant pricing
- * - Weight: update single or variant weight
- * - Stock: update single or variant stock
+ * The payload represents the COMPLETE state of the product.
+ * All basic product information is required.
+ * 
+ * For attributes, prices, weights, and stocks:
+ * - Existing data is REPLACED with what's in the payload
+ * - If a field is not provided or is empty, existing data will be cleared
+ * - Media is managed separately via media_management
  */
 export class UpdateProductDto {
-    // ============== Basic Product Info ==============
+    // ============== Basic Product Info (Required) ==============
     
     @IsString()
     @MaxLength(200)
-    @IsOptional()
-    name_en?: string;
+    name_en: string;
 
     @IsString()
     @MaxLength(200)
-    @IsOptional()
-    name_ar?: string;
+    name_ar: string;
 
     @IsString()
     @MaxLength(100)
@@ -181,29 +160,20 @@ export class UpdateProductDto {
 
     @IsString()
     @MaxLength(500)
-    @IsOptional()
-    short_description_en?: string;
+    short_description_en: string;
 
     @IsString()
     @MaxLength(500)
-    @IsOptional()
-    short_description_ar?: string;
+    short_description_ar: string;
 
     @IsString()
-    @IsOptional()
-    long_description_en?: string;
+    long_description_en: string;
 
     @IsString()
-    @IsOptional()
-    long_description_ar?: string;
-
-    @IsEnum(PricingType)
-    @IsOptional()
-    pricing_type?: PricingType;
+    long_description_ar: string;
 
     @IsNumber()
-    @IsOptional()
-    category_id?: number;
+    category_id: number;
 
     @IsNumber()
     @IsOptional()
@@ -213,88 +183,73 @@ export class UpdateProductDto {
     @IsOptional()
     is_active?: boolean;
 
-    // ============== Media Management ==============
+    // ============== Media ==============
 
-    @ValidateNested()
-    @Type(() => MediaManagementDto)
+    /**
+     * Media array - REPLACES all existing media for this product
+     * 
+     * Sync logic:
+     * - Media IDs in payload but not in DB -> Link to product
+     * - Media IDs in DB but not in payload -> Unlink from product
+     * - Media IDs in both -> Update is_primary, sort_order, combination
+     * 
+     * If not provided, media is not changed.
+     * If empty array, all media is unlinked.
+     */
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => MediaItemDto)
     @IsOptional()
-    media_management?: MediaManagementDto;
+    media?: MediaItemDto[];
 
     // ============== Attributes Management ==============
 
+    /**
+     * Product attributes - REPLACES all existing attributes
+     * If empty array or not provided, all existing attributes and variants will be removed
+     */
     @IsArray()
     @ValidateNested({ each: true })
-    @Type(() => AddProductAttributeDto)
+    @Type(() => ProductAttributeDto)
     @IsOptional()
-    add_attributes?: AddProductAttributeDto[];
-
-    @IsArray()
-    @ValidateNested({ each: true })
-    @Type(() => UpdateProductAttributeDto)
-    @IsOptional()
-    update_attributes?: UpdateProductAttributeDto[];
-
-    @IsArray()
-    @IsNumber({}, { each: true })
-    @IsOptional()
-    delete_attribute_ids?: number[];
+    attributes?: ProductAttributeDto[];
 
     // ============== Pricing ==============
 
     /**
-     * Update single pricing (for simple products)
-     */
-    @ValidateNested()
-    @Type(() => UpdateSinglePricingDto)
-    @IsOptional()
-    single_pricing?: UpdateSinglePricingDto;
-
-    /**
-     * Update price groups (for variant products)
-     * Each group is identified by its combination of controlling attribute values
+     * Unified prices array
+     * - Simple product: [{ cost, price, sale_price }]
+     * - Variant product: [{ combination: { "1": 2 }, cost, price, sale_price }, ...]
      */
     @IsArray()
     @ValidateNested({ each: true })
-    @Type(() => UpdatePriceGroupDto)
+    @Type(() => PriceDto)
     @IsOptional()
-    price_groups?: UpdatePriceGroupDto[];
+    prices?: PriceDto[];
 
     // ============== Weight ==============
 
     /**
-     * Update product weight (for simple products)
-     */
-    @ValidateNested()
-    @Type(() => UpdateWeightDto)
-    @IsOptional()
-    product_weight?: UpdateWeightDto;
-
-    /**
-     * Update weight groups (for variant products)
-     * Each group is identified by its combination of controlling attribute values
+     * Unified weights array
+     * - Simple product: [{ weight, length, width, height }]
+     * - Variant product: [{ combination: { "1": 2 }, weight, length, width, height }, ...]
      */
     @IsArray()
     @ValidateNested({ each: true })
-    @Type(() => UpdateWeightGroupDto)
+    @Type(() => WeightDto)
     @IsOptional()
-    weight_groups?: UpdateWeightGroupDto[];
+    weights?: WeightDto[];
 
     // ============== Stock ==============
 
     /**
-     * Update stock quantity for simple products
-     */
-    @IsNumber()
-    @Min(0)
-    @IsOptional()
-    stock_quantity?: number;
-
-    /**
-     * Update variant stock by variant_id
+     * Unified stocks array
+     * - Simple product: [{ quantity }]
+     * - Variant product: [{ combination: { "1": 2, "2": 3 }, quantity }, ...]
      */
     @IsArray()
     @ValidateNested({ each: true })
-    @Type(() => UpdateVariantStockDto)
+    @Type(() => StockDto)
     @IsOptional()
-    variant_stocks?: UpdateVariantStockDto[];
+    stocks?: StockDto[];
 }

@@ -5,6 +5,8 @@ import {
   ManyToOne,
   JoinColumn,
   Unique,
+  Index,
+  CreateDateColumn,
 } from 'typeorm';
 import { ProductPriceGroup } from './product-price-group.entity';
 import { Attribute } from '../../attributes/entities/attribute.entity';
@@ -19,6 +21,8 @@ import { AttributeValue } from '../../attributes/entities/attribute-value.entity
  */
 @Entity('product_price_group_values')
 @Unique(['price_group_id', 'attribute_id'])
+@Index('idx_price_group_values_price_group', ['price_group_id'])
+@Index('idx_price_group_values_attribute_value', ['attribute_value_id'])
 export class ProductPriceGroupValue {
   @PrimaryGeneratedColumn()
   id: number;
@@ -43,4 +47,7 @@ export class ProductPriceGroupValue {
   @ManyToOne(() => AttributeValue, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'attribute_value_id' })
   attributeValue: AttributeValue;
+
+  @CreateDateColumn()
+  created_at: Date;
 }

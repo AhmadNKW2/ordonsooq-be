@@ -7,6 +7,7 @@ import {
   UpdateDateColumn,
   JoinColumn,
   Index,
+  Unique,
 } from 'typeorm';
 import { Product } from '../../products/entities/product.entity';
 import { User } from '../../users/entities/user.entity';
@@ -18,9 +19,11 @@ export enum RatingStatus {
 }
 
 @Entity('ratings')
+@Unique('uq_user_product_rating', ['userId', 'productId'])
 @Index('idx_ratings_product_id', ['productId'])
 @Index('idx_ratings_user_id', ['userId'])
 @Index('idx_ratings_status', ['status'])
+@Index('idx_ratings_product_status', ['productId', 'status'])
 export class Rating {
   @PrimaryGeneratedColumn('increment')
   id: number;

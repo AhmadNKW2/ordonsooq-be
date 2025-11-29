@@ -5,10 +5,12 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   OneToMany,
+  Index,
 } from 'typeorm';
 import { AttributeValue } from './attribute-value.entity';
 
 @Entity('attributes')
+@Index('idx_attributes_is_active', ['is_active'])
 export class Attribute {
   @PrimaryGeneratedColumn()
   id: number;
@@ -18,6 +20,12 @@ export class Attribute {
 
   @Column()
   name_ar: string;
+
+  @Column({ default: 'text' })
+  type: string; // 'color', 'size', 'text', 'image'
+
+  @Column({ default: 0 })
+  sort_order: number;
 
   @Column({ default: true })
   is_active: boolean;

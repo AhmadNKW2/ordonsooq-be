@@ -1,4 +1,4 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, DeleteDateColumn, Index } from 'typeorm';
 
 export enum UserRole {
   USER = 'user',
@@ -6,6 +6,9 @@ export enum UserRole {
 }
 
 @Entity('users')
+@Index('idx_users_email', ['email'])
+@Index('idx_users_role', ['role'])
+@Index('idx_users_is_active', ['isActive'])
 export class User {
   @PrimaryGeneratedColumn('increment')
   id: number;
@@ -22,6 +25,12 @@ export class User {
   @Column()
   password: string;
 
+  @Column({ nullable: true })
+  phone: string;
+
+  @Column({ default: false })
+  emailVerified: boolean;
+
   @Column({
     type: 'enum',
     enum: UserRole,
@@ -37,4 +46,7 @@ export class User {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  @DeleteDateColumn()
+  deletedAt: Date;
 }

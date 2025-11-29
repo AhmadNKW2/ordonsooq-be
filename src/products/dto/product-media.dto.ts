@@ -1,6 +1,6 @@
 import { IsNumber, IsEnum, IsBoolean, IsOptional, Min } from 'class-validator';
 import { Transform } from 'class-transformer';
-import { MediaType } from '../entities/product-media.entity';
+import { MediaType } from '../../media/entities/media.entity';
 
 export class AddMediaDto {
   @IsEnum(MediaType)

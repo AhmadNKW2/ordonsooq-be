@@ -11,6 +11,7 @@ import { WalletModule } from './wallet/wallet.module';
 import { CouponsModule } from './coupons/coupons.module';
 import { AttributesModule } from './attributes/attributes.module';
 import { VendorsModule } from './vendors/vendors.module';
+import { MediaModule } from './media/media.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { VendorsModule } from './vendors/vendors.module';
     CouponsModule,
     AttributesModule,
     VendorsModule,
+    MediaModule,
   ],
 })
 export class AppModule {}

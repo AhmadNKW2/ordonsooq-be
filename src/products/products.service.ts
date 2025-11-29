@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Product, PricingType } from './entities/product.entity';
+import { Product } from './entities/product.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { FilterProductDto } from './dto/filter-product.dto';
@@ -32,122 +32,115 @@ export class ProductsService {
                 short_description_ar: dto.short_description_ar,
                 long_description_en: dto.long_description_en,
                 long_description_ar: dto.long_description_ar,
-                pricing_type: dto.pricing_type,
                 category_id: dto.category_id,
                 vendor_id: dto.vendor_id,
                 is_active: dto.is_active ?? true,
             });
             const savedProduct = await this.productsRepository.save(product);
 
-            // 2. Handle based on pricing type
-            if (dto.pricing_type === PricingType.SINGLE) {
-                // Simple product - set single pricing, weight, stock
-                if (dto.single_pricing) {
-                    await this.priceGroupService.createSimplePriceGroup(
-                        savedProduct.id,
-                        {
-                            cost: dto.single_pricing.cost,
-                            price: dto.single_pricing.price,
-                            sale_price: dto.single_pricing.sale_price,
-                        },
-                    );
-                }
+            // Determine if this is a variant product based on attributes
+            const isVariantProduct = dto.attributes && dto.attributes.length > 0;
 
-                if (dto.product_weight) {
-                    await this.weightGroupService.createSimpleWeightGroup(
-                        savedProduct.id,
-                        {
-                            weight: dto.product_weight.weight,
-                            length: dto.product_weight.length,
-                            width: dto.product_weight.width,
-                            height: dto.product_weight.height,
-                        },
-                    );
-                }
+            // 2. Add attributes if provided
+            if (dto.attributes && dto.attributes.length > 0) {
+                await this.variantsService.addProductAttributes(
+                    savedProduct.id,
+                    dto.attributes.map(attr => ({
+                        attribute_id: attr.attribute_id,
+                        controls_pricing: attr.controls_pricing,
+                        controls_media: attr.controls_media,
+                        controls_weight: attr.controls_weight,
+                    })),
+                );
+            }
 
-                if (dto.stock_quantity !== undefined) {
-                    await this.variantsService.setSimpleStock(savedProduct.id, dto.stock_quantity);
-                }
-            } else {
-                // Variant product
-                // 2a. Add attributes
-                if (dto.attributes && dto.attributes.length > 0) {
-                    await this.variantsService.addProductAttributes(
-                        savedProduct.id,
-                        dto.attributes.map(attr => ({
-                            attribute_id: attr.attribute_id,
-                            controls_pricing: attr.controls_pricing,
-                            controls_media: attr.controls_media,
-                            controls_weight: attr.controls_weight,
-                        })),
-                    );
-                }
-
-                // 2b. Handle price groups
-                if (dto.price_groups && dto.price_groups.length > 0) {
-                    for (const pg of dto.price_groups) {
+            // 3. Handle prices (unified - works for both simple and variant)
+            if (dto.prices && dto.prices.length > 0) {
+                for (const priceItem of dto.prices) {
+                    const hasCombination = priceItem.combination && Object.keys(priceItem.combination).length > 0;
+                    
+                    if (hasCombination) {
                         await this.priceGroupService.findOrCreatePriceGroup(
                             savedProduct.id,
-                            pg.combination,
+                            priceItem.combination!,
                             {
-                                cost: pg.cost,
-                                price: pg.price,
-                                sale_price: pg.sale_price,
+                                cost: priceItem.cost,
+                                price: priceItem.price,
+                                sale_price: priceItem.sale_price,
+                            },
+                        );
+                    } else {
+                        await this.priceGroupService.createSimplePriceGroup(
+                            savedProduct.id,
+                            {
+                                cost: priceItem.cost,
+                                price: priceItem.price,
+                                sale_price: priceItem.sale_price,
                             },
                         );
                     }
                 }
+            }
 
-                // 2c. Handle weight groups
-                if (dto.weight_groups && dto.weight_groups.length > 0) {
-                    for (const wg of dto.weight_groups) {
+            // 4. Handle weights (unified - works for both simple and variant)
+            if (dto.weights && dto.weights.length > 0) {
+                for (const weightItem of dto.weights) {
+                    const hasCombination = weightItem.combination && Object.keys(weightItem.combination).length > 0;
+                    
+                    if (hasCombination) {
                         await this.weightGroupService.findOrCreateWeightGroup(
                             savedProduct.id,
-                            wg.combination,
+                            weightItem.combination!,
                             {
-                                weight: wg.weight,
-                                length: wg.length,
-                                width: wg.width,
-                                height: wg.height,
+                                weight: weightItem.weight,
+                                length: weightItem.length,
+                                width: weightItem.width,
+                                height: weightItem.height,
+                            },
+                        );
+                    } else {
+                        await this.weightGroupService.createSimpleWeightGroup(
+                            savedProduct.id,
+                            {
+                                weight: weightItem.weight,
+                                length: weightItem.length,
+                                width: weightItem.width,
+                                height: weightItem.height,
                             },
                         );
                     }
                 }
+            }
 
-                // 2d. Create variants with their stock
-                if (dto.variants && dto.variants.length > 0) {
-                    for (const variantData of dto.variants) {
-                        // Create the variant
-                        const variant = await this.variantsService.createVariant(
+            // 5. Handle stocks (unified - works for both simple and variant)
+            if (dto.stocks && dto.stocks.length > 0) {
+                for (const stockItem of dto.stocks) {
+                    const hasCombination = stockItem.combination && Object.keys(stockItem.combination).length > 0;
+                    
+                    if (hasCombination) {
+                        await this.variantsService.setStockByCombination(
                             savedProduct.id,
-                            variantData.attribute_value_ids,
-                            variantData.sku_suffix,
+                            stockItem.combination!,
+                            stockItem.quantity,
                         );
-
-                        // Set variant stock (stock is always per-variant)
-                        if (variantData.stock_quantity !== undefined) {
-                            await this.variantsService.setVariantStock(
-                                savedProduct.id,
-                                variant.id,
-                                variantData.stock_quantity,
-                            );
-                        }
+                    } else {
+                        await this.variantsService.setSimpleStock(savedProduct.id, stockItem.quantity);
                     }
                 }
+            }
 
-                // 2e. Or auto-generate all variants
-                if (dto.auto_generate_variants) {
-                    await this.variantsService.generateAllVariants(savedProduct.id);
-                }
+            // 6. Handle media (link pre-uploaded media to product)
+            if (dto.media && dto.media.length > 0) {
+                await this.mediaGroupService.syncProductMedia(savedProduct.id, dto.media);
             }
 
             // Return the complete product
             const result = await this.findOne(savedProduct.id);
             return {
                 product: result,
-                message: dto.pricing_type === PricingType.VARIANT 
+                message: isVariantProduct 
                     ? 'Product created successfully with variant configuration.'
-                    : 'Product created successfully with single pricing.',
+                    : 'Product created successfully.',
             };
 
         } catch (error) {
@@ -208,10 +201,21 @@ export class ProductsService {
         // Pagination
         queryBuilder.skip((page - 1) * limit).take(limit);
 
+        // Add relations for full product info
+        queryBuilder
+            .leftJoinAndSelect('product.vendor', 'vendor')
+            .leftJoinAndSelect('product.media', 'media')
+            .leftJoinAndSelect('product.stock', 'stock')
+            .leftJoinAndSelect('product.priceGroups', 'priceGroups')
+            .leftJoinAndSelect('priceGroups.groupValues', 'priceGroupValues');
+
         const [data, total] = await queryBuilder.getManyAndCount();
 
+        // Transform each product to include primary_image and simplified structure
+        const transformedData = data.map(product => this.transformProductListItem(product));
+
         return {
-            data,
+            data: transformedData,
             meta: {
                 total,
                 page,
@@ -221,7 +225,41 @@ export class ProductsService {
         };
     }
 
-    async findOne(id: number): Promise<Product> {
+    /**
+     * Transform a product for the list view with primary image and stock
+     */
+    private transformProductListItem(product: Product): any {
+        const { media, priceGroups, stock, ...rest } = product as any;
+
+        // Find primary image or first image
+        const primaryImage = media?.find((m: any) => m.is_primary) || media?.[0] || null;
+
+        // Get the base price (first price group with no combination or lowest price)
+        const simplePrice = priceGroups?.find((pg: any) => !pg.groupValues || pg.groupValues.length === 0);
+        const basePrice = simplePrice || priceGroups?.[0] || null;
+
+        // Get total stock quantity
+        const totalStock = stock?.reduce((sum: number, s: any) => sum + (s.quantity || 0), 0) || 0;
+        const hasStock = totalStock > 0;
+
+        return {
+            ...rest,
+            primary_image: primaryImage ? {
+                id: primaryImage.id,
+                url: primaryImage.url,
+                type: primaryImage.type,
+                alt_text: primaryImage.alt_text,
+            } : null,
+            price: basePrice?.price || null,
+            sale_price: basePrice?.sale_price || null,
+            stock: {
+                total_quantity: totalStock,
+                in_stock: hasStock,
+            },
+        };
+    }
+
+    async findOne(id: number): Promise<any> {
         const product = await this.productsRepository.findOne({
             where: { id },
             relationLoadStrategy: 'query',
@@ -230,8 +268,7 @@ export class ProductsService {
                 'vendor',
                 'media',
                 'media.mediaGroup',
-                'mediaGroups',
-                'mediaGroups.groupValues',
+                'media.mediaGroup.groupValues',
                 'priceGroups',
                 'priceGroups.groupValues',
                 'weightGroups',
@@ -248,19 +285,53 @@ export class ProductsService {
             throw new NotFoundException('Product not found');
         }
 
-        return product;
+        return this.transformProductResponse(product);
+    }
+
+    /**
+     * Transform product response:
+     * - Rename priceGroups to prices
+     * - Rename weightGroups to weights
+     * - Include mediaGroup object in each media item (remove media_group_id)
+     * - Remove mediaGroups from response
+     */
+    private transformProductResponse(product: Product): any {
+        const { priceGroups, weightGroups, media, ...rest } = product as any;
+
+        // Transform media to include mediaGroup object and remove media_group_id
+        const transformedMedia = media?.map((m: any) => {
+            const { media_group_id, mediaGroup, ...mediaRest } = m;
+            return {
+                ...mediaRest,
+                media_group: mediaGroup ? {
+                    id: mediaGroup.id,
+                    product_id: mediaGroup.product_id,
+                    groupValues: mediaGroup.groupValues,
+                    created_at: mediaGroup.created_at,
+                    updated_at: mediaGroup.updated_at,
+                } : null,
+            };
+        }) || [];
+
+        return {
+            ...rest,
+            media: transformedMedia,
+            prices: priceGroups || [],
+            weights: weightGroups || [],
+        };
     }
 
     /**
      * Comprehensive update method for products
+     * The payload represents the COMPLETE state of the product.
+     * Anything not in the payload will be deleted.
      */
     async update(id: number, dto: UpdateProductDto): Promise<any> {
         const product = await this.findOne(id);
-        const updates: string[] = [];
 
         try {
             // 1. Update basic product information
-            const basicInfoFields = ['name_en', 'name_ar', 'sku', 'short_description_en', 'short_description_ar', 'long_description_en', 'long_description_ar', 'pricing_type', 'category_id', 'vendor_id', 'is_active'];
+            const basicInfoFields = ['name_en', 'name_ar', 'sku', 'short_description_en', 'short_description_ar', 'long_description_en', 'long_description_ar', 'category_id', 'vendor_id', 'is_active'];
             const basicInfoChanges: any = {};
             
             basicInfoFields.forEach(field => {
@@ -272,127 +343,106 @@ export class ProductsService {
             if (Object.keys(basicInfoChanges).length > 0) {
                 Object.assign(product, basicInfoChanges);
                 await this.productsRepository.save(product);
-                updates.push('Basic information updated');
             }
 
-            // 2. Media management
-            if (dto.media_management) {
-                const mediaOps = dto.media_management;
+            // 2. Handle media - sync media IDs (add new, remove missing)
+            if (dto.media !== undefined) {
+                await this.mediaGroupService.syncProductMedia(id, dto.media || []);
+            }
 
-                if (mediaOps.delete_media_ids && mediaOps.delete_media_ids.length > 0) {
-                    for (const mediaId of mediaOps.delete_media_ids) {
-                        await this.mediaGroupService.deleteMedia(mediaId);
+            // 3. Handle attributes - REPLACE all existing with new ones
+            // First, delete all existing variants (which depend on attributes)
+            await this.variantsService.deleteAllVariantsForProduct(id);
+            
+            // Delete all existing attributes
+            await this.variantsService.deleteAllAttributesForProduct(id);
+            
+            // Add new attributes if provided
+            if (dto.attributes && dto.attributes.length > 0) {
+                await this.variantsService.addProductAttributes(id, dto.attributes);
+            }
+
+            // 4. Handle prices - REPLACE all existing with new ones
+            await this.priceGroupService.deletePriceGroupsForProduct(id);
+            
+            if (dto.prices && dto.prices.length > 0) {
+                for (const priceItem of dto.prices) {
+                    const hasCombination = priceItem.combination && Object.keys(priceItem.combination).length > 0;
+                    
+                    if (hasCombination) {
+                        await this.priceGroupService.findOrCreatePriceGroup(
+                            id,
+                            priceItem.combination!,
+                            {
+                                cost: priceItem.cost,
+                                price: priceItem.price,
+                                sale_price: priceItem.sale_price,
+                            },
+                        );
+                    } else {
+                        await this.priceGroupService.createSimplePriceGroup(
+                            id,
+                            {
+                                cost: priceItem.cost,
+                                price: priceItem.price,
+                                sale_price: priceItem.sale_price,
+                            },
+                        );
                     }
-                    updates.push(`Deleted ${mediaOps.delete_media_ids.length} media item(s)`);
                 }
             }
 
-            // 3. Attributes management
-            if (dto.add_attributes && dto.add_attributes.length > 0) {
-                await this.variantsService.addProductAttributes(id, dto.add_attributes);
-                updates.push(`Added ${dto.add_attributes.length} attribute(s)`);
-            }
-
-            if (dto.update_attributes && dto.update_attributes.length > 0) {
-                for (const attr of dto.update_attributes) {
-                    await this.variantsService.updateProductAttributeByAttributeId(id, attr.attribute_id, {
-                        controls_pricing: attr.controls_pricing,
-                        controls_media: attr.controls_media,
-                        controls_weight: attr.controls_weight,
-                    });
-                }
-                updates.push(`Updated ${dto.update_attributes.length} attribute(s)`);
-            }
-
-            if (dto.delete_attribute_ids && dto.delete_attribute_ids.length > 0) {
-                for (const attrId of dto.delete_attribute_ids) {
-                    await this.variantsService.removeProductAttribute(attrId);
-                }
-                updates.push(`Deleted ${dto.delete_attribute_ids.length} attribute(s)`);
-            }
-
-            // 4. Simple pricing update
-            if (dto.single_pricing && product.pricing_type === PricingType.SINGLE) {
-                await this.priceGroupService.createSimplePriceGroup(
-                    id,
-                    {
-                        cost: dto.single_pricing.cost,
-                        price: dto.single_pricing.price,
-                        sale_price: dto.single_pricing.sale_price,
-                    },
-                );
-                updates.push('Single pricing updated');
-            }
-
-            // 5. Price groups update (using group-based approach)
-            if (dto.price_groups && dto.price_groups.length > 0) {
-                for (const pg of dto.price_groups) {
-                    await this.priceGroupService.findOrCreatePriceGroup(
-                        id,
-                        pg.combination,
-                        {
-                            cost: pg.cost,
-                            price: pg.price,
-                            sale_price: pg.sale_price,
-                        },
-                    );
-                }
-                updates.push(`Updated ${dto.price_groups.length} price group(s)`);
-            }
-
-            // 6. Simple weight update
-            if (dto.product_weight && product.pricing_type === PricingType.SINGLE) {
-                const weight = dto.product_weight;
-                if (weight.weight !== undefined) {
-                    await this.weightGroupService.createSimpleWeightGroup(
-                        id,
-                        {
-                            weight: weight.weight,
-                            length: weight.length,
-                            width: weight.width,
-                            height: weight.height,
-                        },
-                    );
-                    updates.push('Product weight updated');
+            // 5. Handle weights - REPLACE all existing with new ones
+            await this.weightGroupService.deleteWeightGroupsForProduct(id);
+            
+            if (dto.weights && dto.weights.length > 0) {
+                for (const weightItem of dto.weights) {
+                    const hasCombination = weightItem.combination && Object.keys(weightItem.combination).length > 0;
+                    
+                    if (hasCombination) {
+                        await this.weightGroupService.findOrCreateWeightGroup(
+                            id,
+                            weightItem.combination!,
+                            {
+                                weight: weightItem.weight,
+                                length: weightItem.length,
+                                width: weightItem.width,
+                                height: weightItem.height,
+                            },
+                        );
+                    } else {
+                        await this.weightGroupService.createSimpleWeightGroup(
+                            id,
+                            {
+                                weight: weightItem.weight,
+                                length: weightItem.length,
+                                width: weightItem.width,
+                                height: weightItem.height,
+                            },
+                        );
+                    }
                 }
             }
 
-            // 7. Weight groups update (using group-based approach)
-            if (dto.weight_groups && dto.weight_groups.length > 0) {
-                for (const wg of dto.weight_groups) {
-                    await this.weightGroupService.findOrCreateWeightGroup(
-                        id,
-                        wg.combination,
-                        {
-                            weight: wg.weight,
-                            length: wg.length,
-                            width: wg.width,
-                            height: wg.height,
-                        },
-                    );
+            // 6. Handle stocks - REPLACE all existing with new ones
+            await this.variantsService.deleteAllStocksForProduct(id);
+            
+            if (dto.stocks && dto.stocks.length > 0) {
+                for (const stockItem of dto.stocks) {
+                    const hasCombination = stockItem.combination && Object.keys(stockItem.combination).length > 0;
+                    
+                    if (hasCombination) {
+                        await this.variantsService.setStockByCombination(id, stockItem.combination!, stockItem.quantity);
+                    } else {
+                        await this.variantsService.setSimpleStock(id, stockItem.quantity);
+                    }
                 }
-                updates.push(`Updated ${dto.weight_groups.length} weight group(s)`);
             }
 
-            // 8. Simple stock update
-            if (dto.stock_quantity !== undefined && product.pricing_type === PricingType.SINGLE) {
-                await this.variantsService.setSimpleStock(id, dto.stock_quantity);
-                updates.push('Stock updated');
-            }
-
-            // 9. Variant stock update
-            if (dto.variant_stocks && dto.variant_stocks.length > 0) {
-                for (const vs of dto.variant_stocks) {
-                    await this.variantsService.setVariantStock(id, vs.variant_id, vs.quantity);
-                }
-                updates.push(`Updated ${dto.variant_stocks.length} variant stock(s)`);
-            }
-
-            // Return updated product with summary
+            // Return updated product
             const updatedProduct = await this.findOne(id);
             return {
                 product: updatedProduct,
-                updates,
                 message: 'Product updated successfully',
             };
 

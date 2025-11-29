@@ -45,7 +45,7 @@ export class ProductWeightGroup {
   @Column('decimal', { precision: 10, scale: 2, nullable: true })
   height?: number;
 
-  @OneToMany(() => ProductWeightGroupValue, (groupValue) => groupValue.weightGroup)
+  @OneToMany(() => ProductWeightGroupValue, (groupValue) => groupValue.weightGroup, { cascade: true })
   groupValues: ProductWeightGroupValue[];
 
   @CreateDateColumn()

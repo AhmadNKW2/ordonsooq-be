@@ -5,6 +5,8 @@ import {
   ManyToOne,
   JoinColumn,
   Unique,
+  Index,
+  CreateDateColumn,
 } from 'typeorm';
 import { ProductMediaGroup } from './product-media-group.entity';
 import { Attribute } from '../../attributes/entities/attribute.entity';
@@ -19,6 +21,8 @@ import { AttributeValue } from '../../attributes/entities/attribute-value.entity
  */
 @Entity('product_media_group_values')
 @Unique(['media_group_id', 'attribute_id'])
+@Index('idx_media_group_values_media_group', ['media_group_id'])
+@Index('idx_media_group_values_attribute_value', ['attribute_value_id'])
 export class ProductMediaGroupValue {
   @PrimaryGeneratedColumn()
   id: number;
@@ -43,4 +47,7 @@ export class ProductMediaGroupValue {
   @ManyToOne(() => AttributeValue, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'attribute_value_id' })
   attributeValue: AttributeValue;
+
+  @CreateDateColumn()
+  created_at: Date;
 }

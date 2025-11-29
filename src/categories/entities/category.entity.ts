@@ -29,6 +29,9 @@ export class Category {
     @Column({ default: 0 })
     level: number; // 0 = main category, 1 = sub, 2 = sub-sub
 
+    @Column({ default: 0 })
+    sortOrder: number;
+
     @Column({ default: true })
     isActive: boolean;
 

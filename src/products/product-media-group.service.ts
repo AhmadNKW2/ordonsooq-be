@@ -1,11 +1,18 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ProductMediaGroup } from './entities/product-media-group.entity';
 import { ProductMediaGroupValue } from './entities/product-media-group-value.entity';
-import { ProductMedia, MediaType } from './entities/product-media.entity';
+import { Media, MediaType } from '../media/entities/media.entity';
 import { ProductAttribute } from './entities/product-attribute.entity';
 import { ProductVariant } from './entities/product-variant.entity';
+
+interface MediaSyncItem {
+  media_id: number;
+  is_primary?: boolean;
+  sort_order?: number;
+  combination?: Record<string, number>;
+}
 
 @Injectable()
 export class ProductMediaGroupService {
@@ -14,8 +21,8 @@ export class ProductMediaGroupService {
     private mediaGroupRepository: Repository<ProductMediaGroup>,
     @InjectRepository(ProductMediaGroupValue)
     private mediaGroupValueRepository: Repository<ProductMediaGroupValue>,
-    @InjectRepository(ProductMedia)
-    private mediaRepository: Repository<ProductMedia>,
+    @InjectRepository(Media)
+    private mediaRepository: Repository<Media>,
     @InjectRepository(ProductAttribute)
     private productAttributeRepository: Repository<ProductAttribute>,
     @InjectRepository(ProductVariant)
@@ -138,7 +145,7 @@ export class ProductMediaGroupService {
     type: MediaType = MediaType.IMAGE,
     sortOrder: number = 0,
     isPrimary: boolean = false,
-  ): Promise<ProductMedia> {
+  ): Promise<Media> {
     const media = this.mediaRepository.create({
       product_id: productId,
       media_group_id: mediaGroupId,
@@ -202,7 +209,7 @@ export class ProductMediaGroupService {
   /**
    * Get all media for a product
    */
-  async getMediaForProduct(productId: number): Promise<ProductMedia[]> {
+  async getMediaForProduct(productId: number): Promise<Media[]> {
     return this.mediaRepository.find({
       where: { product_id: productId },
       relations: ['mediaGroup', 'mediaGroup.groupValues'],
@@ -222,5 +229,152 @@ export class ProductMediaGroupService {
    */
   async deleteMedia(mediaId: number): Promise<void> {
     await this.mediaRepository.delete({ id: mediaId });
+  }
+
+  /**
+   * Set a media item as primary
+   * Optionally scope to variant media only (media with group values) or product media (no group values)
+   */
+  async setPrimaryMedia(mediaId: number, isVariantMedia?: boolean): Promise<Media> {
+    const media = await this.mediaRepository.findOne({
+      where: { id: mediaId },
+      relations: ['mediaGroup', 'mediaGroup.groupValues'],
+    });
+
+    if (!media) {
+      throw new NotFoundException(`Media with ID ${mediaId} not found`);
+    }
+
+    // Determine query conditions for resetting other media
+    const resetConditions: any = { product_id: media.product_id };
+    
+    if (isVariantMedia !== undefined) {
+      if (isVariantMedia) {
+        // Reset only variant media (media with group values) in the same group
+        if (media.media_group_id) {
+          resetConditions.media_group_id = media.media_group_id;
+        }
+      }
+      // If isVariantMedia is false, reset all media for the product
+    }
+
+    // Reset is_primary for other media
+    await this.mediaRepository.update(resetConditions, { is_primary: false });
+
+    // Set this media as primary
+    media.is_primary = true;
+    return this.mediaRepository.save(media);
+  }
+
+  /**
+   * Reorder media items by updating their sort_order
+   */
+  async reorderMedia(reorderItems: { media_id: number; sort_order: number }[]): Promise<void> {
+    for (const item of reorderItems) {
+      await this.mediaRepository.update(
+        { id: item.media_id },
+        { sort_order: item.sort_order },
+      );
+    }
+  }
+
+  /**
+   * Sync product media with the provided list
+   * 
+   * Logic:
+   * 1. Validate only one primary image per product
+   * 2. Get all existing media for this product
+   * 3. For each item in payload:
+   *    - If media_id exists and is linked to product -> update is_primary, sort_order, combination
+   *    - If media_id exists but not linked -> link to product with settings
+   * 4. For each existing media not in payload -> unlink from product
+   * 
+   * @param productId - The product ID
+   * @param mediaItems - Array of media items from the payload
+   */
+  async syncProductMedia(productId: number, mediaItems: MediaSyncItem[]): Promise<void> {
+    // Validate: only one primary image allowed per product
+    const primaryImages = mediaItems.filter(item => item.is_primary === true);
+    if (primaryImages.length > 1) {
+      throw new BadRequestException(
+        `Product can only have one primary image. Found ${primaryImages.length} items marked as primary.`
+      );
+    }
+    // Get all existing product media
+    const existingMedia = await this.mediaRepository.find({
+      where: { product_id: productId },
+    });
+
+    const existingMediaMap = new Map<number, Media>();
+    for (const m of existingMedia) {
+      existingMediaMap.set(m.id, m);
+    }
+
+    const payloadMediaIds = new Set<number>();
+
+    // Process each item in the payload
+    for (const item of mediaItems) {
+      // Check if this media_id already exists as product media
+      let media = existingMediaMap.get(item.media_id);
+      
+      if (media) {
+        // Update existing media
+        payloadMediaIds.add(item.media_id);
+        
+        // Update fields
+        media.is_primary = item.is_primary ?? false;
+        media.sort_order = item.sort_order ?? 0;
+        
+        // Handle combination change - find or create appropriate media group
+        if (item.combination && Object.keys(item.combination).length > 0) {
+          const mediaGroup = await this.findOrCreateMediaGroup(productId, item.combination);
+          media.media_group_id = mediaGroup.id;
+        } else {
+          const simpleGroup = await this.createSimpleMediaGroup(productId);
+          media.media_group_id = simpleGroup.id;
+        }
+        
+        await this.mediaRepository.save(media);
+      } else {
+        // Link existing media to product
+        const unlinkedMedia = await this.mediaRepository.findOne({
+          where: { id: item.media_id },
+        });
+        
+        if (!unlinkedMedia) {
+          throw new NotFoundException(`Media with ID ${item.media_id} not found`);
+        }
+
+        // Determine media group
+        let mediaGroupId: number;
+        if (item.combination && Object.keys(item.combination).length > 0) {
+          const mediaGroup = await this.findOrCreateMediaGroup(productId, item.combination);
+          mediaGroupId = mediaGroup.id;
+        } else {
+          const simpleGroup = await this.createSimpleMediaGroup(productId);
+          mediaGroupId = simpleGroup.id;
+        }
+
+        // Link media to product
+        unlinkedMedia.product_id = productId;
+        unlinkedMedia.media_group_id = mediaGroupId;
+        unlinkedMedia.sort_order = item.sort_order ?? 0;
+        unlinkedMedia.is_primary = item.is_primary ?? false;
+        
+        await this.mediaRepository.save(unlinkedMedia);
+        payloadMediaIds.add(item.media_id);
+      }
+    }
+
+    // Unlink media that are not in the payload (set product_id to null)
+    for (const [mediaId, media] of existingMediaMap) {
+      if (!payloadMediaIds.has(mediaId)) {
+        media.product_id = null;
+        media.media_group_id = null;
+        media.is_primary = false;
+        media.sort_order = 0;
+        await this.mediaRepository.save(media);
+      }
+    }
   }
 }

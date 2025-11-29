@@ -6,7 +6,6 @@ import { Product } from './entities/product.entity';
 import { ProductAttribute } from './entities/product-attribute.entity';
 import { ProductPriceGroup } from './entities/product-price-group.entity';
 import { ProductPriceGroupValue } from './entities/product-price-group-value.entity';
-import { ProductMedia } from './entities/product-media.entity';
 import { ProductMediaGroup } from './entities/product-media-group.entity';
 import { ProductMediaGroupValue } from './entities/product-media-group-value.entity';
 import { ProductWeightGroup } from './entities/product-weight-group.entity';
@@ -21,6 +20,7 @@ import { ProductMediaGroupService } from './product-media-group.service';
 import { ProductWeightGroupService } from './product-weight-group.service';
 import { AttributeValue } from '../attributes/entities/attribute-value.entity';
 import { Attribute } from '../attributes/entities/attribute.entity';
+import { Media } from '../media/entities/media.entity';
 
 @Module({
   imports: [
@@ -29,7 +29,6 @@ import { Attribute } from '../attributes/entities/attribute.entity';
       ProductAttribute,
       ProductPriceGroup,
       ProductPriceGroupValue,
-      ProductMedia,
       ProductMediaGroup,
       ProductMediaGroupValue,
       ProductWeightGroup,
@@ -39,6 +38,7 @@ import { Attribute } from '../attributes/entities/attribute.entity';
       ProductVariantCombination,
       AttributeValue,
       Attribute,
+      Media,
     ]),
     AttributesModule,
   ],

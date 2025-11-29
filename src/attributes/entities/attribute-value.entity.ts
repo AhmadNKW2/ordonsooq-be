@@ -12,6 +12,8 @@ import { Attribute } from './attribute.entity';
 
 @Entity('attribute_values')
 @Index('idx_attribute_values_attribute_id', ['attribute_id'])
+@Index('idx_attribute_values_is_active', ['is_active'])
+@Index('idx_attribute_values_composite', ['attribute_id', 'is_active'])
 export class AttributeValue {
   @PrimaryGeneratedColumn()
   id: number;
@@ -30,6 +32,15 @@ export class AttributeValue {
 
   @Column()
   value_ar: string;
+
+  @Column({ nullable: true })
+  color_code: string; // '#FF5733' for color swatches
+
+  @Column({ nullable: true })
+  image_url: string; // For image-based attributes
+
+  @Column({ default: 0 })
+  sort_order: number;
 
   @Column({ default: true })
   is_active: boolean;

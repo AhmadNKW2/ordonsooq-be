@@ -4,10 +4,13 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
-  OneToMany,
+  DeleteDateColumn,
+  Index,
 } from 'typeorm';
 
 @Entity('vendors')
+@Index('idx_vendors_is_active', ['is_active'])
+@Index('idx_vendors_name', ['name'])
 export class Vendor {
   @PrimaryGeneratedColumn()
   id: number;
@@ -38,4 +41,7 @@ export class Vendor {
 
   @UpdateDateColumn()
   updated_at: Date;
+
+  @DeleteDateColumn()
+  deleted_at: Date;
 }

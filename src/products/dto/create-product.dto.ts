@@ -2,15 +2,14 @@ import {
     IsString,
     IsNumber,
     IsOptional,
-    IsEnum,
     IsBoolean,
     IsArray,
     ValidateNested,
     MaxLength,
     IsObject,
+    Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { PricingType } from '../entities/product.entity';
 
 // Product attribute DTO
 class ProductAttributeInput {
@@ -30,8 +29,16 @@ class ProductAttributeInput {
     controls_weight?: boolean;
 }
 
-// Pricing DTO
-class PricingInput {
+/**
+ * Unified price DTO - works for both simple and variant products
+ * - For simple products: omit combination or use empty object
+ * - For variant products: provide combination mapping attribute_id -> attribute_value_id
+ */
+class PriceInput {
+    @IsObject()
+    @IsOptional()
+    combination?: Record<string, number>;
+
     @IsNumber()
     cost: number;
 
@@ -43,65 +50,15 @@ class PricingInput {
     sale_price?: number;
 }
 
-// Weight DTO
+/**
+ * Unified weight DTO - works for both simple and variant products
+ * - For simple products: omit combination or use empty object
+ * - For variant products: provide combination mapping attribute_id -> attribute_value_id
+ */
 class WeightInput {
-    @IsNumber()
-    weight: number;
-
-    @IsNumber()
-    @IsOptional()
-    length?: number;
-
-    @IsNumber()
-    @IsOptional()
-    width?: number;
-
-    @IsNumber()
-    @IsOptional()
-    height?: number;
-}
-
-/**
- * Price group input - group pricing by controlling attribute values
- * 
- * Example:
- * {
- *   "combination": { "2": 5 },  // attribute_id 2 (Color) -> value_id 5 (Red)
- *   "cost": 10,
- *   "price": 25,
- *   "sale_price": 20
- * }
- */
-class PriceGroupInput {
     @IsObject()
-    combination: Record<string, number>;
-
-    @IsNumber()
-    cost: number;
-
-    @IsNumber()
-    price: number;
-
-    @IsNumber()
     @IsOptional()
-    sale_price?: number;
-}
-
-/**
- * Weight group input - group weights by controlling attribute values
- * 
- * Example:
- * {
- *   "combination": { "3": 10 },  // attribute_id 3 (Size) -> value_id 10 (Large)
- *   "weight": 500,
- *   "length": 30,
- *   "width": 20,
- *   "height": 10
- * }
- */
-class WeightGroupInput {
-    @IsObject()
-    combination: Record<string, number>;
+    combination?: Record<string, number>;
 
     @IsNumber()
     weight: number;
@@ -120,42 +77,50 @@ class WeightGroupInput {
 }
 
 /**
- * Variant input for creating a variant with its stock
- * Note: Pricing and weight are now handled separately via groups
- * 
- * Example:
- * {
- *   "attribute_value_ids": [5, 10],  // Red (5) + Small (10)
- *   "sku_suffix": "-RED-SM",
- *   "stock_quantity": 50
- * }
+ * Unified stock DTO - works for both simple and variant products
+ * - For simple products: omit combination or use empty object
+ * - For variant products: provide combination mapping attribute_id -> attribute_value_id
  */
-class VariantInput {
-    @IsArray()
-    @IsNumber({}, { each: true })
-    attribute_value_ids: number[];
-
-    @IsString()
+class StockInput {
+    @IsObject()
     @IsOptional()
-    sku_suffix?: string;
+    combination?: Record<string, number>;
+
+    @IsNumber()
+    @Min(0)
+    quantity: number;
+}
+
+/**
+ * Media item DTO for linking pre-uploaded media to products
+ */
+class MediaInput {
+    @IsNumber()
+    media_id: number;
+
+    @IsBoolean()
+    @IsOptional()
+    is_primary?: boolean;
 
     @IsNumber()
     @IsOptional()
-    stock_quantity?: number;
+    sort_order?: number;
+
+    @IsObject()
+    @IsOptional()
+    combination?: Record<string, number>;
 }
 
 /**
  * Main DTO for product creation
  * 
  * For simple products:
- * - Set pricing_type = 'single'
- * - Provide single_pricing, product_weight, stock_quantity
+ * - Provide prices, weights, stocks without combination
+ * - Do not provide attributes
  * 
  * For variant products:
- * - Set pricing_type = 'variant'
  * - Provide attributes (which attributes the product has)
- * - Provide variants array with each variant's details
- *   OR set auto_generate_variants = true to generate all possible variants
+ * - Provide prices, weights, stocks with combination
  */
 export class CreateProductDto {
     // Basic product info
@@ -186,9 +151,6 @@ export class CreateProductDto {
     @IsString()
     long_description_ar: string;
 
-    @IsEnum(PricingType)
-    pricing_type: PricingType;
-
     @IsNumber()
     category_id: number;
 
@@ -200,32 +162,19 @@ export class CreateProductDto {
     @IsOptional()
     is_active?: boolean;
 
-    // ============== Simple Product Fields ==============
+    // ============== Media ==============
 
     /**
-     * Single pricing for simple products (pricing_type = 'single')
+     * Media to link to the product
+     * Use media_id from /api/media/upload response
      */
-    @ValidateNested()
-    @Type(() => PricingInput)
+    @IsArray()
+    @ValidateNested({ each: true })
+    @Type(() => MediaInput)
     @IsOptional()
-    single_pricing?: PricingInput;
+    media?: MediaInput[];
 
-    /**
-     * Product weight for simple products
-     */
-    @ValidateNested()
-    @Type(() => WeightInput)
-    @IsOptional()
-    product_weight?: WeightInput;
-
-    /**
-     * Stock quantity for simple products
-     */
-    @IsNumber()
-    @IsOptional()
-    stock_quantity?: number;
-
-    // ============== Variant Product Fields ==============
+    // ============== Attributes ==============
 
     /**
      * Attributes to add to the product (for variant products)
@@ -236,41 +185,42 @@ export class CreateProductDto {
     @IsOptional()
     attributes?: ProductAttributeInput[];
 
+    // ============== Pricing ==============
+
     /**
-     * Variants to create with their stock
-     * Pricing and weight are handled via price_groups and weight_groups
+     * Unified prices array
+     * - Simple product: [{ cost, price, sale_price }]
+     * - Variant product: [{ combination: { "1": 2 }, cost, price, sale_price }, ...]
      */
     @IsArray()
     @ValidateNested({ each: true })
-    @Type(() => VariantInput)
+    @Type(() => PriceInput)
     @IsOptional()
-    variants?: VariantInput[];
+    prices?: PriceInput[];
+
+    // ============== Weight ==============
 
     /**
-     * Price groups for variant products
-     * Groups variants by pricing-controlling attribute values
+     * Unified weights array
+     * - Simple product: [{ weight, length, width, height }]
+     * - Variant product: [{ combination: { "1": 2 }, weight, length, width, height }, ...]
      */
     @IsArray()
     @ValidateNested({ each: true })
-    @Type(() => PriceGroupInput)
+    @Type(() => WeightInput)
     @IsOptional()
-    price_groups?: PriceGroupInput[];
+    weights?: WeightInput[];
+
+    // ============== Stock ==============
 
     /**
-     * Weight groups for variant products
-     * Groups variants by weight-controlling attribute values
+     * Unified stocks array
+     * - Simple product: [{ quantity }]
+     * - Variant product: [{ combination: { "1": 2, "2": 3 }, quantity }, ...]
      */
     @IsArray()
     @ValidateNested({ each: true })
-    @Type(() => WeightGroupInput)
+    @Type(() => StockInput)
     @IsOptional()
-    weight_groups?: WeightGroupInput[];
-
-    /**
-     * Auto-generate all possible variants based on attribute combinations
-     * When true, creates variants for all attribute value combinations
-     */
-    @IsBoolean()
-    @IsOptional()
-    auto_generate_variants?: boolean;
+    stocks?: StockInput[];
 }

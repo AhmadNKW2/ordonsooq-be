@@ -22,6 +22,7 @@ import { ProductPriceGroupValue } from './product-price-group-value.entity';
  */
 @Entity('product_price_groups')
 @Index('idx_product_price_groups_product_id', ['product_id'])
+@Index('idx_product_price_groups_price', ['price'])
 export class ProductPriceGroup {
   @PrimaryGeneratedColumn()
   id: number;
@@ -42,7 +43,7 @@ export class ProductPriceGroup {
   @Column('decimal', { precision: 10, scale: 2, nullable: true })
   sale_price?: number;
 
-  @OneToMany(() => ProductPriceGroupValue, (groupValue) => groupValue.priceGroup)
+  @OneToMany(() => ProductPriceGroupValue, (groupValue) => groupValue.priceGroup, { cascade: true })
   groupValues: ProductPriceGroupValue[];
 
   @CreateDateColumn()

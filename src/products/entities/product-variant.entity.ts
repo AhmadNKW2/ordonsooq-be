@@ -21,6 +21,7 @@ import { ProductVariantCombination } from './product-variant-combination.entity'
  */
 @Entity('product_variants')
 @Index('idx_product_variants_product_id', ['product_id'])
+@Index('idx_product_variants_product_active', ['product_id', 'is_active'])
 export class ProductVariant {
   @PrimaryGeneratedColumn()
   id: number;
@@ -31,13 +32,6 @@ export class ProductVariant {
   @ManyToOne(() => Product, (product) => product.variants, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'product_id' })
   product: Product;
-
-  /**
-   * Optional SKU suffix for this variant (e.g., "-RED-SM")
-   * Full SKU would be: product.sku + variant.sku_suffix
-   */
-  @Column({ nullable: true })
-  sku_suffix: string;
 
   /**
    * Whether this variant is available for purchase
