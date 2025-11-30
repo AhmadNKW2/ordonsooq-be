@@ -1,10 +1,12 @@
 import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { Attribute } from './entities/attribute.entity';
 import { AttributeValue } from './entities/attribute-value.entity';
 import { CreateAttributeDto } from './dto/create-attribute.dto';
 import { UpdateAttributeDto } from './dto/update-attribute.dto';
+import { ReorderAttributesDto } from './dto/reorder-attributes.dto';
+import { ReorderAttributeValuesDto } from './dto/reorder-attribute-values.dto';
 
 @Injectable()
 export class AttributesService {
@@ -29,17 +31,22 @@ export class AttributesService {
   }
 
   async findAll(): Promise<Attribute[]> {
-    return await this.attributeRepository.find({
-      relations: ['values'],
-      order: { created_at: 'DESC' },
-    });
+    return await this.attributeRepository
+      .createQueryBuilder('attribute')
+      .leftJoinAndSelect('attribute.values', 'values')
+      .orderBy('attribute.sort_order', 'ASC')
+      .addOrderBy('attribute.created_at', 'DESC')
+      .addOrderBy('values.sort_order', 'ASC')
+      .getMany();
   }
 
   async findOne(id: number): Promise<Attribute> {
-    const attribute = await this.attributeRepository.findOne({
-      where: { id },
-      relations: ['values'],
-    });
+    const attribute = await this.attributeRepository
+      .createQueryBuilder('attribute')
+      .leftJoinAndSelect('attribute.values', 'values')
+      .where('attribute.id = :id', { id })
+      .orderBy('values.sort_order', 'ASC')
+      .getOne();
 
     if (!attribute) {
       throw new NotFoundException(`Attribute with ID ${id} not found`);
@@ -94,5 +101,50 @@ export class AttributesService {
     }
 
     await this.attributeValueRepository.remove(value);
+  }
+
+  async reorderAttributes(reorderDto: ReorderAttributesDto): Promise<Attribute[]> {
+    const attributeIds = reorderDto.attributes.map((attr) => attr.id);
+    const attributes = await this.attributeRepository.find({
+      where: { id: In(attributeIds) },
+    });
+
+    if (attributes.length !== attributeIds.length) {
+      throw new NotFoundException('One or more attributes not found');
+    }
+
+    const updatePromises = reorderDto.attributes.map((attr) =>
+      this.attributeRepository.update(attr.id, { sort_order: attr.sort_order }),
+    );
+
+    await Promise.all(updatePromises);
+
+    return this.findAll();
+  }
+
+  async reorderAttributeValues(
+    attributeId: number,
+    reorderDto: ReorderAttributeValuesDto,
+  ): Promise<Attribute> {
+    const attribute = await this.findOne(attributeId);
+
+    const valueIds = reorderDto.values.map((val) => val.id);
+    const values = await this.attributeValueRepository.find({
+      where: { id: In(valueIds), attribute_id: attributeId },
+    });
+
+    if (values.length !== valueIds.length) {
+      throw new NotFoundException(
+        'One or more attribute values not found or do not belong to this attribute',
+      );
+    }
+
+    const updatePromises = reorderDto.values.map((val) =>
+      this.attributeValueRepository.update(val.id, { sort_order: val.sort_order }),
+    );
+
+    await Promise.all(updatePromises);
+
+    return this.findOne(attributeId);
   }
 }

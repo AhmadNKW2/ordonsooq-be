@@ -4,6 +4,7 @@ import {
   Post,
   Body,
   Patch,
+  Put,
   Param,
   Delete,
   UseGuards,
@@ -11,6 +12,8 @@ import {
 import { AttributesService } from './attributes.service';
 import { CreateAttributeDto } from './dto/create-attribute.dto';
 import { UpdateAttributeDto } from './dto/update-attribute.dto';
+import { ReorderAttributesDto } from './dto/reorder-attributes.dto';
+import { ReorderAttributeValuesDto } from './dto/reorder-attribute-values.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles, UserRole } from '../common/decorators/roles.decorator';
@@ -29,6 +32,13 @@ export class AttributesController {
   @Get()
   findAll() {
     return this.attributesService.findAll();
+  }
+
+  @Put('reorder')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  reorderAttributes(@Body() reorderDto: ReorderAttributesDto) {
+    return this.attributesService.reorderAttributes(reorderDto);
   }
 
   @Get(':id')
@@ -58,6 +68,16 @@ export class AttributesController {
     @Body() body: { value_en: string; value_ar: string },
   ) {
     return this.attributesService.addValue(+id, body.value_en, body.value_ar);
+  }
+
+  @Put(':id/values/reorder')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  reorderAttributeValues(
+    @Param('id') id: string,
+    @Body() reorderDto: ReorderAttributeValuesDto,
+  ) {
+    return this.attributesService.reorderAttributeValues(+id, reorderDto);
   }
 
   @Delete('values/:valueId')
