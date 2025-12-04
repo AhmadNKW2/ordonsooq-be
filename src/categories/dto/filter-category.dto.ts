@@ -1,10 +1,13 @@
 import { IsOptional, IsEnum, IsString, IsBoolean, IsNumber } from 'class-validator';
 import { Type } from 'class-transformer';
+import { CategoryStatus } from '../entities/category.entity';
 
 export enum CategorySortBy {
   CREATED_AT = 'createdAt',
-  NAME = 'name',
+  NAME_EN = 'name_en',
+  NAME_AR = 'name_ar',
   LEVEL = 'level',
+  SORT_ORDER = 'sortOrder',
 }
 
 export enum SortOrder {
@@ -23,21 +26,25 @@ export class FilterCategoryDto {
 
   @IsOptional()
   @IsEnum(CategorySortBy)
-  sortBy?: CategorySortBy = CategorySortBy.CREATED_AT;
+  sortBy?: CategorySortBy = CategorySortBy.SORT_ORDER;
 
   @IsOptional()
   @IsEnum(SortOrder)
-  sortOrder?: SortOrder = SortOrder.DESC;
+  sortOrder?: SortOrder = SortOrder.ASC;
+
+  @IsOptional()
+  @IsEnum(CategoryStatus)
+  status?: CategoryStatus;
 
   @IsOptional()
   @Type(() => Boolean)
   @IsBoolean()
-  isActive?: boolean;
+  visible?: boolean;
 
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
-  parentId?: number; // Filter by parent category
+  parent_id?: number; // Filter by parent category
 
   @IsOptional()
   @Type(() => Number)
@@ -46,5 +53,5 @@ export class FilterCategoryDto {
 
   @IsOptional()
   @IsString()
-  search?: string; // Search in name, description
+  search?: string; // Search in name_en, name_ar, description
 }

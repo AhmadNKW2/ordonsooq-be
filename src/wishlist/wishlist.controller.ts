@@ -27,9 +27,9 @@ export class WishlistController {
     return this.wishlistService.addItem(req.user.id, addToWishlistDto);
   }
 
-  @Delete(':productId')
-  removeItem(@Request() req, @Param('productId') productId: string) {
-    return this.wishlistService.removeItem(req.user.id, +productId);
+  @Delete(':product_id')
+  removeItem(@Request() req, @Param('product_id') product_id: string) {
+    return this.wishlistService.removeItem(req.user.id, +product_id);
   }
 
   @Delete()

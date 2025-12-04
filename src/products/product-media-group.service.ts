@@ -32,16 +32,16 @@ export class ProductMediaGroupService {
   /**
    * Find or create a media group for a product based on attribute values
    * 
-   * @param productId - The product ID
+   * @param product_id - The product ID
    * @param combination - Map of attribute_id -> attribute_value_id (only for media-controlling attributes)
    * @returns The found or created media group
    */
   async findOrCreateMediaGroup(
-    productId: number,
+    product_id: number,
     combination: Record<string, number>,
   ): Promise<ProductMediaGroup> {
     // Check if a group with exactly this combination already exists
-    const existingGroup = await this.findGroupByCombination(productId, combination);
+    const existingGroup = await this.findGroupByCombination(product_id, combination);
     
     if (existingGroup) {
       return existingGroup;
@@ -49,7 +49,7 @@ export class ProductMediaGroupService {
 
     // Create new group
     const mediaGroup = this.mediaGroupRepository.create({
-      product_id: productId,
+      product_id: product_id,
     });
     
     const savedGroup = await this.mediaGroupRepository.save(mediaGroup);
@@ -75,11 +75,11 @@ export class ProductMediaGroupService {
    * Find a media group that matches exactly the given combination
    */
   async findGroupByCombination(
-    productId: number,
+    product_id: number,
     combination: Record<string, number>,
   ): Promise<ProductMediaGroup | null> {
     const groups = await this.mediaGroupRepository.find({
-      where: { product_id: productId },
+      where: { product_id: product_id },
       relations: ['groupValues'],
     });
 
@@ -114,10 +114,10 @@ export class ProductMediaGroupService {
   /**
    * Create a simple product media group (no combination - for general product images)
    */
-  async createSimpleMediaGroup(productId: number): Promise<ProductMediaGroup> {
+  async createSimpleMediaGroup(product_id: number): Promise<ProductMediaGroup> {
     // Find existing simple group (one with no group values)
     const existingGroups = await this.mediaGroupRepository.find({
-      where: { product_id: productId },
+      where: { product_id: product_id },
       relations: ['groupValues'],
     });
 
@@ -129,7 +129,7 @@ export class ProductMediaGroupService {
 
     // Create new simple group
     const mediaGroup = this.mediaGroupRepository.create({
-      product_id: productId,
+      product_id: product_id,
     });
     
     return this.mediaGroupRepository.save(mediaGroup);
@@ -139,7 +139,7 @@ export class ProductMediaGroupService {
    * Add media to a media group
    */
   async addMediaToGroup(
-    productId: number,
+    product_id: number,
     mediaGroupId: number,
     url: string,
     type: MediaType = MediaType.IMAGE,
@@ -147,7 +147,7 @@ export class ProductMediaGroupService {
     isPrimary: boolean = false,
   ): Promise<Media> {
     const media = this.mediaRepository.create({
-      product_id: productId,
+      product_id: product_id,
       media_group_id: mediaGroupId,
       url,
       type,
@@ -199,9 +199,9 @@ export class ProductMediaGroupService {
   /**
    * Get all media groups for a product with their media items
    */
-  async getMediaGroupsForProduct(productId: number): Promise<ProductMediaGroup[]> {
+  async getMediaGroupsForProduct(product_id: number): Promise<ProductMediaGroup[]> {
     return this.mediaGroupRepository.find({
-      where: { product_id: productId },
+      where: { product_id: product_id },
       relations: ['groupValues', 'groupValues.attribute', 'groupValues.attributeValue', 'media'],
     });
   }
@@ -209,9 +209,9 @@ export class ProductMediaGroupService {
   /**
    * Get all media for a product
    */
-  async getMediaForProduct(productId: number): Promise<Media[]> {
+  async getMediaForProduct(product_id: number): Promise<Media[]> {
     return this.mediaRepository.find({
-      where: { product_id: productId },
+      where: { product_id: product_id },
       relations: ['mediaGroup', 'mediaGroup.groupValues'],
       order: { sort_order: 'ASC' },
     });
@@ -220,8 +220,8 @@ export class ProductMediaGroupService {
   /**
    * Delete all media groups for a product
    */
-  async deleteMediaGroupsForProduct(productId: number): Promise<void> {
-    await this.mediaGroupRepository.delete({ product_id: productId });
+  async deleteMediaGroupsForProduct(product_id: number): Promise<void> {
+    await this.mediaGroupRepository.delete({ product_id: product_id });
   }
 
   /**
@@ -289,10 +289,10 @@ export class ProductMediaGroupService {
    *    - If media_id exists but not linked -> link to product with settings
    * 4. For each existing media not in payload -> unlink from product
    * 
-   * @param productId - The product ID
+   * @param product_id - The product ID
    * @param mediaItems - Array of media items from the payload
    */
-  async syncProductMedia(productId: number, mediaItems: MediaSyncItem[]): Promise<void> {
+  async syncProductMedia(product_id: number, mediaItems: MediaSyncItem[]): Promise<void> {
     // Validate: only one primary image allowed per product
     const primaryImages = mediaItems.filter(item => item.is_primary === true);
     if (primaryImages.length > 1) {
@@ -302,7 +302,7 @@ export class ProductMediaGroupService {
     }
     // Get all existing product media
     const existingMedia = await this.mediaRepository.find({
-      where: { product_id: productId },
+      where: { product_id: product_id },
     });
 
     const existingMediaMap = new Map<number, Media>();
@@ -327,10 +327,10 @@ export class ProductMediaGroupService {
         
         // Handle combination change - find or create appropriate media group
         if (item.combination && Object.keys(item.combination).length > 0) {
-          const mediaGroup = await this.findOrCreateMediaGroup(productId, item.combination);
+          const mediaGroup = await this.findOrCreateMediaGroup(product_id, item.combination);
           media.media_group_id = mediaGroup.id;
         } else {
-          const simpleGroup = await this.createSimpleMediaGroup(productId);
+          const simpleGroup = await this.createSimpleMediaGroup(product_id);
           media.media_group_id = simpleGroup.id;
         }
         
@@ -348,15 +348,15 @@ export class ProductMediaGroupService {
         // Determine media group
         let mediaGroupId: number;
         if (item.combination && Object.keys(item.combination).length > 0) {
-          const mediaGroup = await this.findOrCreateMediaGroup(productId, item.combination);
+          const mediaGroup = await this.findOrCreateMediaGroup(product_id, item.combination);
           mediaGroupId = mediaGroup.id;
         } else {
-          const simpleGroup = await this.createSimpleMediaGroup(productId);
+          const simpleGroup = await this.createSimpleMediaGroup(product_id);
           mediaGroupId = simpleGroup.id;
         }
 
         // Link media to product
-        unlinkedMedia.product_id = productId;
+        unlinkedMedia.product_id = product_id;
         unlinkedMedia.media_group_id = mediaGroupId;
         unlinkedMedia.sort_order = item.sort_order ?? 0;
         unlinkedMedia.is_primary = item.is_primary ?? false;

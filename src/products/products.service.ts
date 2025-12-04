@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { Product } from './entities/product.entity';
+import { Repository, In } from 'typeorm';
+import { Product, ProductStatus } from './entities/product.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { FilterProductDto } from './dto/filter-product.dto';
@@ -9,12 +9,19 @@ import { ProductVariantsService } from './product-variants.service';
 import { ProductPriceGroupService } from './product-price-group.service';
 import { ProductMediaGroupService } from './product-media-group.service';
 import { ProductWeightGroupService } from './product-weight-group.service';
+import { Category, CategoryStatus } from '../categories/entities/category.entity';
+import { ProductCategory } from './entities/product-category.entity';
+import { Vendor, VendorStatus } from '../vendors/entities/vendor.entity';
 
 @Injectable()
 export class ProductsService {
     constructor(
         @InjectRepository(Product)
         private productsRepository: Repository<Product>,
+        @InjectRepository(Category)
+        private categoriesRepository: Repository<Category>,
+        @InjectRepository(ProductCategory)
+        private productCategoriesRepository: Repository<ProductCategory>,
         private variantsService: ProductVariantsService,
         private priceGroupService: ProductPriceGroupService,
         private mediaGroupService: ProductMediaGroupService,
@@ -23,7 +30,17 @@ export class ProductsService {
 
     async create(dto: CreateProductDto): Promise<any> {
         try {
-            // 1. Create basic product
+            // Validate categories exist and are active
+            if (dto.category_ids && dto.category_ids.length > 0) {
+                const categories = await this.categoriesRepository.find({
+                    where: { id: In(dto.category_ids), status: CategoryStatus.ACTIVE },
+                });
+                if (categories.length !== dto.category_ids.length) {
+                    throw new BadRequestException('One or more categories not found or are archived');
+                }
+            }
+
+            // 1. Create basic product (primary category is first in the list)
             const product = this.productsRepository.create({
                 name_en: dto.name_en,
                 name_ar: dto.name_ar,
@@ -32,16 +49,28 @@ export class ProductsService {
                 short_description_ar: dto.short_description_ar,
                 long_description_en: dto.long_description_en,
                 long_description_ar: dto.long_description_ar,
-                category_id: dto.category_id,
+                category_id: dto.category_ids?.[0],
                 vendor_id: dto.vendor_id,
-                is_active: dto.is_active ?? true,
+                status: dto.status ?? ProductStatus.ACTIVE,
+                visible: dto.visible ?? true,
             });
             const savedProduct = await this.productsRepository.save(product);
+
+            // 2. Create product-category relationships
+            if (dto.category_ids && dto.category_ids.length > 0) {
+                const productCategories = dto.category_ids.map(categoryId => 
+                    this.productCategoriesRepository.create({
+                        product_id: savedProduct.id,
+                        category_id: categoryId,
+                    })
+                );
+                await this.productCategoriesRepository.save(productCategories);
+            }
 
             // Determine if this is a variant product based on attributes
             const isVariantProduct = dto.attributes && dto.attributes.length > 0;
 
-            // 2. Add attributes if provided
+            // 3. Add attributes if provided
             if (dto.attributes && dto.attributes.length > 0) {
                 await this.variantsService.addProductAttributes(
                     savedProduct.id,
@@ -54,7 +83,7 @@ export class ProductsService {
                 );
             }
 
-            // 3. Handle prices (unified - works for both simple and variant)
+            // 4. Handle prices (unified - works for both simple and variant)
             if (dto.prices && dto.prices.length > 0) {
                 for (const priceItem of dto.prices) {
                     const hasCombination = priceItem.combination && Object.keys(priceItem.combination).length > 0;
@@ -82,7 +111,7 @@ export class ProductsService {
                 }
             }
 
-            // 4. Handle weights (unified - works for both simple and variant)
+            // 5. Handle weights (unified - works for both simple and variant)
             if (dto.weights && dto.weights.length > 0) {
                 for (const weightItem of dto.weights) {
                     const hasCombination = weightItem.combination && Object.keys(weightItem.combination).length > 0;
@@ -112,7 +141,7 @@ export class ProductsService {
                 }
             }
 
-            // 5. Handle stocks (unified - works for both simple and variant)
+            // 6. Handle stocks (unified - works for both simple and variant)
             if (dto.stocks && dto.stocks.length > 0) {
                 for (const stockItem of dto.stocks) {
                     const hasCombination = stockItem.combination && Object.keys(stockItem.combination).length > 0;
@@ -129,7 +158,7 @@ export class ProductsService {
                 }
             }
 
-            // 6. Handle media (link pre-uploaded media to product)
+            // 7. Handle media (link pre-uploaded media to product)
             if (dto.media && dto.media.length > 0) {
                 await this.mediaGroupService.syncProductMedia(savedProduct.id, dto.media);
             }
@@ -156,27 +185,43 @@ export class ProductsService {
             limit = 10, 
             sortBy = 'created_at', 
             sortOrder = 'DESC', 
-            categoryId, 
+            categoryId,
+            vendorId,
             minRating,
             maxRating,
-            isActive, 
+            status, 
+            visible,
             search 
         } = filterDto;
 
         const queryBuilder = this.productsRepository
             .createQueryBuilder('product')
-            .leftJoinAndSelect('product.category', 'category');
+            .leftJoinAndSelect('product.category', 'category')
+            .leftJoinAndSelect('product.productCategories', 'productCategories')
+            .leftJoinAndSelect('productCategories.category', 'categories')
+            .where('product.status = :activeStatus', { activeStatus: ProductStatus.ACTIVE });
 
-        // Filter by isActive (only if explicitly provided)
-        if (isActive !== undefined) {
-            queryBuilder.andWhere('product.is_active = :isActive', { isActive });
-        } else {
-            queryBuilder.where('product.is_active = :isActive', { isActive: true });
+        // Filter by status (override default ACTIVE if specified)
+        if (status !== undefined) {
+            queryBuilder.andWhere('product.status = :status', { status });
         }
 
-        // Filter by category
+        // Filter by visible
+        if (visible !== undefined) {
+            queryBuilder.andWhere('product.visible = :visible', { visible });
+        }
+
+        // Filter by category (check in product_categories junction table)
         if (categoryId) {
-            queryBuilder.andWhere('product.category_id = :categoryId', { categoryId });
+            queryBuilder.andWhere(
+                'EXISTS (SELECT 1 FROM product_categories pc WHERE pc.product_id = product.id AND pc.category_id = :categoryId)',
+                { categoryId }
+            );
+        }
+
+        // Filter by vendor
+        if (vendorId) {
+            queryBuilder.andWhere('product.vendor_id = :vendorId', { vendorId });
         }
 
         // Filter by rating range
@@ -265,6 +310,8 @@ export class ProductsService {
             relationLoadStrategy: 'query',
             relations: [
                 'category',
+                'productCategories',
+                'productCategories.category',
                 'vendor',
                 'media',
                 'media.mediaGroup',
@@ -293,10 +340,10 @@ export class ProductsService {
      * - Rename priceGroups to prices
      * - Rename weightGroups to weights
      * - Include mediaGroup object in each media item (remove media_group_id)
-     * - Remove mediaGroups from response
+     * - Transform productCategories to categories array
      */
     private transformProductResponse(product: Product): any {
-        const { priceGroups, weightGroups, media, ...rest } = product as any;
+        const { priceGroups, weightGroups, media, productCategories, category, ...rest } = product as any;
 
         // Transform media to include mediaGroup object and remove media_group_id
         const transformedMedia = media?.map((m: any) => {
@@ -313,8 +360,12 @@ export class ProductsService {
             };
         }) || [];
 
+        // Transform productCategories to a clean categories array
+        const categories = productCategories?.map((pc: any) => pc.category).filter(Boolean) || [];
+
         return {
             ...rest,
+            categories,
             media: transformedMedia,
             prices: priceGroups || [],
             weights: weightGroups || [],
@@ -330,8 +381,33 @@ export class ProductsService {
         const product = await this.findOne(id);
 
         try {
-            // 1. Update basic product information
-            const basicInfoFields = ['name_en', 'name_ar', 'sku', 'short_description_en', 'short_description_ar', 'long_description_en', 'long_description_ar', 'category_id', 'vendor_id', 'is_active'];
+            // 1. Validate and update categories
+            if (dto.category_ids && dto.category_ids.length > 0) {
+                const categories = await this.categoriesRepository.find({
+                    where: { id: In(dto.category_ids), status: CategoryStatus.ACTIVE },
+                });
+                if (categories.length !== dto.category_ids.length) {
+                    throw new BadRequestException('One or more categories not found or are archived');
+                }
+
+                // Delete existing product-category relationships
+                await this.productCategoriesRepository.delete({ product_id: id });
+
+                // Create new product-category relationships
+                const productCategories = dto.category_ids.map(categoryId =>
+                    this.productCategoriesRepository.create({
+                        product_id: id,
+                        category_id: categoryId,
+                    })
+                );
+                await this.productCategoriesRepository.save(productCategories);
+
+                // Update primary category (first in the list)
+                await this.productsRepository.update(id, { category_id: dto.category_ids[0] });
+            }
+
+            // 2. Update basic product information
+            const basicInfoFields = ['name_en', 'name_ar', 'sku', 'short_description_en', 'short_description_ar', 'long_description_en', 'long_description_ar', 'vendor_id', 'status', 'visible'];
             const basicInfoChanges: any = {};
             
             basicInfoFields.forEach(field => {
@@ -341,16 +417,15 @@ export class ProductsService {
             });
 
             if (Object.keys(basicInfoChanges).length > 0) {
-                Object.assign(product, basicInfoChanges);
-                await this.productsRepository.save(product);
+                await this.productsRepository.update(id, basicInfoChanges);
             }
 
-            // 2. Handle media - sync media IDs (add new, remove missing)
+            // 3. Handle media - sync media IDs (add new, remove missing)
             if (dto.media !== undefined) {
                 await this.mediaGroupService.syncProductMedia(id, dto.media || []);
             }
 
-            // 3. Handle attributes - REPLACE all existing with new ones
+            // 4. Handle attributes - REPLACE all existing with new ones
             // First, delete all existing variants (which depend on attributes)
             await this.variantsService.deleteAllVariantsForProduct(id);
             
@@ -362,7 +437,7 @@ export class ProductsService {
                 await this.variantsService.addProductAttributes(id, dto.attributes);
             }
 
-            // 4. Handle prices - REPLACE all existing with new ones
+            // 5. Handle prices - REPLACE all existing with new ones
             await this.priceGroupService.deletePriceGroupsForProduct(id);
             
             if (dto.prices && dto.prices.length > 0) {
@@ -453,25 +528,342 @@ export class ProductsService {
         }
     }
 
-    async remove(id: number): Promise<void> {
-        const product = await this.findOne(id);
-        await this.productsRepository.remove(product);
-    }
-
     // Update average rating (called when rating is added/updated)
-    async updateAverageRating(productId: number): Promise<void> {
+    async updateAverageRating(product_id: number): Promise<void> {
         const result = await this.productsRepository
             .createQueryBuilder('product')
             .leftJoin('product.ratings', 'rating')
-            .where('product.id = :productId', { productId })
+            .where('product.id = :product_id', { product_id })
             .andWhere('rating.status = :status', { status: 'approved' })
             .select('AVG(rating.rating)', 'avg')
             .addSelect('COUNT(rating.id)', 'count')
             .getRawOne();
 
-        await this.productsRepository.update(productId, {
+        await this.productsRepository.update(product_id, {
             average_rating: parseFloat(result.avg) || 0,
             total_ratings: parseInt(result.count) || 0,
         });
+    }
+
+    // ========== LIFECYCLE MANAGEMENT ==========
+
+    /**
+     * Archive a product (soft delete)
+     * Sets status to ARCHIVED, preserves visible flag for when restored
+     */
+    async archive(id: number, userId: number): Promise<{ message: string }> {
+        const product = await this.productsRepository.findOne({
+            where: { id, status: ProductStatus.ACTIVE },
+        });
+
+        if (!product) {
+            throw new NotFoundException('Product not found or already archived');
+        }
+
+        await this.productsRepository.update(id, {
+            status: ProductStatus.ARCHIVED,
+            archived_at: new Date(),
+            archived_by: userId,
+        });
+
+        return { message: `Product "${product.name_en}" archived successfully` };
+    }
+
+    /**
+     * Restore an archived product
+     * - If the product's vendor is archived, restoration is blocked
+     * - If the product's category is archived, a new category_id must be provided
+     */
+    async restore(id: number, newCategoryId?: number): Promise<{ message: string }> {
+        const product = await this.productsRepository.findOne({
+            where: { id, status: ProductStatus.ARCHIVED },
+            relations: ['category', 'vendor'],
+        });
+
+        if (!product) {
+            throw new NotFoundException('Product not found or not archived');
+        }
+
+        // Check if vendor is archived - block restoration if so
+        if (product.vendor && product.vendor.status === VendorStatus.ARCHIVED) {
+            throw new BadRequestException(
+                `Cannot restore product because its vendor "${product.vendor.name_en}" is archived. ` +
+                'Please restore the vendor first before restoring this product.',
+            );
+        }
+
+        // Check if category is still active
+        if (product.category && product.category.status === CategoryStatus.ARCHIVED) {
+            if (!newCategoryId) {
+                throw new BadRequestException(
+                    'Product category is archived. Please provide a new category_id to restore the product.',
+                );
+            }
+
+            // Validate the new category exists and is active
+            const newCategory = await this.categoriesRepository.findOne({
+                where: { id: newCategoryId, status: CategoryStatus.ACTIVE },
+            });
+
+            if (!newCategory) {
+                throw new BadRequestException('The specified category does not exist or is archived');
+            }
+
+            product.category_id = newCategoryId;
+        }
+
+        await this.productsRepository
+            .createQueryBuilder()
+            .update(Product)
+            .set({
+                status: ProductStatus.ACTIVE,
+                category_id: product.category_id,
+            })
+            .where('id = :id', { id })
+            .execute();
+
+        // Set archived fields to null using raw query
+        await this.productsRepository.query(
+            'UPDATE products SET archived_at = NULL, archived_by = NULL WHERE id = $1',
+            [id]
+        );
+
+        return { message: `Product "${product.name_en}" restored successfully` };
+    }
+
+    /**
+     * Find all archived products with image and vendor details
+     */
+    async findArchived(filterDto: FilterProductDto) {
+        const { 
+            page = 1, 
+            limit = 10, 
+            sortBy = 'archived_at', 
+            sortOrder = 'DESC', 
+            categoryId,
+            search 
+        } = filterDto;
+
+        const queryBuilder = this.productsRepository
+            .createQueryBuilder('product')
+            .leftJoinAndSelect('product.category', 'category')
+            .leftJoinAndSelect('product.vendor', 'vendor')
+            .leftJoinAndSelect('product.media', 'media')
+            .where('product.status = :status', { status: ProductStatus.ARCHIVED });
+
+        // Filter by category
+        if (categoryId) {
+            queryBuilder.andWhere('product.category_id = :categoryId', { categoryId });
+        }
+
+        // Search by name, sku, or descriptions
+        if (search) {
+            queryBuilder.andWhere(
+                '(product.name_en ILIKE :search OR product.name_ar ILIKE :search OR product.sku ILIKE :search)',
+                { search: `%${search}%` }
+            );
+        }
+
+        // Sorting
+        const validSortColumn = ['archived_at', 'created_at', 'name_en', 'name_ar'].includes(sortBy) 
+            ? sortBy 
+            : 'archived_at';
+        queryBuilder.orderBy(`product.${validSortColumn}`, sortOrder);
+
+        // Pagination
+        queryBuilder.skip((page - 1) * limit).take(limit);
+
+        const [rawData, total] = await queryBuilder.getManyAndCount();
+
+        // Map products to include image from primary media or first media
+        const data = rawData.map((product) => {
+            const primaryMedia = product.media?.find((m) => m.is_primary);
+            const firstMedia = product.media?.[0];
+            const image = primaryMedia?.url || firstMedia?.url || null;
+            
+            // Extract vendor info with status
+            const vendorInfo = product.vendor ? {
+                id: product.vendor.id,
+                name_en: product.vendor.name_en,
+                name_ar: product.vendor.name_ar,
+                status: product.vendor.status,
+                logo: product.vendor.logo,
+            } : null;
+
+            const { media, vendor, ...productData } = product;
+            return { 
+                ...productData, 
+                image,
+                vendor: vendorInfo,
+            };
+        });
+
+        return {
+            data,
+            meta: {
+                total,
+                page,
+                limit,
+                totalPages: Math.ceil(total / limit),
+            },
+        };
+    }
+
+    /**
+     * Permanently delete a product (only if archived)
+     * This is irreversible
+     */
+    async permanentDelete(id: number): Promise<{ message: string }> {
+        const product = await this.productsRepository.findOne({
+            where: { id, status: ProductStatus.ARCHIVED },
+        });
+
+        if (!product) {
+            throw new NotFoundException('Product not found or not archived. Only archived products can be permanently deleted.');
+        }
+
+        await this.productsRepository.remove(product);
+
+        return { message: `Product "${product.name_en}" permanently deleted` };
+    }
+
+    // ========== BULK ASSIGNMENT ==========
+
+    /**
+     * Assign multiple products to a specific category (adds to existing categories)
+     */
+    async assignProductsToCategory(
+        categoryId: number,
+        product_ids: number[],
+    ): Promise<{ message: string; assigned: number; alreadyAssigned: number }> {
+        // Validate category exists and is active
+        const category = await this.categoriesRepository.findOne({
+            where: { id: categoryId, status: CategoryStatus.ACTIVE },
+        });
+
+        if (!category) {
+            throw new NotFoundException('Category not found or is archived');
+        }
+
+        // Get active products
+        const products = await this.productsRepository.find({
+            where: { id: In(product_ids), status: ProductStatus.ACTIVE },
+        });
+
+        if (products.length === 0) {
+            throw new BadRequestException('No active products found with the given IDs');
+        }
+
+        // Check existing assignments
+        const existingAssignments = await this.productCategoriesRepository.find({
+            where: {
+                product_id: In(products.map(p => p.id)),
+                category_id: categoryId,
+            },
+        });
+
+        const existingProductIds = new Set(existingAssignments.map(a => a.product_id));
+        const productsToAssign = products.filter(p => !existingProductIds.has(p.id));
+
+        // Create new assignments
+        if (productsToAssign.length > 0) {
+            const newAssignments = productsToAssign.map(product =>
+                this.productCategoriesRepository.create({
+                    product_id: product.id,
+                    category_id: categoryId,
+                })
+            );
+            await this.productCategoriesRepository.save(newAssignments);
+        }
+
+        return {
+            message: `${productsToAssign.length} products assigned to category "${category.name_en}"`,
+            assigned: productsToAssign.length,
+            alreadyAssigned: existingAssignments.length,
+        };
+    }
+
+    /**
+     * Remove multiple products from a specific category
+     */
+    async removeProductsFromCategory(
+        categoryId: number,
+        product_ids: number[],
+    ): Promise<{ message: string; removed: number }> {
+        // Validate category exists
+        const category = await this.categoriesRepository.findOne({
+            where: { id: categoryId },
+        });
+
+        if (!category) {
+            throw new NotFoundException('Category not found');
+        }
+
+        // Remove assignments
+        const result = await this.productCategoriesRepository.delete({
+            product_id: In(product_ids),
+            category_id: categoryId,
+        });
+
+        return {
+            message: `${result.affected} products removed from category "${category.name_en}"`,
+            removed: result.affected || 0,
+        };
+    }
+
+    /**
+     * Assign multiple products to a specific vendor
+     */
+    async assignProductsToVendor(
+        vendorId: number,
+        product_ids: number[],
+    ): Promise<{ message: string; updated: number }> {
+        // Validate vendor exists
+        const vendorExists = await this.productsRepository.manager
+            .getRepository('Vendor')
+            .findOne({ where: { id: vendorId, status: 'active' } });
+
+        if (!vendorExists) {
+            throw new NotFoundException('Vendor not found or is archived');
+        }
+
+        // Update all products
+        const result = await this.productsRepository.update(
+            { id: In(product_ids), status: ProductStatus.ACTIVE },
+            { vendor_id: vendorId },
+        );
+
+        return {
+            message: `${result.affected} products assigned to vendor "${vendorExists.name_en}"`,
+            updated: result.affected || 0,
+        };
+    }
+
+    /**
+     * Remove vendor from multiple products
+     */
+    async removeProductsFromVendor(
+        vendorId: number,
+        product_ids: number[],
+    ): Promise<{ message: string; updated: number }> {
+        // Validate vendor exists
+        const vendorExists = await this.productsRepository.manager
+            .getRepository('Vendor')
+            .findOne({ where: { id: vendorId } });
+
+        if (!vendorExists) {
+            throw new NotFoundException('Vendor not found');
+        }
+
+        // Remove vendor from products
+        const result = await this.productsRepository.update(
+            { id: In(product_ids), vendor_id: vendorId },
+            { vendor_id: null as any },
+        );
+
+        return {
+            message: `${result.affected} products removed from vendor "${vendorExists.name_en}"`,
+            updated: result.affected || 0,
+        };
     }
 }

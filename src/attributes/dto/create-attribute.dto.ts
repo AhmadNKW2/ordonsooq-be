@@ -33,6 +33,10 @@ export class CreateAttributeDto {
 
   @IsBoolean()
   @IsOptional()
+  is_color?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
   is_active?: boolean;
 
   @IsArray()

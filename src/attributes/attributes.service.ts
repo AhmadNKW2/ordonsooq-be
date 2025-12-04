@@ -7,6 +7,7 @@ import { CreateAttributeDto } from './dto/create-attribute.dto';
 import { UpdateAttributeDto } from './dto/update-attribute.dto';
 import { ReorderAttributesDto } from './dto/reorder-attributes.dto';
 import { ReorderAttributeValuesDto } from './dto/reorder-attribute-values.dto';
+import { UpdateAttributeValueDto } from './dto/update-attribute-value.dto';
 
 @Injectable()
 export class AttributesService {
@@ -26,8 +27,27 @@ export class AttributesService {
       throw new ConflictException('Attribute with this name already exists');
     }
 
-    const attribute = this.attributeRepository.create(createAttributeDto);
-    return await this.attributeRepository.save(attribute);
+    // Get the max sort_order and assign the next one
+    const maxSortOrder = await this.attributeRepository
+      .createQueryBuilder('attribute')
+      .select('MAX(attribute.sort_order)', 'max')
+      .getRawOne();
+    const nextSortOrder = (maxSortOrder?.max ?? -1) + 1;
+
+    // Assign sort_order to values if they exist
+    const values = createAttributeDto.values?.map((value, index) => ({
+      ...value,
+      sort_order: index,
+    }));
+
+    const attribute = this.attributeRepository.create({
+      ...createAttributeDto,
+      sort_order: nextSortOrder,
+      values,
+    });
+
+    const savedAttribute = await this.attributeRepository.save(attribute);
+    return this.findOne(savedAttribute.id);
   }
 
   async findAll(): Promise<Attribute[]> {
@@ -80,12 +100,28 @@ export class AttributesService {
   }
 
   async addValue(attributeId: number, valueEn: string, valueAr: string): Promise<AttributeValue> {
-    const attribute = await this.findOne(attributeId);
+    // Check if attribute exists
+    const attribute = await this.attributeRepository.findOne({
+      where: { id: attributeId },
+    });
+
+    if (!attribute) {
+      throw new NotFoundException(`Attribute with ID ${attributeId} not found`);
+    }
+
+    // Get the max sort_order for this attribute's values
+    const maxSortOrder = await this.attributeValueRepository
+      .createQueryBuilder('value')
+      .select('MAX(value.sort_order)', 'max')
+      .where('value.attribute_id = :attributeId', { attributeId })
+      .getRawOne();
+    const nextSortOrder = (maxSortOrder?.max ?? -1) + 1;
 
     const attributeValue = this.attributeValueRepository.create({
       attribute_id: attributeId,
       value_en: valueEn,
       value_ar: valueAr,
+      sort_order: nextSortOrder,
     });
 
     return await this.attributeValueRepository.save(attributeValue);
@@ -101,6 +137,22 @@ export class AttributesService {
     }
 
     await this.attributeValueRepository.remove(value);
+  }
+
+  async updateValue(
+    valueId: number,
+    updateDto: UpdateAttributeValueDto,
+  ): Promise<AttributeValue> {
+    const value = await this.attributeValueRepository.findOne({
+      where: { id: valueId },
+    });
+
+    if (!value) {
+      throw new NotFoundException(`Attribute value with ID ${valueId} not found`);
+    }
+
+    Object.assign(value, updateDto);
+    return await this.attributeValueRepository.save(value);
   }
 
   async reorderAttributes(reorderDto: ReorderAttributesDto): Promise<Attribute[]> {

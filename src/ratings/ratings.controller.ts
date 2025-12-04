@@ -39,9 +39,9 @@ export class RatingsController {
     return this.ratingsService.findAll(filterDto);
   }
 
-  @Get('product/:productId')
-  getProductRatings(@Param('productId') productId: number) {
-    return this.ratingsService.getProductRatings(productId);
+  @Get('product/:product_id')
+  getProductRatings(@Param('product_id') product_id: number) {
+    return this.ratingsService.getProductRatings(product_id);
   }
 
   @Get(':id')

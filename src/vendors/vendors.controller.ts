@@ -10,12 +10,16 @@ import {
   UseInterceptors,
   UploadedFile,
   Req,
+  Put,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { VendorsService } from './vendors.service';
 import { CreateVendorDto } from './dto/create-vendor.dto';
 import { UpdateVendorDto } from './dto/update-vendor.dto';
+import { PermanentDeleteVendorDto, RestoreVendorDto } from './dto/archive-vendor.dto';
+import { ReorderVendorsDto } from './dto/reorder-vendors.dto';
+import { AssignProductsToVendorDto } from './dto/assign-products.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles, UserRole } from '../common/decorators/roles.decorator';
@@ -54,6 +58,13 @@ export class VendorsController {
     return this.vendorsService.findAll();
   }
 
+  @Get('archive/list')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  findArchived() {
+    return this.vendorsService.findArchived();
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.vendorsService.findOne(+id);
@@ -84,10 +95,57 @@ export class VendorsController {
     return this.vendorsService.update(+id, updateVendorDto, logoUrl);
   }
 
-  @Delete(':id')
+  // ========== LIFECYCLE MANAGEMENT ==========
+
+  @Post(':id/archive')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
-  remove(@Param('id') id: string) {
-    return this.vendorsService.remove(+id);
+  archive(@Param('id') id: string, @Req() req: any) {
+    return this.vendorsService.archive(+id, req.user.id);
+  }
+
+  @Post(':id/restore')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  restore(@Param('id') id: string, @Body() restoreDto?: RestoreVendorDto) {
+    return this.vendorsService.restore(+id, restoreDto);
+  }
+
+  @Delete(':id/permanent')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  permanentDelete(@Param('id') id: string, @Body() options?: PermanentDeleteVendorDto) {
+    return this.vendorsService.permanentDelete(+id, options);
+  }
+
+  @Put('reorder')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  reorder(@Body() dto: ReorderVendorsDto) {
+    return this.vendorsService.reorder(dto);
+  }
+
+  // ========== PRODUCT ASSIGNMENT ==========
+
+  // Assign products to this vendor
+  @Post(':id/products')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  assignProducts(@Param('id') id: string, @Body() dto: AssignProductsToVendorDto) {
+    return this.vendorsService.assignProducts(+id, dto.product_ids);
+  }
+
+  // Remove products from this vendor
+  @Delete(':id/products')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  removeProducts(@Param('id') id: string, @Body() dto: AssignProductsToVendorDto) {
+    return this.vendorsService.removeProducts(+id, dto.product_ids);
+  }
+
+  // Get products for this vendor
+  @Get(':id/products')
+  getProducts(@Param('id') id: string) {
+    return this.vendorsService.getProducts(+id);
   }
 }

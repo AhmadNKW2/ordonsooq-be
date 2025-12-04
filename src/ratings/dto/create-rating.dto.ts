@@ -14,5 +14,5 @@ export class CreateRatingDto {
 
   @IsNotEmpty()
   @IsNumber()
-  productId: number;
+  product_id: number;
 }

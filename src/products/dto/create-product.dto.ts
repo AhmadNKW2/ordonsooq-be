@@ -8,8 +8,10 @@ import {
     MaxLength,
     IsObject,
     Min,
+    IsEnum,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { ProductStatus } from '../entities/product.entity';
 
 // Product attribute DTO
 class ProductAttributeInput {
@@ -151,16 +153,21 @@ export class CreateProductDto {
     @IsString()
     long_description_ar: string;
 
-    @IsNumber()
-    category_id: number;
+    @IsArray()
+    @IsNumber({}, { each: true })
+    category_ids: number[];
 
     @IsNumber()
     @IsOptional()
     vendor_id?: number;
 
+    @IsEnum(ProductStatus)
+    @IsOptional()
+    status?: ProductStatus;
+
     @IsBoolean()
     @IsOptional()
-    is_active?: boolean;
+    visible?: boolean;
 
     // ============== Media ==============
 

@@ -37,7 +37,7 @@ export class FilterRatingDto {
   @IsOptional()
   @Type(() => Number)
   @IsNumber()
-  productId?: number;
+  product_id?: number;
 
   @IsOptional()
   @Type(() => Number)

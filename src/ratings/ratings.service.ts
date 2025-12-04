@@ -18,7 +18,7 @@ export class RatingsService {
     const existingRating = await this.ratingsRepository.findOne({
       where: {
         userId,
-        productId: createRatingDto.productId,
+        product_id: createRatingDto.product_id,
       },
     });
 
@@ -36,7 +36,7 @@ export class RatingsService {
   }
 
     async findAll(filterDto: FilterRatingDto) {
-        const { page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'DESC', status, productId, userId, minRating, maxRating } = filterDto;
+        const { page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'DESC', status, product_id, userId, minRating, maxRating } = filterDto;
 
         const queryBuilder = this.ratingsRepository
             .createQueryBuilder('rating')
@@ -47,8 +47,8 @@ export class RatingsService {
             queryBuilder.andWhere('rating.status = :status', { status });
         }
 
-        if (productId) {
-            queryBuilder.andWhere('rating.productId = :productId', { productId });
+        if (product_id) {
+            queryBuilder.andWhere('rating.product_id = :product_id', { product_id });
         }
 
         if (userId) {
@@ -119,10 +119,10 @@ export class RatingsService {
     await this.ratingsRepository.remove(rating);
   }
 
-  async getProductRatings(productId: number) {
+  async getProductRatings(product_id: number) {
     const ratings = await this.ratingsRepository.find({
       where: {
-        productId,
+        product_id,
         status: RatingStatus.APPROVED,
       },
       relations: ['user'],

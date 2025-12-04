@@ -10,18 +10,32 @@ import {
     Index,
 } from 'typeorm';
 
+export enum CategoryStatus {
+    ACTIVE = 'active',
+    ARCHIVED = 'archived',
+}
+
 @Entity('categories')
-@Index('idx_categories_parent_id', ['parentId'])
-@Index('idx_categories_is_active', ['isActive'])
+@Index('idx_categories_parent_id', ['parent_id'])
+@Index('idx_categories_status', ['status'])
+@Index('idx_categories_visible', ['visible'])
+@Index('idx_categories_status_visible', ['status', 'visible'])
+@Index('idx_categories_sort_order', ['sortOrder'])
 export class Category {
     @PrimaryGeneratedColumn('increment')
     id: number;
 
-    @Column()
-    name: string;
+    @Column({ default: '' })
+    name_en: string;
+
+    @Column({ default: '' })
+    name_ar: string;
 
     @Column({ nullable: true })
-    description: string;
+    description_en: string;
+
+    @Column({ nullable: true })
+    description_ar: string;
 
     @Column({ nullable: true })
     image: string;
@@ -32,24 +46,41 @@ export class Category {
     @Column({ default: 0 })
     sortOrder: number;
 
+    @Column({
+        type: 'enum',
+        enum: CategoryStatus,
+        default: CategoryStatus.ACTIVE,
+    })
+    status: CategoryStatus;
+
     @Column({ default: true })
-    isActive: boolean;
+    visible: boolean;
 
     // Self-referencing for parent category
     @ManyToOne(() => Category, category => category.children, { nullable: true, onDelete: 'SET NULL' })
-    @JoinColumn({ name: 'parentId' })
+    @JoinColumn({ name: 'parent_id' })
     parent: Category;
 
     @Column({ nullable: true })
-    parentId: number;
+    parent_id: number | null;
 
     // Children categories
     @OneToMany(() => Category, category => category.parent)
     children: Category[];
 
-    // Products in this category
+    // Products in this category (via junction table)
+    @OneToMany('ProductCategory', 'category')
+    productCategories: any[];
+
+    // Legacy relationship (for backward compatibility)
     @OneToMany('Product', 'category')
     products: any[];
+
+    @Column({ nullable: true, type: 'timestamp' })
+    archived_at: Date | null;
+
+    @Column({ nullable: true, type: 'int' })
+    archived_by: number | null;
 
     @CreateDateColumn()
     createdAt: Date;

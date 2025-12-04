@@ -31,7 +31,7 @@ export class ProductVariantsService {
    * Add attributes to a product
    */
   async addProductAttributes(
-    productId: number,
+    product_id: number,
     attributes: Array<{
       attribute_id: number;
       controls_pricing?: boolean;
@@ -40,11 +40,11 @@ export class ProductVariantsService {
     }>,
   ): Promise<ProductAttribute[]> {
     const product = await this.productRepository.findOne({
-      where: { id: productId },
+      where: { id: product_id },
     });
 
     if (!product) {
-      throw new NotFoundException(`Product with ID ${productId} not found`);
+      throw new NotFoundException(`Product with ID ${product_id} not found`);
     }
 
     const productAttributes: ProductAttribute[] = [];
@@ -52,7 +52,7 @@ export class ProductVariantsService {
     for (const attr of attributes) {
       const existing = await this.productAttributeRepository.findOne({
         where: {
-          product_id: productId,
+          product_id: product_id,
           attribute_id: attr.attribute_id,
         },
       });
@@ -62,7 +62,7 @@ export class ProductVariantsService {
       }
 
       const productAttr = this.productAttributeRepository.create({
-        product_id: productId,
+        product_id: product_id,
         attribute_id: attr.attribute_id,
         controls_pricing: attr.controls_pricing || false,
         controls_media: attr.controls_media || false,
@@ -81,7 +81,7 @@ export class ProductVariantsService {
    * Upsert product attributes - add new or update existing
    */
   async upsertProductAttributes(
-    productId: number,
+    product_id: number,
     attributes: Array<{
       attribute_id: number;
       controls_pricing?: boolean;
@@ -90,11 +90,11 @@ export class ProductVariantsService {
     }>,
   ): Promise<ProductAttribute[]> {
     const product = await this.productRepository.findOne({
-      where: { id: productId },
+      where: { id: product_id },
     });
 
     if (!product) {
-      throw new NotFoundException(`Product with ID ${productId} not found`);
+      throw new NotFoundException(`Product with ID ${product_id} not found`);
     }
 
     const productAttributes: ProductAttribute[] = [];
@@ -102,7 +102,7 @@ export class ProductVariantsService {
     for (const attr of attributes) {
       const existing = await this.productAttributeRepository.findOne({
         where: {
-          product_id: productId,
+          product_id: product_id,
           attribute_id: attr.attribute_id,
         },
       });
@@ -116,7 +116,7 @@ export class ProductVariantsService {
       } else {
         // Add new attribute
         const productAttr = this.productAttributeRepository.create({
-          product_id: productId,
+          product_id: product_id,
           attribute_id: attr.attribute_id,
           controls_pricing: attr.controls_pricing || false,
           controls_media: attr.controls_media || false,
@@ -132,14 +132,14 @@ export class ProductVariantsService {
   /**
    * Remove attribute from product by attribute ID
    */
-  async removeProductAttributeByAttributeId(productId: number, attributeId: number): Promise<void> {
+  async removeProductAttributeByAttributeId(product_id: number, attributeId: number): Promise<void> {
     const productAttr = await this.productAttributeRepository.findOne({
-      where: { product_id: productId, attribute_id: attributeId },
+      where: { product_id: product_id, attribute_id: attributeId },
     });
 
     if (!productAttr) {
       throw new NotFoundException(
-        `Product attribute for product ${productId} with attribute ID ${attributeId} not found`,
+        `Product attribute for product ${product_id} with attribute ID ${attributeId} not found`,
       );
     }
 
@@ -148,25 +148,25 @@ export class ProductVariantsService {
 
   /**
    * Create a variant with its attribute value combinations
-   * @param productId - The product ID
+   * @param product_id - The product ID
    * @param attributeValueIds - Array of attribute value IDs that define this variant (e.g., [5, 10] for Red + Small)
    * @param skuSuffix - Optional SKU suffix for this variant
    */
   async createVariant(
-    productId: number,
+    product_id: number,
     attributeValueIds: number[],
     skuSuffix?: string,
   ): Promise<ProductVariant> {
     const product = await this.productRepository.findOne({
-      where: { id: productId },
+      where: { id: product_id },
     });
 
     if (!product) {
-      throw new NotFoundException(`Product with ID ${productId} not found`);
+      throw new NotFoundException(`Product with ID ${product_id} not found`);
     }
 
     // Check if this combination already exists
-    const existingVariant = await this.findVariantByCombination(productId, attributeValueIds);
+    const existingVariant = await this.findVariantByCombination(product_id, attributeValueIds);
     if (existingVariant) {
       throw new BadRequestException(
         'A variant with this attribute combination already exists',
@@ -186,7 +186,7 @@ export class ProductVariantsService {
 
       const productAttr = await this.productAttributeRepository.findOne({
         where: {
-          product_id: productId,
+          product_id: product_id,
           attribute_id: attributeValue.attribute_id,
         },
       });
@@ -200,7 +200,7 @@ export class ProductVariantsService {
 
     // Create the variant
     const variant = this.variantRepository.create({
-      product_id: productId,
+      product_id: product_id,
       is_active: true,
       combinations: attributeValueIds.map((valueId) =>
         this.variantCombinationRepository.create({ attribute_value_id: valueId }),
@@ -213,18 +213,18 @@ export class ProductVariantsService {
   /**
    * Generate all possible variants for a product based on its attributes
    */
-  async generateAllVariants(productId: number): Promise<ProductVariant[]> {
+  async generateAllVariants(product_id: number): Promise<ProductVariant[]> {
     const product = await this.productRepository.findOne({
-      where: { id: productId },
+      where: { id: product_id },
     });
 
     if (!product) {
-      throw new NotFoundException(`Product with ID ${productId} not found`);
+      throw new NotFoundException(`Product with ID ${product_id} not found`);
     }
 
     // Get all product attributes with their values
     const productAttributes = await this.productAttributeRepository.find({
-      where: { product_id: productId },
+      where: { product_id: product_id },
       relations: ['attribute', 'attribute.values'],
     });
 
@@ -247,7 +247,7 @@ export class ProductVariantsService {
 
     // Get existing variants
     const existingVariants = await this.variantRepository.find({
-      where: { product_id: productId },
+      where: { product_id: product_id },
       relations: ['combinations'],
     });
 
@@ -264,7 +264,7 @@ export class ProductVariantsService {
       const comboKey = this.createCombinationKey(combo);
       if (!existingCombinationKeys.has(comboKey)) {
         const variant = this.variantRepository.create({
-          product_id: productId,
+          product_id: product_id,
           is_active: true,
           combinations: combo.map((valueId) =>
             this.variantCombinationRepository.create({ attribute_value_id: valueId }),
@@ -318,13 +318,13 @@ export class ProductVariantsService {
    * Find a variant by its attribute value combination
    */
   async findVariantByCombination(
-    productId: number,
+    product_id: number,
     attributeValueIds: number[],
   ): Promise<ProductVariant | null> {
     const targetKey = this.createCombinationKey(attributeValueIds);
 
     const variants = await this.variantRepository.find({
-      where: { product_id: productId },
+      where: { product_id: product_id },
       relations: ['combinations', 'combinations.attribute_value'],
     });
 
@@ -343,9 +343,9 @@ export class ProductVariantsService {
   /**
    * Get all variants for a product
    */
-  async getProductVariants(productId: number): Promise<ProductVariant[]> {
+  async getProductVariants(product_id: number): Promise<ProductVariant[]> {
     return await this.variantRepository.find({
-      where: { product_id: productId },
+      where: { product_id: product_id },
       relations: ['combinations', 'combinations.attribute_value', 'combinations.attribute_value.attribute'],
       order: { id: 'ASC' },
     });
@@ -406,24 +406,24 @@ export class ProductVariantsService {
   /**
    * Set stock for a simple product (no variant)
    */
-  async setSimpleStock(productId: number, quantity: number): Promise<ProductStock> {
+  async setSimpleStock(product_id: number, quantity: number): Promise<ProductStock> {
     const product = await this.productRepository.findOne({
-      where: { id: productId },
+      where: { id: product_id },
     });
 
     if (!product) {
-      throw new NotFoundException(`Product with ID ${productId} not found`);
+      throw new NotFoundException(`Product with ID ${product_id} not found`);
     }
 
     let stock = await this.stockRepository.findOne({
-      where: { product_id: productId, variant_id: IsNull() },
+      where: { product_id: product_id, variant_id: IsNull() },
     });
 
     if (stock) {
       stock.quantity = quantity;
     } else {
       stock = this.stockRepository.create({
-        product_id: productId,
+        product_id: product_id,
         variant_id: null,
         quantity,
       });
@@ -436,29 +436,29 @@ export class ProductVariantsService {
    * Set stock for a specific variant
    */
   async setVariantStock(
-    productId: number,
+    product_id: number,
     variantId: number,
     quantity: number,
   ): Promise<ProductStock> {
     const variant = await this.variantRepository.findOne({
-      where: { id: variantId, product_id: productId },
+      where: { id: variantId, product_id: product_id },
     });
 
     if (!variant) {
       throw new NotFoundException(
-        `Variant with ID ${variantId} not found for product ${productId}`,
+        `Variant with ID ${variantId} not found for product ${product_id}`,
       );
     }
 
     let stock = await this.stockRepository.findOne({
-      where: { product_id: productId, variant_id: variantId },
+      where: { product_id: product_id, variant_id: variantId },
     });
 
     if (stock) {
       stock.quantity = quantity;
     } else {
       stock = this.stockRepository.create({
-        product_id: productId,
+        product_id: product_id,
         variant_id: variantId,
         quantity,
       });
@@ -472,39 +472,39 @@ export class ProductVariantsService {
    * Finds or creates the variant matching the combination, then sets its stock
    */
   async setStockByCombination(
-    productId: number,
+    product_id: number,
     combination: Record<string, number>,
     quantity: number,
   ): Promise<ProductStock> {
     const product = await this.productRepository.findOne({
-      where: { id: productId },
+      where: { id: product_id },
     });
 
     if (!product) {
-      throw new NotFoundException(`Product with ID ${productId} not found`);
+      throw new NotFoundException(`Product with ID ${product_id} not found`);
     }
 
     // Get attribute value IDs from combination
     const attributeValueIds = Object.values(combination);
 
     // Find existing variant with this combination
-    let variant = await this.findVariantByCombination(productId, attributeValueIds);
+    let variant = await this.findVariantByCombination(product_id, attributeValueIds);
 
     // If no variant exists, create one
     if (!variant) {
-      variant = await this.createVariant(productId, attributeValueIds);
+      variant = await this.createVariant(product_id, attributeValueIds);
     }
 
     // Set stock for this variant
-    return await this.setVariantStock(productId, variant.id, quantity);
+    return await this.setVariantStock(product_id, variant.id, quantity);
   }
 
   /**
    * Get simple stock for a product (variant_id is NULL)
    */
-  async getSimpleStock(productId: number): Promise<ProductStock | null> {
+  async getSimpleStock(product_id: number): Promise<ProductStock | null> {
     return await this.stockRepository.findOne({
-      where: { product_id: productId, variant_id: IsNull() },
+      where: { product_id: product_id, variant_id: IsNull() },
     });
   }
 
@@ -512,11 +512,11 @@ export class ProductVariantsService {
    * Get stock for a specific variant
    */
   async getVariantStock(
-    productId: number,
+    product_id: number,
     variantId: number,
   ): Promise<ProductStock | null> {
     return await this.stockRepository.findOne({
-      where: { product_id: productId, variant_id: variantId },
+      where: { product_id: product_id, variant_id: variantId },
       relations: ['variant', 'variant.combinations', 'variant.combinations.attribute_value'],
     });
   }
@@ -524,9 +524,9 @@ export class ProductVariantsService {
   /**
    * Get all stock for a product (both simple and variant)
    */
-  async getAllStock(productId: number): Promise<ProductStock[]> {
+  async getAllStock(product_id: number): Promise<ProductStock[]> {
     return await this.stockRepository.find({
-      where: { product_id: productId },
+      where: { product_id: product_id },
       relations: ['variant', 'variant.combinations', 'variant.combinations.attribute_value'],
       order: { id: 'ASC' },
     });
@@ -536,13 +536,13 @@ export class ProductVariantsService {
    * Deduct stock for a variant
    */
   async deductStock(
-    productId: number,
+    product_id: number,
     variantId: number | null,
     quantity: number,
   ): Promise<ProductStock> {
     const whereCondition = variantId
-      ? { product_id: productId, variant_id: variantId }
-      : { product_id: productId, variant_id: IsNull() };
+      ? { product_id: product_id, variant_id: variantId }
+      : { product_id: product_id, variant_id: IsNull() };
 
     const stock = await this.stockRepository.findOne({
       where: whereCondition as any,
@@ -552,7 +552,7 @@ export class ProductVariantsService {
       throw new NotFoundException(
         variantId
           ? `Stock not found for variant ${variantId}`
-          : `Stock not found for product ${productId}`,
+          : `Stock not found for product ${product_id}`,
       );
     }
 
@@ -570,12 +570,12 @@ export class ProductVariantsService {
    * Check if stock is available
    */
   async checkStock(
-    productId: number,
+    product_id: number,
     variantId: number | null,
   ): Promise<{ available: boolean; quantity: number }> {
     const whereCondition = variantId
-      ? { product_id: productId, variant_id: variantId }
-      : { product_id: productId, variant_id: IsNull() };
+      ? { product_id: product_id, variant_id: variantId }
+      : { product_id: product_id, variant_id: IsNull() };
 
     const stock = await this.stockRepository.findOne({
       where: whereCondition as any,
@@ -618,7 +618,7 @@ export class ProductVariantsService {
    * Update attribute control flags by product ID and attribute ID
    */
   async updateProductAttributeByAttributeId(
-    productId: number,
+    product_id: number,
     attributeId: number,
     updates: {
       controls_pricing?: boolean;
@@ -627,12 +627,12 @@ export class ProductVariantsService {
     },
   ): Promise<ProductAttribute> {
     const productAttr = await this.productAttributeRepository.findOne({
-      where: { product_id: productId, attribute_id: attributeId },
+      where: { product_id: product_id, attribute_id: attributeId },
     });
 
     if (!productAttr) {
       throw new NotFoundException(
-        `Product attribute for product ${productId} with attribute ID ${attributeId} not found`,
+        `Product attribute for product ${product_id} with attribute ID ${attributeId} not found`,
       );
     }
 
@@ -660,9 +660,9 @@ export class ProductVariantsService {
   /**
    * Get product attributes
    */
-  async getProductAttributes(productId: number): Promise<ProductAttribute[]> {
+  async getProductAttributes(product_id: number): Promise<ProductAttribute[]> {
     return await this.productAttributeRepository.find({
-      where: { product_id: productId },
+      where: { product_id: product_id },
       relations: ['attribute', 'attribute.values'],
     });
   }
@@ -670,21 +670,21 @@ export class ProductVariantsService {
   /**
    * Delete all attributes for a product
    */
-  async deleteAllAttributesForProduct(productId: number): Promise<void> {
-    await this.productAttributeRepository.delete({ product_id: productId });
+  async deleteAllAttributesForProduct(product_id: number): Promise<void> {
+    await this.productAttributeRepository.delete({ product_id: product_id });
   }
 
   /**
    * Delete all variants for a product
    */
-  async deleteAllVariantsForProduct(productId: number): Promise<void> {
-    await this.variantRepository.delete({ product_id: productId });
+  async deleteAllVariantsForProduct(product_id: number): Promise<void> {
+    await this.variantRepository.delete({ product_id: product_id });
   }
 
   /**
    * Delete all stocks for a product
    */
-  async deleteAllStocksForProduct(productId: number): Promise<void> {
-    await this.stockRepository.delete({ product_id: productId });
+  async deleteAllStocksForProduct(product_id: number): Promise<void> {
+    await this.stockRepository.delete({ product_id: product_id });
   }
 }

@@ -6,20 +6,35 @@ import {
   UpdateDateColumn,
   DeleteDateColumn,
   Index,
+  OneToMany,
 } from 'typeorm';
 
+export enum VendorStatus {
+  ACTIVE = 'active',
+  ARCHIVED = 'archived',
+}
+
 @Entity('vendors')
-@Index('idx_vendors_is_active', ['is_active'])
-@Index('idx_vendors_name', ['name'])
+@Index('idx_vendors_name_en', ['name_en'])
+@Index('idx_vendors_status', ['status'])
+@Index('idx_vendors_visible', ['visible'])
+@Index('idx_vendors_status_visible', ['status', 'visible'])
+@Index('idx_vendors_sort_order', ['sort_order'])
 export class Vendor {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ unique: true })
-  name: string;
+  @Column({ unique: true, default: '' })
+  name_en: string;
+
+  @Column({ default: '' })
+  name_ar: string;
 
   @Column({ type: 'text', nullable: true })
-  description: string;
+  description_en: string;
+
+  @Column({ type: 'text', nullable: true })
+  description_ar: string;
 
   @Column({ nullable: true })
   email: string;
@@ -33,8 +48,28 @@ export class Vendor {
   @Column({ nullable: true })
   logo: string;
 
+  @Column({
+    type: 'enum',
+    enum: VendorStatus,
+    default: VendorStatus.ACTIVE,
+  })
+  status: VendorStatus;
+
   @Column({ default: true })
-  is_active: boolean;
+  visible: boolean;
+
+  @Column({ default: 0 })
+  sort_order: number;
+
+  @Column({ nullable: true, type: 'timestamp' })
+  archived_at: Date | null;
+
+  @Column({ nullable: true, type: 'int' })
+  archived_by: number | null;
+
+  // Products relationship
+  @OneToMany('Product', 'vendor')
+  products: any[];
 
   @CreateDateColumn()
   created_at: Date;

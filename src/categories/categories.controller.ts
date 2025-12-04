@@ -9,7 +9,10 @@ import {
     UseGuards,
     UseInterceptors,
     UploadedFile,
-    BadRequestException
+    BadRequestException,
+    Request,
+    Put,
+    Req,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
@@ -19,6 +22,9 @@ import { CategoriesService } from './categories.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { FilterCategoryDto } from './dto/filter-category.dto';
+import { RestoreCategoryDto, PermanentDeleteCategoryDto } from './dto/archive-category.dto';
+import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
+import { AssignProductsToCategoryDto } from './dto/assign-products.dto';
 import { Roles, UserRole } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { imageFileFilter, UPLOAD_FOLDERS } from '../common/utils/file-upload.util';
@@ -46,10 +52,11 @@ export class CategoriesController {
     )
     create(
         @Body() createCategoryDto: CreateCategoryDto,
-        @UploadedFile() file?: Express.Multer.File
+        @UploadedFile() file: Express.Multer.File,
+        @Req() req: any,
     ) {
         if (file) {
-            createCategoryDto.image = `/uploads/categories/${file.filename}`;
+            createCategoryDto.image = `${req.protocol}://${req.get('host')}/uploads/categories/${file.filename}`;
         }
         return this.categoriesService.create(createCategoryDto);
     }
@@ -79,19 +86,13 @@ export class CategoriesController {
     update(
         @Param('id') id: number,
         @Body() updateCategoryDto: UpdateCategoryDto,
-        @UploadedFile() file?: Express.Multer.File
+        @UploadedFile() file: Express.Multer.File,
+        @Req() req: any,
     ) {
         if (file) {
-            updateCategoryDto.image = `/uploads/categories/${file.filename}`;
+            updateCategoryDto.image = `${req.protocol}://${req.get('host')}/uploads/categories/${file.filename}`;
         }
         return this.categoriesService.update(id, updateCategoryDto);
-    }
-
-    @Delete(':id')
-    @UseGuards(AuthGuard('jwt'), RolesGuard)
-    @Roles(UserRole.ADMIN)
-    remove(@Param('id') id: number) {
-        return this.categoriesService.remove(id);
     }
 
     // Public routes
@@ -105,13 +106,74 @@ export class CategoriesController {
         return this.categoriesService.getCategoryTree();
     }
 
-    @Get('main')
-    findMainCategories() {
-        return this.categoriesService.findMainCategories();
+    // Get archived categories (trash view) - includes archived products and subcategories
+    @Get('archive/list')
+    @UseGuards(AuthGuard('jwt'), RolesGuard)
+    @Roles(UserRole.ADMIN)
+    findArchived(@Body() filterDto?: FilterCategoryDto) {
+        return this.categoriesService.findArchived(filterDto);
     }
 
     @Get(':id')
     findOne(@Param('id') id: number) {
         return this.categoriesService.findOne(id);
+    }
+
+    // ========== LIFECYCLE MANAGEMENT ==========
+
+    // Archive a category (soft delete)
+    @Post(':id/archive')
+    @UseGuards(AuthGuard('jwt'), RolesGuard)
+    @Roles(UserRole.ADMIN)
+    archive(@Param('id') id: number, @Request() req) {
+        return this.categoriesService.archive(id, req.user.id);
+    }
+
+    // Restore a category from archive
+    @Post(':id/restore')
+    @UseGuards(AuthGuard('jwt'), RolesGuard)
+    @Roles(UserRole.ADMIN)
+    restore(@Param('id') id: number, @Body() restoreDto: RestoreCategoryDto) {
+        return this.categoriesService.restore(id, restoreDto);
+    }
+
+    // Permanently delete a category (hard delete)
+    @Delete(':id/permanent')
+    @UseGuards(AuthGuard('jwt'), RolesGuard)
+    @Roles(UserRole.ADMIN)
+    permanentDelete(@Param('id') id: number, @Body() options?: PermanentDeleteCategoryDto) {
+        return this.categoriesService.permanentDelete(id, options);
+    }
+
+    // Reorder categories
+    @Put('reorder')
+    @UseGuards(AuthGuard('jwt'), RolesGuard)
+    @Roles(UserRole.ADMIN)
+    reorder(@Body() dto: ReorderCategoriesDto) {
+        return this.categoriesService.reorder(dto.categories);
+    }
+
+    // ========== PRODUCT ASSIGNMENT ==========
+
+    // Assign products to this category
+    @Post(':id/products')
+    @UseGuards(AuthGuard('jwt'), RolesGuard)
+    @Roles(UserRole.ADMIN)
+    assignProducts(@Param('id') id: number, @Body() dto: AssignProductsToCategoryDto) {
+        return this.categoriesService.assignProducts(id, dto.product_ids);
+    }
+
+    // Remove products from this category
+    @Delete(':id/products')
+    @UseGuards(AuthGuard('jwt'), RolesGuard)
+    @Roles(UserRole.ADMIN)
+    removeProducts(@Param('id') id: number, @Body() dto: AssignProductsToCategoryDto) {
+        return this.categoriesService.removeProducts(id, dto.product_ids);
+    }
+
+    // Get products in this category
+    @Get(':id/products')
+    getProducts(@Param('id') id: number) {
+        return this.categoriesService.getProducts(id);
     }
 }

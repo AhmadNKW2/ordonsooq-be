@@ -1,5 +1,14 @@
-import { IsOptional, IsNumber, Min, IsEnum, IsBoolean } from 'class-validator';
+import { IsOptional, IsNumber, Min, IsEnum, IsBoolean, IsArray, ArrayMinSize } from 'class-validator';
 import { Type } from 'class-transformer';
+import { ProductStatus } from '../entities/product.entity';
+
+export class AssignProductsDto {
+    @IsArray()
+    @ArrayMinSize(1)
+    @Type(() => Number)
+    @IsNumber({}, { each: true })
+    product_ids: number[];
+}
 
 export enum ProductSortBy {
     CREATED_AT = 'created_at',
@@ -42,6 +51,11 @@ export class FilterProductDto {
 
     @IsOptional()
     @Type(() => Number)
+    @IsNumber()
+    vendorId?: number;
+
+    @IsOptional()
+    @Type(() => Number)
     minPrice?: number;
 
     @IsOptional()
@@ -57,9 +71,13 @@ export class FilterProductDto {
     maxRating?: number;
 
     @IsOptional()
+    @IsEnum(ProductStatus)
+    status?: ProductStatus;
+
+    @IsOptional()
     @Type(() => Boolean)
     @IsBoolean()
-    isActive?: boolean;
+    visible?: boolean;
 
     @IsOptional()
     search?: string;

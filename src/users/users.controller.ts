@@ -6,7 +6,8 @@ import {
   Param,
   Patch,
   Delete,
-  UseGuards
+  UseGuards,
+  Query,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { UsersService } from './users.service';
@@ -28,20 +29,12 @@ export class UsersController {
     return this.usersService.create(createUserDto);
   }
 
-  // Filter users (Admin only)
-  @Post('filter')
-  @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
-  filterUsers(@Body() filterDto: FilterUserDto) {
-    return this.usersService.findAll(filterDto);
-  }
-
-  // Get all users (Admin only)
+  // Get all users with filtering (Admin only)
   @Get()
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles(UserRole.ADMIN)
-  findAll() {
-    return this.usersService.findAll();
+  findAll(@Query() filterDto: FilterUserDto) {
+    return this.usersService.findAll(filterDto);
   }
 
   // Get one user (Admin only)

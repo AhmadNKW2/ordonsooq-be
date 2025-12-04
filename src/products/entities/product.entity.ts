@@ -20,13 +20,21 @@ import { Media } from '../../media/entities/media.entity';
 import { ProductMediaGroup } from './product-media-group.entity';
 import { ProductStock } from './product-stock.entity';
 import { ProductAttribute } from './product-attribute.entity';
+import { ProductCategory } from './product-category.entity';
+
+export enum ProductStatus {
+    ACTIVE = 'active',
+    ARCHIVED = 'archived',
+}
 
 @Entity('products')
 @Index('idx_products_category_id', ['category_id'])
 @Index('idx_products_vendor_id', ['vendor_id'])
-@Index('idx_products_is_active', ['is_active'])
+@Index('idx_products_status', ['status'])
+@Index('idx_products_visible', ['visible'])
+@Index('idx_products_status_visible', ['status', 'visible'])
 @Index('idx_products_sku', ['sku'])
-@Index('idx_products_active_category', ['is_active', 'category_id'])
+@Index('idx_products_status_category', ['status', 'category_id'])
 @Index('idx_products_created_at', ['created_at'])
 export class Product {
     @PrimaryGeneratedColumn('increment')
@@ -53,15 +61,26 @@ export class Product {
     @Column('text')
     long_description_ar: string;
 
-    @Column({ default: true })
-    is_active: boolean;
+    @Column({
+        type: 'enum',
+        enum: ProductStatus,
+        default: ProductStatus.ACTIVE,
+    })
+    status: ProductStatus;
 
-    // Category relationship
-    @ManyToOne(() => Category, category => category.products)
+    @Column({ default: true })
+    visible: boolean;
+
+    // Multiple categories relationship (via junction table)
+    @OneToMany(() => ProductCategory, pc => pc.product, { cascade: true })
+    productCategories: ProductCategory[];
+
+    // Keep category_id for backward compatibility (primary category)
+    @ManyToOne(() => Category, { nullable: true })
     @JoinColumn({ name: 'category_id' })
     category: Category;
 
-    @Column()
+    @Column({ nullable: true })
     category_id: number;
 
     // Vendor relationship
@@ -109,6 +128,12 @@ export class Product {
 
     @Column({ default: 0 })
     total_ratings: number;
+
+    @Column({ nullable: true, type: 'timestamp' })
+    archived_at: Date | null;
+
+    @Column({ nullable: true, type: 'int' })
+    archived_by: number | null;
 
     @CreateDateColumn()
     created_at: Date;

@@ -1,38 +1,38 @@
 import {
   Entity,
-  Column,
   PrimaryGeneratedColumn,
   ManyToOne,
-  OneToMany,
   CreateDateColumn,
-  UpdateDateColumn,
   JoinColumn,
+  Column,
   Index,
   Unique,
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
-import { WishlistItem } from './wishlist-item.entity';
+import { Product } from '../../products/entities/product.entity';
 
 @Entity('wishlists')
-@Unique('uq_user_wishlist', ['userId'])
-@Index('idx_wishlists_user_id', ['userId'])
+@Unique('uq_wishlists_user_product', ['user_id', 'product_id'])
+@Index('idx_wishlists_user_id', ['user_id'])
+@Index('idx_wishlists_product_id', ['product_id'])
 export class Wishlist {
   @PrimaryGeneratedColumn('increment')
   id: number;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'userId' })
+  @JoinColumn({ name: 'user_id' })
   user: User;
 
   @Column()
-  userId: number;
+  user_id: number;
 
-  @OneToMany(() => WishlistItem, (item) => item.wishlist, { cascade: true })
-  items: WishlistItem[];
+  @ManyToOne(() => Product, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'product_id' })
+  product: Product;
+
+  @Column()
+  product_id: number;
 
   @CreateDateColumn()
-  createdAt: Date;
-
-  @UpdateDateColumn()
-  updatedAt: Date;
+  created_at: Date;
 }

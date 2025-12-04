@@ -24,6 +24,9 @@ export class Attribute {
   @Column({ default: 'text' })
   type: string; // 'color', 'size', 'text', 'image'
 
+  @Column({ default: false })
+  is_color: boolean;
+
   @Column({ default: 0 })
   sort_order: number;
 

@@ -29,18 +29,18 @@ export class ProductWeightGroupService {
   /**
    * Find or create a weight group for a product based on attribute values
    * 
-   * @param productId - The product ID
+   * @param product_id - The product ID
    * @param combination - Map of attribute_id -> attribute_value_id (only for weight-controlling attributes)
    * @param weightData - The weight data (weight, dimensions)
    * @returns The found or created weight group
    */
   async findOrCreateWeightGroup(
-    productId: number,
+    product_id: number,
     combination: Record<string, number>,
     weightData: WeightGroupData,
   ): Promise<ProductWeightGroup> {
     // Check if a group with exactly this combination already exists
-    const existingGroup = await this.findGroupByCombination(productId, combination);
+    const existingGroup = await this.findGroupByCombination(product_id, combination);
     
     if (existingGroup) {
       // Update the existing group with new weight data
@@ -53,7 +53,7 @@ export class ProductWeightGroupService {
 
     // Create new group
     const weightGroup = this.weightGroupRepository.create({
-      product_id: productId,
+      product_id: product_id,
       weight: weightData.weight,
       length: weightData.length,
       width: weightData.width,
@@ -83,11 +83,11 @@ export class ProductWeightGroupService {
    * Find a weight group that matches exactly the given combination
    */
   private async findGroupByCombination(
-    productId: number,
+    product_id: number,
     combination: Record<string, number>,
   ): Promise<ProductWeightGroup | null> {
     const groups = await this.weightGroupRepository.find({
-      where: { product_id: productId },
+      where: { product_id: product_id },
       relations: ['groupValues'],
     });
 
@@ -123,12 +123,12 @@ export class ProductWeightGroupService {
    * Create a simple product weight group (no combination)
    */
   async createSimpleWeightGroup(
-    productId: number,
+    product_id: number,
     weightData: WeightGroupData,
   ): Promise<ProductWeightGroup> {
     // Find existing simple group (one with no group values)
     const existingGroups = await this.weightGroupRepository.find({
-      where: { product_id: productId },
+      where: { product_id: product_id },
       relations: ['groupValues'],
     });
 
@@ -144,7 +144,7 @@ export class ProductWeightGroupService {
 
     // Create new simple group
     const weightGroup = this.weightGroupRepository.create({
-      product_id: productId,
+      product_id: product_id,
       weight: weightData.weight,
       length: weightData.length,
       width: weightData.width,
@@ -190,9 +190,9 @@ export class ProductWeightGroupService {
   /**
    * Get all weight groups for a product
    */
-  async getWeightGroupsForProduct(productId: number): Promise<ProductWeightGroup[]> {
+  async getWeightGroupsForProduct(product_id: number): Promise<ProductWeightGroup[]> {
     return this.weightGroupRepository.find({
-      where: { product_id: productId },
+      where: { product_id: product_id },
       relations: ['groupValues', 'groupValues.attribute', 'groupValues.attributeValue'],
     });
   }
@@ -200,7 +200,7 @@ export class ProductWeightGroupService {
   /**
    * Delete all weight groups for a product
    */
-  async deleteWeightGroupsForProduct(productId: number): Promise<void> {
-    await this.weightGroupRepository.delete({ product_id: productId });
+  async deleteWeightGroupsForProduct(product_id: number): Promise<void> {
+    await this.weightGroupRepository.delete({ product_id: product_id });
   }
 }

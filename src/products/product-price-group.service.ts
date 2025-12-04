@@ -28,18 +28,18 @@ export class ProductPriceGroupService {
   /**
    * Find or create a price group for a product based on attribute values
    * 
-   * @param productId - The product ID
+   * @param product_id - The product ID
    * @param combination - Map of attribute_id -> attribute_value_id (only for pricing-controlling attributes)
    * @param priceData - The pricing data (cost, price, sale_price)
    * @returns The found or created price group
    */
   async findOrCreatePriceGroup(
-    productId: number,
+    product_id: number,
     combination: Record<string, number>,
     priceData: PriceGroupData,
   ): Promise<ProductPriceGroup> {
     // Check if a group with exactly this combination already exists
-    const existingGroup = await this.findGroupByCombination(productId, combination);
+    const existingGroup = await this.findGroupByCombination(product_id, combination);
     
     if (existingGroup) {
       // Update the existing group with new price data
@@ -51,7 +51,7 @@ export class ProductPriceGroupService {
 
     // Create new group
     const priceGroup = this.priceGroupRepository.create({
-      product_id: productId,
+      product_id: product_id,
       cost: priceData.cost,
       price: priceData.price,
       sale_price: priceData.sale_price,
@@ -80,11 +80,11 @@ export class ProductPriceGroupService {
    * Find a price group that matches exactly the given combination
    */
   private async findGroupByCombination(
-    productId: number,
+    product_id: number,
     combination: Record<string, number>,
   ): Promise<ProductPriceGroup | null> {
     const groups = await this.priceGroupRepository.find({
-      where: { product_id: productId },
+      where: { product_id: product_id },
       relations: ['groupValues'],
     });
 
@@ -120,12 +120,12 @@ export class ProductPriceGroupService {
    * Create a simple product price group (no combination)
    */
   async createSimplePriceGroup(
-    productId: number,
+    product_id: number,
     priceData: PriceGroupData,
   ): Promise<ProductPriceGroup> {
     // Find existing simple group (one with no group values)
     const existingGroups = await this.priceGroupRepository.find({
-      where: { product_id: productId },
+      where: { product_id: product_id },
       relations: ['groupValues'],
     });
 
@@ -140,7 +140,7 @@ export class ProductPriceGroupService {
 
     // Create new simple group
     const priceGroup = this.priceGroupRepository.create({
-      product_id: productId,
+      product_id: product_id,
       cost: priceData.cost,
       price: priceData.price,
       sale_price: priceData.sale_price,
@@ -185,9 +185,9 @@ export class ProductPriceGroupService {
   /**
    * Get all price groups for a product
    */
-  async getPriceGroupsForProduct(productId: number): Promise<ProductPriceGroup[]> {
+  async getPriceGroupsForProduct(product_id: number): Promise<ProductPriceGroup[]> {
     return this.priceGroupRepository.find({
-      where: { product_id: productId },
+      where: { product_id: product_id },
       relations: ['groupValues', 'groupValues.attribute', 'groupValues.attributeValue'],
     });
   }
@@ -195,7 +195,7 @@ export class ProductPriceGroupService {
   /**
    * Delete all price groups for a product
    */
-  async deletePriceGroupsForProduct(productId: number): Promise<void> {
-    await this.priceGroupRepository.delete({ product_id: productId });
+  async deletePriceGroupsForProduct(product_id: number): Promise<void> {
+    await this.priceGroupRepository.delete({ product_id: product_id });
   }
 }

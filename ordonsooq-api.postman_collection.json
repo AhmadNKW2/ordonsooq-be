@@ -1,0 +1,2488 @@
+{
+  "info": {
+    "_postman_id": "ordonsooq-api-collection",
+    "name": "Ordonsooq API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "API collection for Ordonsooq e-commerce platform.\n\n## Key Features\n- Products can belong to multiple categories\n- Archive/Restore with cascade logic\n- Product assignment to categories and vendors"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3001/api",
+      "type": "string"
+    },
+    {
+      "key": "authToken",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Register",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@ordonsooq.com\",\n  \"firstName\": \"Super\",\n  \"lastName\": \"Admin\",\n  \"password\": \"admin123456\",\n  \"role\": \"admin\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "register"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Login",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "if (jsonData.data && jsonData.data.access_token) {",
+                  "    pm.collectionVariables.set('authToken', jsonData.data.access_token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@ordonsooq.com\",\n  \"password\": \"admin123456\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Profile",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/profile",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "profile"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "logout"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Forgot Password",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"user@example.com\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/forgot-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "forgot-password"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reset Password",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"token\": \"reset-token-here\",\n  \"newPassword\": \"newPassword123\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/reset-password",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "reset-password"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "item": [
+        {
+          "name": "Create User",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"newuser@example.com\",\n  \"firstName\": \"John\",\n  \"lastName\": \"Doe\",\n  \"password\": \"password123\",\n  \"role\": \"user\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["users"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Users",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users",
+              "host": ["{{baseUrl}}"],
+              "path": ["users"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Filter Users",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"user\",\n  \"search\": \"john\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/filter",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "filter"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get User by ID",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update User",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"firstName\": \"Updated Name\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/users/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete User",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["users", "1"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Attributes",
+      "item": [
+        {
+          "name": "Create Attribute",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name_en\": \"Color\",\n  \"name_ar\": \"اللون\",\n  \"is_color\": true,\n  \"is_active\": true,\n  \"values\": [\n    {\n      \"value_en\": \"Red\",\n      \"value_ar\": \"أحمر\",\n      \"is_active\": true\n    },\n    {\n      \"value_en\": \"Blue\",\n      \"value_ar\": \"أزرق\",\n      \"is_active\": true\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/attributes",
+              "host": ["{{baseUrl}}"],
+              "path": ["attributes"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Attributes",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/attributes",
+              "host": ["{{baseUrl}}"],
+              "path": ["attributes"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Attribute by ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/attributes/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["attributes", "1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Attribute",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name_en\": \"Updated Color\",\n  \"is_color\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/attributes/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["attributes", "1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Attribute",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/attributes/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["attributes", "1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reorder Attributes",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"attributes\": [\n    { \"id\": 1, \"sort_order\": 0 },\n    { \"id\": 2, \"sort_order\": 1 },\n    { \"id\": 3, \"sort_order\": 2 }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/attributes/reorder",
+              "host": ["{{baseUrl}}"],
+              "path": ["attributes", "reorder"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Add Attribute Value",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value_en\": \"Green\",\n  \"value_ar\": \"أخضر\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/attributes/1/values",
+              "host": ["{{baseUrl}}"],
+              "path": ["attributes", "1", "values"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Attribute Value",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value_en\": \"Dark Red\",\n  \"value_ar\": \"أحمر داكن\",\n  \"color_code\": \"#8B0000\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/attributes/values/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["attributes", "values", "1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Attribute Value",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/attributes/values/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["attributes", "values", "1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Reorder Attribute Values",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"values\": [\n    { \"id\": 1, \"sort_order\": 0 },\n    { \"id\": 2, \"sort_order\": 1 },\n    { \"id\": 3, \"sort_order\": 2 }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/attributes/1/values/reorder",
+              "host": ["{{baseUrl}}"],
+              "path": ["attributes", "1", "values", "reorder"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Categories",
+      "description": "Category management with multi-level hierarchy, product assignments, and cascade archive/restore logic.",
+      "item": [
+        {
+          "name": "Create Category",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "name_en",
+                  "value": "Electronics",
+                  "type": "text"
+                },
+                {
+                  "key": "name_ar",
+                  "value": "إلكترونيات",
+                  "type": "text"
+                },
+                {
+                  "key": "description_en",
+                  "value": "Electronic devices and gadgets",
+                  "type": "text"
+                },
+                {
+                  "key": "description_ar",
+                  "value": "الأجهزة والأدوات الإلكترونية",
+                  "type": "text"
+                },
+                {
+                  "key": "visible",
+                  "value": "true",
+                  "type": "text"
+                },
+                {
+                  "key": "parent_id",
+                  "value": "",
+                  "type": "text",
+                  "description": "Parent category ID for subcategory (omit for root)"
+                },
+                {
+                  "key": "product_ids",
+                  "value": "[1, 2, 3]",
+                  "type": "text",
+                  "description": "Optional: Array of product IDs to assign to this category"
+                },
+                {
+                  "key": "image",
+                  "type": "file",
+                  "src": ""
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/categories",
+              "host": ["{{baseUrl}}"],
+              "path": ["categories"]
+            },
+            "description": "Create a new category. Optionally include product_ids to assign products during creation."
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Categories",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/categories",
+              "host": ["{{baseUrl}}"],
+              "path": ["categories"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Category Tree",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/categories/tree",
+              "host": ["{{baseUrl}}"],
+              "path": ["categories", "tree"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Filter Categories",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"search\": \"electronics\",\n  \"visible\": true,\n  \"status\": \"active\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/categories/filter",
+              "host": ["{{baseUrl}}"],
+              "path": ["categories", "filter"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Category by ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/categories/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["categories", "1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Category",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "name_en",
+                  "value": "Updated Electronics",
+                  "type": "text"
+                },
+                {
+                  "key": "product_ids",
+                  "value": "[1, 2, 5]",
+                  "type": "text",
+                  "description": "Optional: Sync product assignments (replaces existing)"
+                },
+                {
+                  "key": "image",
+                  "type": "file",
+                  "src": ""
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/categories/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["categories", "1"]
+            },
+            "description": "Update a category. If product_ids is provided, it will sync (replace) existing product assignments."
+          },
+          "response": []
+        },
+        {
+          "name": "Reorder Categories",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"categories\": [\n    { \"id\": 1, \"sortOrder\": 0 },\n    { \"id\": 2, \"sortOrder\": 1 },\n    { \"id\": 3, \"sortOrder\": 2 }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/categories/reorder",
+              "host": ["{{baseUrl}}"],
+              "path": ["categories", "reorder"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Products in Category",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/categories/1/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["categories", "1", "products"]
+            },
+            "description": "Get all products assigned to this category. Returns { category: {...}, products: [...] }"
+          },
+          "response": []
+        },
+        {
+          "name": "Assign Products to Category",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_ids\": [1, 2, 3, 5]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/categories/1/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["categories", "1", "products"]
+            },
+            "description": "Assign products to this category. Products can belong to multiple categories."
+          },
+          "response": []
+        },
+        {
+          "name": "Remove Products from Category",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_ids\": [1, 2]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/categories/1/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["categories", "1", "products"]
+            },
+            "description": "Remove products from this category."
+          },
+          "response": []
+        },
+        {
+          "name": "Archive Category",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/categories/1/archive",
+              "host": ["{{baseUrl}}"],
+              "path": ["categories", "1", "archive"]
+            },
+            "description": "Archives a category with cascade logic:\n- Archives all descendant categories (children, grandchildren)\n- Archives products ONLY if they have no other active categories\n- Products in multiple categories remain active if they have other active categories\n- Does NOT change 'visible' flag (preserves state for restore)"
+          },
+          "response": []
+        },
+        {
+          "name": "Restore Category",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"new_parent_id\": null,\n  \"makeRoot\": false,\n  \"products\": {\n    \"restoreAll\": false,\n    \"product_ids\": [1, 2, 3]\n  },\n  \"restoreAllSubcategories\": false,\n  \"subcategories\": [\n    {\n      \"id\": 5,\n      \"products\": {\n        \"restoreAll\": true\n      },\n      \"restoreAllSubcategories\": false,\n      \"subcategories\": [\n        {\n          \"id\": 10,\n          \"products\": {\n            \"restoreAll\": false,\n            \"product_ids\": [20, 21]\n          }\n        }\n      ]\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/categories/1/restore",
+              "host": ["{{baseUrl}}"],
+              "path": ["categories", "1", "restore"]
+            },
+            "description": "Restore an archived category with granular options for products and subcategories.\n\n**Parent Handling:**\n- `new_parent_id`: Move to a different active parent category\n- `makeRoot`: true = make this a root category (no parent)\n- If parent is archived, must use one of these options\n\n**Product Restoration (for this category):**\n- `products.restoreAll`: true = restore all archived products\n- `products.product_ids`: Array of specific product IDs to restore\n\n**Subcategory Restoration:**\n- `restoreAllSubcategories`: true = restore ALL descendants with ALL products\n- `subcategories`: Array of specific subcategories with their own options\n\n**Nested Subcategory Options:**\nEach subcategory can have:\n- `id`: Subcategory ID (required)\n- `products`: Same options as parent (restoreAll or product_ids)\n- `restoreAllSubcategories`: Restore all nested subcategories\n- `subcategories`: Specific nested subcategories with their options\n\n**Product Restoration Rules:**\n- Products are only restored if their vendor is active\n- Products with archived vendors are skipped\n\n**Example payloads:**\n\n1. Restore category only (no products, no subcategories):\n```json\n{}\n```\n\n2. Restore category + all products (no subcategories):\n```json\n{\n  \"products\": { \"restoreAll\": true }\n}\n```\n\n3. Restore category + specific products:\n```json\n{\n  \"products\": { \"product_ids\": [1, 2, 5] }\n}\n```\n\n4. Restore category + all subcategories + all products:\n```json\n{\n  \"products\": { \"restoreAll\": true },\n  \"restoreAllSubcategories\": true\n}\n```\n\n5. Legacy (backward compatible):\n```json\n{\n  \"restoreAllContents\": true\n}\n```\n\n6. Selective restoration with nested control:\n```json\n{\n  \"products\": { \"product_ids\": [1, 2] },\n  \"subcategories\": [\n    {\n      \"id\": 5,\n      \"products\": { \"restoreAll\": true },\n      \"subcategories\": [\n        {\n          \"id\": 10,\n          \"products\": { \"product_ids\": [20] }\n        }\n      ]\n    },\n    {\n      \"id\": 6,\n      \"restoreAllSubcategories\": true\n    }\n  ]\n}\n```"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Archived Categories",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/categories/archive/list",
+              "host": ["{{baseUrl}}"],
+              "path": ["categories", "archive", "list"]
+            },
+            "description": "Get all archived categories (trash view) with their archived products and subcategories included.\n\n**Example Response:**\n```json\n{\n  \"data\": [\n    {\n      \"id\": 1,\n      \"name_en\": \"Electronics\",\n      \"name_ar\": \"إلكترونيات\",\n      \"status\": \"archived\",\n      \"visible\": true,\n      \"archived_at\": \"2025-01-15T10:30:00.000Z\",\n      \"archived_by\": 1,\n      \"wasLive\": true,\n      \"wasDraft\": false,\n      \"archivedProducts\": [\n        {\n          \"id\": 10,\n          \"name_en\": \"iPhone 15\",\n          \"name_ar\": \"آيفون 15\",\n          \"sku\": \"PRD-12345678-ABCD\",\n          \"archived_at\": \"2025-01-15T10:30:00.000Z\",\n          \"archived_by\": 1,\n          \"image\": \"http://localhost:3001/uploads/products/iphone15.jpg\"\n        },\n        {\n          \"id\": 11,\n          \"name_en\": \"Samsung Galaxy\",\n          \"name_ar\": \"سامسونج جالكسي\",\n          \"sku\": \"PRD-87654321-EFGH\",\n          \"archived_at\": \"2025-01-15T10:30:00.000Z\",\n          \"archived_by\": 1,\n          \"image\": null\n        }\n      ],\n      \"archivedSubcategories\": [\n        {\n          \"id\": 5,\n          \"name_en\": \"Phones\",\n          \"name_ar\": \"هواتف\",\n          \"image\": \"http://localhost:3001/uploads/categories/phones.jpg\",\n          \"archived_at\": \"2025-01-15T10:30:00.000Z\",\n          \"archived_by\": 1\n        },\n        {\n          \"id\": 6,\n          \"name_en\": \"Tablets\",\n          \"name_ar\": \"أجهزة لوحية\",\n          \"image\": null,\n          \"archived_at\": \"2025-01-15T10:30:00.000Z\",\n          \"archived_by\": 1\n        }\n      ]\n    }\n  ],\n  \"meta\": {\n    \"total\": 1,\n    \"page\": 1,\n    \"limit\": 10,\n    \"totalPages\": 1\n  }\n}\n```"
+          },
+          "response": []
+        },
+        {
+          "name": "Permanent Delete Category",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deleteProducts\": false,\n  \"move_products_to_category_id\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/categories/1/permanent",
+              "host": ["{{baseUrl}}"],
+              "path": ["categories", "1", "permanent"]
+            },
+            "description": "Permanently delete an archived category. Must choose one:\n- deleteProducts: true = permanently delete all products\n- move_products_to_category_id: Move products to another category before deleting"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Products",
+      "description": "Product management with multi-category support. Products can now belong to multiple categories via the category_ids array.",
+      "item": [
+        {
+          "name": "Create Product",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name_en\": \"Sample Product\",\n  \"name_ar\": \"منتج تجريبي\",\n  \"short_description_en\": \"Product description in English\",\n  \"short_description_ar\": \"وصف المنتج بالعربي\",\n  \"long_description_en\": \"Full product description in English\",\n  \"long_description_ar\": \"الوصف الكامل للمنتج بالعربي\",\n  \"category_ids\": [1, 2, 3],\n  \"vendor_id\": 1,\n  \"visible\": true,\n  \"prices\": [\n    {\n      \"cost\": 50,\n      \"price\": 100,\n      \"sale_price\": 80\n    }\n  ],\n  \"weights\": [\n    {\n      \"weight\": 0.5,\n      \"length\": 10,\n      \"width\": 5,\n      \"height\": 2\n    }\n  ],\n  \"stocks\": [\n    {\n      \"quantity\": 100\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["products"]
+            },
+            "description": "Create a new product. Use category_ids array to assign product to multiple categories."
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Products",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["products"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Products with Filters",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/products?category_id=1&vendor_id=1&visible=true&page=1&limit=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["products"],
+              "query": [
+                {
+                  "key": "category_id",
+                  "value": "1",
+                  "description": "Filter by category"
+                },
+                {
+                  "key": "vendor_id",
+                  "value": "1",
+                  "description": "Filter by vendor"
+                },
+                {
+                  "key": "visible",
+                  "value": "true"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Get products with filters including vendorId filter option"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Product by ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/products/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["products", "1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Product",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name_en\": \"Updated Product Name\",\n  \"category_ids\": [1, 2, 4],\n  \"visible\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/products/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["products", "1"]
+            },
+            "description": "Update a product. Use category_ids array to update category assignments."
+          },
+          "response": []
+        },
+        {
+          "name": "Assign Products to Category",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_ids\": [1, 2, 3, 5]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/products/assign/category/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["products", "assign", "category", "1"]
+            },
+            "description": "Add products to a category. Products can belong to multiple categories."
+          },
+          "response": []
+        },
+        {
+          "name": "Remove Products from Category",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_ids\": [1, 2]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/products/assign/category/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["products", "assign", "category", "1"]
+            },
+            "description": "Remove products from a category."
+          },
+          "response": []
+        },
+        {
+          "name": "Assign Products to Vendor",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_ids\": [1, 2, 3]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/products/assign/vendor/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["products", "assign", "vendor", "1"]
+            },
+            "description": "Assign products to a vendor."
+          },
+          "response": []
+        },
+        {
+          "name": "Remove Products from Vendor",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_ids\": [1, 2]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/products/assign/vendor/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["products", "assign", "vendor", "1"]
+            },
+            "description": "Remove products from a vendor (sets vendor_id to null)."
+          },
+          "response": []
+        },
+        {
+          "name": "Archive Product",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/products/1/archive",
+              "host": ["{{baseUrl}}"],
+              "path": ["products", "1", "archive"]
+            },
+            "description": "Archive a product (soft delete). Does NOT change 'visible' flag."
+          },
+          "response": []
+        },
+        {
+          "name": "Restore Product",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newCategoryId\": null\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/products/1/restore",
+              "host": ["{{baseUrl}}"],
+              "path": ["products", "1", "restore"]
+            },
+            "description": "Restore an archived product.\n\n**Restore Conditions:**\n1. Product's vendor must be ACTIVE - if vendor is archived, restoration is blocked\n2. Product must have at least one active category\n\n**Options:**\n- `newCategoryId`: Provide if original category is archived\n\n**Blocked Cases:**\n- Vendor is archived → Error: 'Cannot restore product because its vendor is archived. Please restore the vendor first.'\n- Category is archived and no newCategoryId provided → Error: 'Product category is archived. Please provide a new category_id.'"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Archived Products",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/products/archive/list",
+              "host": ["{{baseUrl}}"],
+              "path": ["products", "archive", "list"]
+            },
+            "description": "Get all archived products (trash view)"
+          },
+          "response": []
+        },
+        {
+          "name": "Permanent Delete Product",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/products/1/permanent",
+              "host": ["{{baseUrl}}"],
+              "path": ["products", "1", "permanent"]
+            },
+            "description": "Permanently delete an archived product. Product must be archived first."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Vendors",
+      "description": "Vendor management with product assignments and cascade archive logic.",
+      "item": [
+        {
+          "name": "Create Vendor",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "name_en",
+                  "value": "Vendor Name",
+                  "type": "text"
+                },
+                {
+                  "key": "name_ar",
+                  "value": "اسم البائع",
+                  "type": "text"
+                },
+                {
+                  "key": "description_en",
+                  "value": "Vendor description",
+                  "type": "text"
+                },
+                {
+                  "key": "description_ar",
+                  "value": "وصف البائع",
+                  "type": "text"
+                },
+                {
+                  "key": "email",
+                  "value": "vendor@example.com",
+                  "type": "text"
+                },
+                {
+                  "key": "phone",
+                  "value": "+1234567890",
+                  "type": "text"
+                },
+                {
+                  "key": "visible",
+                  "value": "true",
+                  "type": "text"
+                },
+                {
+                  "key": "product_ids",
+                  "value": "[1, 2, 3]",
+                  "type": "text",
+                  "description": "Optional: Array of product IDs to assign to this vendor"
+                },
+                {
+                  "key": "logo",
+                  "type": "file",
+                  "src": ""
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/vendors",
+              "host": ["{{baseUrl}}"],
+              "path": ["vendors"]
+            },
+            "description": "Create a new vendor. Optionally include product_ids to assign products during creation."
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Vendors",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/vendors",
+              "host": ["{{baseUrl}}"],
+              "path": ["vendors"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Vendor by ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/vendors/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["vendors", "1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Vendor",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "name_en",
+                  "value": "Updated Vendor Name",
+                  "type": "text"
+                },
+                {
+                  "key": "product_ids",
+                  "value": "[1, 2, 5]",
+                  "type": "text",
+                  "description": "Optional: Sync product assignments (replaces existing)"
+                },
+                {
+                  "key": "logo",
+                  "type": "file",
+                  "src": ""
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/vendors/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["vendors", "1"]
+            },
+            "description": "Update a vendor. If product_ids is provided, it will sync (replace) existing product assignments."
+          },
+          "response": []
+        },
+        {
+          "name": "Reorder Vendors",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"vendors\": [\n    { \"id\": 1, \"sort_order\": 0 },\n    { \"id\": 2, \"sort_order\": 1 },\n    { \"id\": 3, \"sort_order\": 2 }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/vendors/reorder",
+              "host": ["{{baseUrl}}"],
+              "path": ["vendors", "reorder"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Products for Vendor",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/vendors/1/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["vendors", "1", "products"]
+            },
+            "description": "Get all products for this vendor. Returns { vendor: {...}, products: [...] } with full vendor info and product relations."
+          },
+          "response": []
+        },
+        {
+          "name": "Assign Products to Vendor",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_ids\": [1, 2, 3, 5]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/vendors/1/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["vendors", "1", "products"]
+            },
+            "description": "Assign products to this vendor."
+          },
+          "response": []
+        },
+        {
+          "name": "Remove Products from Vendor",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_ids\": [1, 2]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/vendors/1/products",
+              "host": ["{{baseUrl}}"],
+              "path": ["vendors", "1", "products"]
+            },
+            "description": "Remove products from this vendor (sets vendor_id to null)."
+          },
+          "response": []
+        },
+        {
+          "name": "Archive Vendor",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/vendors/1/archive",
+              "host": ["{{baseUrl}}"],
+              "path": ["vendors", "1", "archive"]
+            },
+            "description": "Archive a vendor and all its products.\n\nArchive Logic:\n- Archives the vendor\n- Archives ALL products belonging to this vendor\n- Does NOT change 'visible' flag (preserves state for restore)"
+          },
+          "response": []
+        },
+        {
+          "name": "Restore Vendor",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"restoreAllProducts\": false,\n  \"product_ids\": [1, 2, 3]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/vendors/1/restore",
+              "host": ["{{baseUrl}}"],
+              "path": ["vendors", "1", "restore"]
+            },
+            "description": "Restore an archived vendor with product restoration options.\n\n**Options:**\n- `restoreAllProducts`: true = restore all archived products from this vendor\n- `product_ids`: Array of specific product IDs to restore\n- Empty body = restore vendor only, products remain archived\n\n**Product Restoration Rules:**\n- Products are only restored if they have at least one active category\n- Products with all archived categories are skipped\n\n**Example payloads:**\n\n1. Restore vendor only (no products):\n```json\n{}\n```\n\n2. Restore vendor + all products:\n```json\n{\n  \"restoreAllProducts\": true\n}\n```\n\n3. Restore vendor + specific products:\n```json\n{\n  \"restoreAllProducts\": false,\n  \"product_ids\": [1, 2, 5]\n}\n```"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Archived Vendors",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/vendors/archive/list",
+              "host": ["{{baseUrl}}"],
+              "path": ["vendors", "archive", "list"]
+            },
+            "description": "Get all archived vendors (trash view) with their archived products included.\n\n**Example Response:**\n```json\n[\n  {\n    \"id\": 1,\n    \"name_en\": \"Samsung Store\",\n    \"name_ar\": \"متجر سامسونج\",\n    \"status\": \"archived\",\n    \"visible\": true,\n    \"archived_at\": \"2025-01-15T10:30:00.000Z\",\n    \"archived_by\": 1,\n    \"archivedProducts\": [\n      {\n        \"id\": 10,\n        \"name_en\": \"Samsung Galaxy S24\",\n        \"name_ar\": \"سامسونج جالكسي S24\",\n        \"sku\": \"PRD-12345678-ABCD\",\n        \"archived_at\": \"2025-01-15T10:30:00.000Z\",\n        \"archived_by\": 1,\n        \"image\": \"http://localhost:3001/uploads/products/galaxy-s24.jpg\"\n      },\n      {\n        \"id\": 11,\n        \"name_en\": \"Samsung Tab S9\",\n        \"name_ar\": \"سامسونج تاب S9\",\n        \"sku\": \"PRD-87654321-EFGH\",\n        \"archived_at\": \"2025-01-15T10:30:00.000Z\",\n        \"archived_by\": 1,\n        \"image\": null\n      }\n    ]\n  },\n  {\n    \"id\": 2,\n    \"name_en\": \"Apple Store\",\n    \"name_ar\": \"متجر أبل\",\n    \"status\": \"archived\",\n    \"visible\": false,\n    \"archived_at\": \"2025-01-14T08:00:00.000Z\",\n    \"archived_by\": 1,\n    \"archivedProducts\": []\n  }\n]\n```"
+          },
+          "response": []
+        },
+        {
+          "name": "Permanent Delete Vendor",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"deleteProducts\": false,\n  \"moveProductsToVendorId\": 2\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/vendors/1/permanent",
+              "host": ["{{baseUrl}}"],
+              "path": ["vendors", "1", "permanent"]
+            },
+            "description": "Permanently delete an archived vendor. Must choose one:\n- deleteProducts: true = permanently delete all products\n- moveProductsToVendorId: Move products to another vendor before deleting"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Media",
+      "item": [
+        {
+          "name": "Upload Media",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": ""
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/media/upload",
+              "host": ["{{baseUrl}}"],
+              "path": ["media", "upload"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Media by ID",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/media/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["media", "1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Media",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/media/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["media", "1"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Coupons",
+      "item": [
+        {
+          "name": "Create Coupon",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"SAVE20\",\n  \"discount_type\": \"percentage\",\n  \"discount_value\": 20,\n  \"min_order_amount\": 100,\n  \"max_uses\": 100,\n  \"expires_at\": \"2025-12-31T23:59:59Z\",\n  \"is_active\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/coupons",
+              "host": ["{{baseUrl}}"],
+              "path": ["coupons"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Coupons",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/coupons",
+              "host": ["{{baseUrl}}"],
+              "path": ["coupons"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Coupon by ID",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/coupons/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["coupons", "1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Coupon",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"discount_value\": 25,\n  \"is_active\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/coupons/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["coupons", "1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Coupon",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/coupons/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["coupons", "1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Validate Coupon",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"code\": \"SAVE20\",\n  \"order_amount\": 150\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/coupons/validate",
+              "host": ["{{baseUrl}}"],
+              "path": ["coupons", "validate"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Coupon Usage",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/coupons/my-usage",
+              "host": ["{{baseUrl}}"],
+              "path": ["coupons", "my-usage"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Ratings",
+      "item": [
+        {
+          "name": "Create Rating",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_id\": 1,\n  \"rating\": 5,\n  \"comment\": \"Excellent product!\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ratings",
+              "host": ["{{baseUrl}}"],
+              "path": ["ratings"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Ratings",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/ratings",
+              "host": ["{{baseUrl}}"],
+              "path": ["ratings"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Filter Ratings",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_id\": 1,\n  \"status\": \"approved\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ratings/filter",
+              "host": ["{{baseUrl}}"],
+              "path": ["ratings", "filter"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Product Ratings",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/ratings/product/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["ratings", "product", "1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Rating by ID",
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/ratings/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["ratings", "1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Rating Status",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"approved\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/ratings/1/status",
+              "host": ["{{baseUrl}}"],
+              "path": ["ratings", "1", "status"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Rating",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/ratings/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["ratings", "1"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Wallet",
+      "item": [
+        {
+          "name": "Get Wallet",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/wallet",
+              "host": ["{{baseUrl}}"],
+              "path": ["wallet"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Transactions",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/wallet/transactions",
+              "host": ["{{baseUrl}}"],
+              "path": ["wallet", "transactions"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Filter Transactions",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"credit\",\n  \"from_date\": \"2025-01-01\",\n  \"to_date\": \"2025-12-31\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/wallet/transactions/filter",
+              "host": ["{{baseUrl}}"],
+              "path": ["wallet", "transactions", "filter"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Add Funds",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 100,\n  \"description\": \"Deposit\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/wallet/add-funds",
+              "host": ["{{baseUrl}}"],
+              "path": ["wallet", "add-funds"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Wishlist",
+      "item": [
+        {
+          "name": "Get Wishlist",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/wishlist",
+              "host": ["{{baseUrl}}"],
+              "path": ["wishlist"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Add to Wishlist",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"product_id\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/wishlist",
+              "host": ["{{baseUrl}}"],
+              "path": ["wishlist"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Remove from Wishlist",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/wishlist/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["wishlist", "1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Clear Wishlist",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/wishlist",
+              "host": ["{{baseUrl}}"],
+              "path": ["wishlist"]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

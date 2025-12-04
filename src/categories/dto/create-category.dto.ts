@@ -1,13 +1,23 @@
-import { IsString, IsOptional, IsNumber, MaxLength } from 'class-validator';
+import { IsString, IsOptional, IsNumber, MaxLength, IsBoolean, IsEnum, IsArray } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import { CategoryStatus } from '../entities/category.entity';
 
 export class CreateCategoryDto {
     @IsString()
     @MaxLength(100)
-    name: string;
+    name_en: string;
+
+    @IsString()
+    @MaxLength(100)
+    name_ar: string;
 
     @IsString()
     @IsOptional()
-    description?: string;
+    description_en?: string;
+
+    @IsString()
+    @IsOptional()
+    description_ar?: string;
 
     @IsString()
     @IsOptional()
@@ -15,7 +25,43 @@ export class CreateCategoryDto {
 
     @IsNumber()
     @IsOptional()
-    parentId?: number; // For creating subcategories
+    @Transform(({ value }) => {
+        if (value === '' || value === null || value === undefined) return undefined;
+        const num = Number(value);
+        return isNaN(num) ? undefined : num;
+    })
+    parent_id?: number; // For creating subcategories (omit or null for root category)
+
+    @IsEnum(CategoryStatus)
+    @IsOptional()
+    @Transform(({ value }) => value === '' ? undefined : value)
+    status?: CategoryStatus;
+
+    @IsBoolean()
+    @IsOptional()
+    @Transform(({ value }) => {
+        if (value === '' || value === undefined) return undefined;
+        if (value === 'true' || value === true) return true;
+        if (value === 'false' || value === false) return false;
+        return undefined;
+    })
+    visible?: boolean;
+
+    @IsArray()
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber({}, { each: true })
+    @Transform(({ value }) => {
+        if (typeof value === 'string') {
+            try {
+                return JSON.parse(value);
+            } catch {
+                return value.split(',').map(Number).filter(n => !isNaN(n));
+            }
+        }
+        return value;
+    })
+    product_ids?: number[];
 
     // image will be handled separately in multipart/form-data
 }

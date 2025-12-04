@@ -13,6 +13,7 @@ import { ProductWeightGroupValue } from './entities/product-weight-group-value.e
 import { ProductStock } from './entities/product-stock.entity';
 import { ProductVariant } from './entities/product-variant.entity';
 import { ProductVariantCombination } from './entities/product-variant-combination.entity';
+import { ProductCategory } from './entities/product-category.entity';
 import { AttributesModule } from '../attributes/attributes.module';
 import { ProductVariantsService } from './product-variants.service';
 import { ProductPriceGroupService } from './product-price-group.service';
@@ -21,6 +22,7 @@ import { ProductWeightGroupService } from './product-weight-group.service';
 import { AttributeValue } from '../attributes/entities/attribute-value.entity';
 import { Attribute } from '../attributes/entities/attribute.entity';
 import { Media } from '../media/entities/media.entity';
+import { Category } from '../categories/entities/category.entity';
 
 @Module({
   imports: [
@@ -36,9 +38,11 @@ import { Media } from '../media/entities/media.entity';
       ProductStock,
       ProductVariant,
       ProductVariantCombination,
+      ProductCategory,
       AttributeValue,
       Attribute,
       Media,
+      Category,
     ]),
     AttributesModule,
   ],

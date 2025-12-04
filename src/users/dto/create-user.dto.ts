@@ -1,4 +1,5 @@
-import { IsEmail, IsString, MinLength, MaxLength, IsEnum, IsOptional } from 'class-validator';
+import { IsEmail, IsString, MinLength, MaxLength, IsEnum, IsOptional, IsArray, IsNumber } from 'class-validator';
+import { Type } from 'class-transformer';
 import { UserRole } from '../entities/user.entity';
 
 export class CreateUserDto {
@@ -22,4 +23,10 @@ export class CreateUserDto {
     @IsEnum(UserRole)
     @IsOptional()
     role?: UserRole; // Optional, defaults to USER
+
+    @IsArray()
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber({}, { each: true })
+    product_ids?: number[]; // Products to add to user's wishlist
 }

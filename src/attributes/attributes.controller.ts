@@ -14,6 +14,7 @@ import { CreateAttributeDto } from './dto/create-attribute.dto';
 import { UpdateAttributeDto } from './dto/update-attribute.dto';
 import { ReorderAttributesDto } from './dto/reorder-attributes.dto';
 import { ReorderAttributeValuesDto } from './dto/reorder-attribute-values.dto';
+import { UpdateAttributeValueDto } from './dto/update-attribute-value.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles, UserRole } from '../common/decorators/roles.decorator';
@@ -78,6 +79,16 @@ export class AttributesController {
     @Body() reorderDto: ReorderAttributeValuesDto,
   ) {
     return this.attributesService.reorderAttributeValues(+id, reorderDto);
+  }
+
+  @Patch('values/:valueId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  updateValue(
+    @Param('valueId') valueId: string,
+    @Body() updateDto: UpdateAttributeValueDto,
+  ) {
+    return this.attributesService.updateValue(+valueId, updateDto);
   }
 
   @Delete('values/:valueId')

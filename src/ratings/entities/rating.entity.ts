@@ -19,11 +19,11 @@ export enum RatingStatus {
 }
 
 @Entity('ratings')
-@Unique('uq_user_product_rating', ['userId', 'productId'])
-@Index('idx_ratings_product_id', ['productId'])
+@Unique('uq_user_product_rating', ['userId', 'product_id'])
+@Index('idx_ratings_product_id', ['product_id'])
 @Index('idx_ratings_user_id', ['userId'])
 @Index('idx_ratings_status', ['status'])
-@Index('idx_ratings_product_status', ['productId', 'status'])
+@Index('idx_ratings_product_status', ['product_id', 'status'])
 export class Rating {
   @PrimaryGeneratedColumn('increment')
   id: number;
@@ -54,11 +54,11 @@ export class Rating {
 
   // Product being rated
   @ManyToOne(() => Product, (product) => product.ratings, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'productId' })
+  @JoinColumn({ name: 'product_id' })
   product: Product;
 
   @Column()
-  productId: number;
+  product_id: number;
 
   @CreateDateColumn()
   createdAt: Date;

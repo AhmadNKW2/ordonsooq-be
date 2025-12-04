@@ -1,4 +1,5 @@
-import { IsEmail, IsString, MinLength, MaxLength, IsEnum, IsOptional, IsBoolean } from 'class-validator';
+import { IsEmail, IsString, MinLength, MaxLength, IsEnum, IsOptional, IsBoolean, IsArray, IsNumber } from 'class-validator';
+import { Type } from 'class-transformer';
 import { UserRole } from '../entities/user.entity';
 
 export class UpdateUserDto {
@@ -25,4 +26,10 @@ export class UpdateUserDto {
     @IsBoolean()
     @IsOptional()
     isActive?: boolean;
+
+    @IsArray()
+    @IsOptional()
+    @Type(() => Number)
+    @IsNumber({}, { each: true })
+    product_ids?: number[]; // Products to sync to user's wishlist (replaces existing)
 }
