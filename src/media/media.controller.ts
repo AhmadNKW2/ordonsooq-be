@@ -11,19 +11,18 @@ import {
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
+import { memoryStorage } from 'multer';
 import { MediaService } from './media.service';
-import { MediaType } from './entities/media.entity';
 import { Roles, UserRole } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { mediaFileFilter, editFileName } from '../common/utils/file-upload.helper';
+import { mediaFileFilter } from '../common/utils/file-upload.helper';
 
 @Controller('media')
 export class MediaController {
   constructor(private readonly mediaService: MediaService) {}
 
   /**
-   * Upload a media file (image or video)
+   * Upload a media file (image or video) to Cloudflare R2
    * 
    * This is a generic upload endpoint - files are uploaded independently
    * and can be linked to products later.
@@ -40,12 +39,9 @@ export class MediaController {
   @Roles(UserRole.ADMIN)
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: diskStorage({
-        destination: './uploads/products',
-        filename: editFileName,
-      }),
+      storage: memoryStorage(),
       fileFilter: mediaFileFilter,
-      limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+      limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
     }),
   )
   async upload(@UploadedFile() file: Express.Multer.File) {
@@ -53,17 +49,8 @@ export class MediaController {
       throw new BadRequestException('No file uploaded');
     }
 
-    const url = `${process.env.APP_URL || 'http://localhost:3001'}/uploads/products/${file.filename}`;
-    const type = file.mimetype.startsWith('video/') ? MediaType.VIDEO : MediaType.IMAGE;
-
-    const media = await this.mediaService.create(
-      url,
-      type,
-      file.originalname,
-      file.mimetype,
-      file.size,
-    );
-
+    // Upload to R2 and create media record
+    const media = await this.mediaService.uploadAndCreate(file, 'products');
     return media;
   }
 
@@ -78,8 +65,7 @@ export class MediaController {
 
   /**
    * Delete media by ID
-   * Note: This only deletes the database record. 
-   * File cleanup should be handled by a garbage collector process.
+   * This deletes both the database record and the file from R2.
    */
   @Delete(':id')
   @UseGuards(AuthGuard('jwt'), RolesGuard)

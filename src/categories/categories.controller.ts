@@ -16,8 +16,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
-import { diskStorage } from 'multer';
-import { extname } from 'path';
+import { memoryStorage } from 'multer';
 import { CategoriesService } from './categories.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
@@ -27,11 +26,15 @@ import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
 import { AssignProductsToCategoryDto } from './dto/assign-products.dto';
 import { Roles, UserRole } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { imageFileFilter, UPLOAD_FOLDERS } from '../common/utils/file-upload.util';
+import { imageFileFilter } from '../common/utils/file-upload.util';
+import { R2StorageService } from '../common/services/r2-storage.service';
 
 @Controller('categories')
 export class CategoriesController {
-    constructor(private readonly categoriesService: CategoriesService) { }
+    constructor(
+        private readonly categoriesService: CategoriesService,
+        private readonly r2StorageService: R2StorageService,
+    ) { }
 
     // Admin only routes
     @Post()
@@ -39,24 +42,19 @@ export class CategoriesController {
     @Roles(UserRole.ADMIN)
     @UseInterceptors(
         FileInterceptor('image', {
-            storage: diskStorage({
-                destination: UPLOAD_FOLDERS.CATEGORIES,
-                filename: (req, file, cb) => {
-                    const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${extname(file.originalname)}`;
-                    cb(null, uniqueName);
-                },
-            }),
+            storage: memoryStorage(),
             fileFilter: imageFileFilter,
             limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
         })
     )
-    create(
+    async create(
         @Body() createCategoryDto: CreateCategoryDto,
         @UploadedFile() file: Express.Multer.File,
         @Req() req: any,
     ) {
         if (file) {
-            createCategoryDto.image = `${req.protocol}://${req.get('host')}/uploads/categories/${file.filename}`;
+            const uploadResult = await this.r2StorageService.uploadFile(file, 'categories');
+            createCategoryDto.image = uploadResult.url;
         }
         return this.categoriesService.create(createCategoryDto);
     }
@@ -72,25 +70,20 @@ export class CategoriesController {
     @Roles(UserRole.ADMIN)
     @UseInterceptors(
         FileInterceptor('image', {
-            storage: diskStorage({
-                destination: UPLOAD_FOLDERS.CATEGORIES,
-                filename: (req, file, cb) => {
-                    const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1e9)}${extname(file.originalname)}`;
-                    cb(null, uniqueName);
-                },
-            }),
+            storage: memoryStorage(),
             fileFilter: imageFileFilter,
             limits: { fileSize: 50 * 1024 * 1024 },
         })
     )
-    update(
+    async update(
         @Param('id') id: number,
         @Body() updateCategoryDto: UpdateCategoryDto,
         @UploadedFile() file: Express.Multer.File,
         @Req() req: any,
     ) {
         if (file) {
-            updateCategoryDto.image = `${req.protocol}://${req.get('host')}/uploads/categories/${file.filename}`;
+            const uploadResult = await this.r2StorageService.uploadFile(file, 'categories');
+            updateCategoryDto.image = uploadResult.url;
         }
         return this.categoriesService.update(id, updateCategoryDto);
     }

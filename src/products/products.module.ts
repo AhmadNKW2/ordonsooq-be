@@ -23,6 +23,7 @@ import { AttributeValue } from '../attributes/entities/attribute-value.entity';
 import { Attribute } from '../attributes/entities/attribute.entity';
 import { Media } from '../media/entities/media.entity';
 import { Category } from '../categories/entities/category.entity';
+import { Brand } from '../brands/entities/brand.entity';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { Category } from '../categories/entities/category.entity';
       Attribute,
       Media,
       Category,
+      Brand,
     ]),
     AttributesModule,
   ],

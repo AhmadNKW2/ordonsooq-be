@@ -161,6 +161,10 @@ export class CreateProductDto {
     @IsOptional()
     vendor_id?: number;
 
+    @IsNumber()
+    @IsOptional()
+    brand_id?: number;
+
     @IsEnum(ProductStatus)
     @IsOptional()
     status?: ProductStatus;

@@ -4,19 +4,20 @@ import { IsArray, IsNumber, IsOptional } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 
 export class UpdateVendorDto extends PartialType(CreateVendorDto) {
-  @IsArray()
   @IsOptional()
-  @Type(() => Number)
-  @IsNumber({}, { each: true })
   @Transform(({ value }) => {
+    if (value === '' || value === undefined || value === null) return [];
     if (typeof value === 'string') {
       try {
-        return JSON.parse(value);
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
       } catch {
         return value.split(',').map(Number).filter(n => !isNaN(n));
       }
     }
-    return value;
+    return Array.isArray(value) ? value : [];
   })
+  @IsArray()
+  @IsNumber({}, { each: true })
   product_ids?: number[];
 }

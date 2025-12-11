@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Vendor, VendorStatus } from './entities/vendor.entity';
@@ -7,14 +7,18 @@ import { UpdateVendorDto } from './dto/update-vendor.dto';
 import { RestoreVendorDto, PermanentDeleteVendorDto } from './dto/archive-vendor.dto';
 import { ReorderVendorsDto } from './dto/reorder-vendors.dto';
 import { Product, ProductStatus } from '../products/entities/product.entity';
+import { R2StorageService } from '../common/services/r2-storage.service';
 
 @Injectable()
 export class VendorsService {
+  private readonly logger = new Logger(VendorsService.name);
+
   constructor(
     @InjectRepository(Vendor)
     private vendorRepository: Repository<Vendor>,
     @InjectRepository(Product)
     private productsRepository: Repository<Product>,
+    private r2StorageService: R2StorageService,
   ) {}
 
   async create(createVendorDto: CreateVendorDto, logoUrl?: string): Promise<Vendor> {
@@ -73,6 +77,7 @@ export class VendorsService {
   async findAll(): Promise<Vendor[]> {
     return await this.vendorRepository.find({
       where: { status: VendorStatus.ACTIVE },
+      relations: ['products'],
       order: { sort_order: 'ASC', created_at: 'DESC' },
     });
   }
@@ -80,6 +85,7 @@ export class VendorsService {
   async findOne(id: number): Promise<Vendor> {
     const vendor = await this.vendorRepository.findOne({
       where: { id },
+      relations: ['products'],
     });
 
     if (!vendor) {
@@ -91,6 +97,7 @@ export class VendorsService {
 
   async update(id: number, updateVendorDto: UpdateVendorDto, logoUrl?: string): Promise<Vendor> {
     const vendor = await this.findOne(id);
+    const oldLogoUrl = vendor.logo;
 
     if (updateVendorDto.name_en && updateVendorDto.name_en !== vendor.name_en) {
       const existing = await this.vendorRepository.findOne({
@@ -108,6 +115,15 @@ export class VendorsService {
       vendor.logo = logoUrl;
     }
     const savedVendor = await this.vendorRepository.save(vendor);
+
+    // Delete old logo from R2 if a new one was uploaded
+    if (logoUrl && oldLogoUrl) {
+      try {
+        await this.r2StorageService.deleteFile(oldLogoUrl);
+      } catch (error) {
+        this.logger.warn(`Failed to delete old vendor logo: ${oldLogoUrl}`, error);
+      }
+    }
 
     // Sync products if provided
     if (product_ids !== undefined) {
@@ -333,8 +349,19 @@ export class VendorsService {
       }
     }
 
+    const logoUrl = vendor.logo;
+
     // Perform hard delete of vendor
     await this.vendorRepository.delete(id);
+
+    // Delete logo from R2
+    if (logoUrl) {
+      try {
+        await this.r2StorageService.deleteFile(logoUrl);
+      } catch (error) {
+        this.logger.warn(`Failed to delete vendor logo: ${logoUrl}`, error);
+      }
+    }
 
     return { message: `Vendor "${vendor.name_en}" permanently deleted` };
   }

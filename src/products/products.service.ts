@@ -12,6 +12,7 @@ import { ProductWeightGroupService } from './product-weight-group.service';
 import { Category, CategoryStatus } from '../categories/entities/category.entity';
 import { ProductCategory } from './entities/product-category.entity';
 import { Vendor, VendorStatus } from '../vendors/entities/vendor.entity';
+import { Brand, BrandStatus } from '../brands/entities/brand.entity';
 
 @Injectable()
 export class ProductsService {
@@ -22,6 +23,8 @@ export class ProductsService {
         private categoriesRepository: Repository<Category>,
         @InjectRepository(ProductCategory)
         private productCategoriesRepository: Repository<ProductCategory>,
+        @InjectRepository(Brand)
+        private brandsRepository: Repository<Brand>,
         private variantsService: ProductVariantsService,
         private priceGroupService: ProductPriceGroupService,
         private mediaGroupService: ProductMediaGroupService,
@@ -40,6 +43,16 @@ export class ProductsService {
                 }
             }
 
+            // Validate brand exists and is active if provided
+            if (dto.brand_id !== undefined) {
+                const brand = await this.brandsRepository.findOne({
+                    where: { id: dto.brand_id, status: BrandStatus.ACTIVE },
+                });
+                if (!brand) {
+                    throw new BadRequestException('Brand not found or inactive');
+                }
+            }
+
             // 1. Create basic product (primary category is first in the list)
             const product = this.productsRepository.create({
                 name_en: dto.name_en,
@@ -51,6 +64,7 @@ export class ProductsService {
                 long_description_ar: dto.long_description_ar,
                 category_id: dto.category_ids?.[0],
                 vendor_id: dto.vendor_id,
+                brand_id: dto.brand_id,
                 status: dto.status ?? ProductStatus.ACTIVE,
                 visible: dto.visible ?? true,
             });
@@ -187,6 +201,7 @@ export class ProductsService {
             sortOrder = 'DESC', 
             categoryId,
             vendorId,
+            brandId,
             minRating,
             maxRating,
             status, 
@@ -197,6 +212,7 @@ export class ProductsService {
         const queryBuilder = this.productsRepository
             .createQueryBuilder('product')
             .leftJoinAndSelect('product.category', 'category')
+            .leftJoinAndSelect('product.brand', 'brand')
             .leftJoinAndSelect('product.productCategories', 'productCategories')
             .leftJoinAndSelect('productCategories.category', 'categories')
             .where('product.status = :activeStatus', { activeStatus: ProductStatus.ACTIVE });
@@ -222,6 +238,11 @@ export class ProductsService {
         // Filter by vendor
         if (vendorId) {
             queryBuilder.andWhere('product.vendor_id = :vendorId', { vendorId });
+        }
+
+        // Filter by brand
+        if (brandId) {
+            queryBuilder.andWhere('product.brand_id = :brandId', { brandId });
         }
 
         // Filter by rating range
@@ -274,7 +295,7 @@ export class ProductsService {
      * Transform a product for the list view with primary image and stock
      */
     private transformProductListItem(product: Product): any {
-        const { media, priceGroups, stock, ...rest } = product as any;
+        const { media, priceGroups, stock, brand, ...rest } = product as any;
 
         // Find primary image or first image
         const primaryImage = media?.find((m: any) => m.is_primary) || media?.[0] || null;
@@ -287,8 +308,17 @@ export class ProductsService {
         const totalStock = stock?.reduce((sum: number, s: any) => sum + (s.quantity || 0), 0) || 0;
         const hasStock = totalStock > 0;
 
+        const brandInfo = brand ? {
+            id: brand.id,
+            name_en: brand.name_en,
+            name_ar: brand.name_ar,
+            logo: brand.logo,
+            status: brand.status,
+        } : null;
+
         return {
             ...rest,
+            brand: brandInfo,
             primary_image: primaryImage ? {
                 id: primaryImage.id,
                 url: primaryImage.url,
@@ -313,6 +343,7 @@ export class ProductsService {
                 'productCategories',
                 'productCategories.category',
                 'vendor',
+                'brand',
                 'media',
                 'media.mediaGroup',
                 'media.mediaGroup.groupValues',
@@ -343,7 +374,7 @@ export class ProductsService {
      * - Transform productCategories to categories array
      */
     private transformProductResponse(product: Product): any {
-        const { priceGroups, weightGroups, media, productCategories, category, ...rest } = product as any;
+        const { priceGroups, weightGroups, media, productCategories, category, brand, ...rest } = product as any;
 
         // Transform media to include mediaGroup object and remove media_group_id
         const transformedMedia = media?.map((m: any) => {
@@ -363,8 +394,17 @@ export class ProductsService {
         // Transform productCategories to a clean categories array
         const categories = productCategories?.map((pc: any) => pc.category).filter(Boolean) || [];
 
+        const brandInfo = brand ? {
+            id: brand.id,
+            name_en: brand.name_en,
+            name_ar: brand.name_ar,
+            logo: brand.logo,
+            status: brand.status,
+        } : null;
+
         return {
             ...rest,
+            brand: brandInfo,
             categories,
             media: transformedMedia,
             prices: priceGroups || [],
@@ -406,8 +446,22 @@ export class ProductsService {
                 await this.productsRepository.update(id, { category_id: dto.category_ids[0] });
             }
 
+            // Validate brand if provided
+            if (dto.brand_id !== undefined) {
+                if (dto.brand_id === null as any) {
+                    // noop - DTO type doesn't allow null, but guard for safety
+                } else {
+                    const brand = await this.brandsRepository.findOne({
+                        where: { id: dto.brand_id, status: BrandStatus.ACTIVE },
+                    });
+                    if (!brand) {
+                        throw new BadRequestException('Brand not found or inactive');
+                    }
+                }
+            }
+
             // 2. Update basic product information
-            const basicInfoFields = ['name_en', 'name_ar', 'sku', 'short_description_en', 'short_description_ar', 'long_description_en', 'long_description_ar', 'vendor_id', 'status', 'visible'];
+            const basicInfoFields = ['name_en', 'name_ar', 'sku', 'short_description_en', 'short_description_ar', 'long_description_en', 'long_description_ar', 'vendor_id', 'brand_id', 'status', 'visible'];
             const basicInfoChanges: any = {};
             
             basicInfoFields.forEach(field => {

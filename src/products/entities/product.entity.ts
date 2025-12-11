@@ -13,6 +13,7 @@ import {
 } from 'typeorm';
 import { Category } from '../../categories/entities/category.entity';
 import { Vendor } from '../../vendors/entities/vendor.entity';
+import { Brand } from '../../brands/entities/brand.entity';
 import { ProductVariant } from './product-variant.entity';
 import { ProductPriceGroup } from './product-price-group.entity';
 import { ProductWeightGroup } from './product-weight-group.entity';
@@ -30,6 +31,7 @@ export enum ProductStatus {
 @Entity('products')
 @Index('idx_products_category_id', ['category_id'])
 @Index('idx_products_vendor_id', ['vendor_id'])
+@Index('idx_products_brand_id', ['brand_id'])
 @Index('idx_products_status', ['status'])
 @Index('idx_products_visible', ['visible'])
 @Index('idx_products_status_visible', ['status', 'visible'])
@@ -90,6 +92,14 @@ export class Product {
 
     @Column({ nullable: true })
     vendor_id: number;
+
+    // Brand relationship
+    @ManyToOne(() => Brand, { onDelete: 'SET NULL', nullable: true })
+    @JoinColumn({ name: 'brand_id' })
+    brand: Brand;
+
+    @Column({ nullable: true })
+    brand_id: number;
 
     // Variants relationship (for variant products)
     @OneToMany(() => ProductVariant, (variant) => variant.product, { cascade: true })

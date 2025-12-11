@@ -56,6 +56,11 @@ export class FilterProductDto {
 
     @IsOptional()
     @Type(() => Number)
+    @IsNumber()
+    brandId?: number;
+
+    @IsOptional()
+    @Type(() => Number)
     minPrice?: number;
 
     @IsOptional()

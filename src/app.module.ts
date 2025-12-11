@@ -12,12 +12,17 @@ import { CouponsModule } from './coupons/coupons.module';
 import { AttributesModule } from './attributes/attributes.module';
 import { VendorsModule } from './vendors/vendors.module';
 import { MediaModule } from './media/media.module';
+import { BannersModule } from './banners/banners.module';
+import { HomeModule } from './home/home.module';
+import { BrandsModule } from './brands/brands.module';
+import { CommonModule } from './common/common.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    CommonModule,
     TypeOrmModule.forRoot({
       type: 'postgres',
       host: process.env.DB_HOST,
@@ -28,6 +33,12 @@ import { MediaModule } from './media/media.module';
       entities: [__dirname + '/**/*.entity{.ts,.js}'],
       synchronize: true,
       logging: true,
+      ssl: true,
+      extra: {
+        ssl: {
+          rejectUnauthorized: false,
+        },
+      }
     }),
     UsersModule,
     AuthModule,
@@ -40,6 +51,9 @@ import { MediaModule } from './media/media.module';
     AttributesModule,
     VendorsModule,
     MediaModule,
+    BannersModule,
+    HomeModule,
+    BrandsModule,
   ],
 })
-export class AppModule {}
+export class AppModule { }

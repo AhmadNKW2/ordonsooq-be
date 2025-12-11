@@ -1,14 +1,43 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Media, MediaType } from './entities/media.entity';
+import { R2StorageService, UploadResult } from '../common/services/r2-storage.service';
 
 @Injectable()
 export class MediaService {
+  private readonly logger = new Logger(MediaService.name);
+
   constructor(
     @InjectRepository(Media)
     private mediaRepository: Repository<Media>,
+    private r2StorageService: R2StorageService,
   ) {}
+
+  /**
+   * Upload a file to R2 and create a media record
+   */
+  async uploadAndCreate(
+    file: Express.Multer.File,
+    folder: string = 'products',
+  ): Promise<Media> {
+    // Upload to R2
+    const uploadResult = await this.r2StorageService.uploadFile(file, folder);
+
+    // Determine media type
+    const type = file.mimetype.startsWith('video/') ? MediaType.VIDEO : MediaType.IMAGE;
+
+    // Create media record
+    const media = this.mediaRepository.create({
+      url: uploadResult.url,
+      type,
+      original_name: uploadResult.originalName,
+      mime_type: uploadResult.mimeType,
+      size: uploadResult.size,
+    });
+
+    return this.mediaRepository.save(media);
+  }
 
   /**
    * Create a new media record after file upload
@@ -52,12 +81,68 @@ export class MediaService {
   }
 
   /**
-   * Delete media by ID
+   * Delete media by ID (also removes file from R2)
    */
   async delete(id: number): Promise<void> {
-    const result = await this.mediaRepository.delete(id);
-    if (result.affected === 0) {
+    const media = await this.mediaRepository.findOne({ where: { id } });
+    if (!media) {
       throw new NotFoundException(`Media with ID ${id} not found`);
+    }
+
+    // Delete from R2 if URL exists
+    if (media.url) {
+      try {
+        await this.r2StorageService.deleteFile(media.url);
+      } catch (error) {
+        this.logger.warn(`Failed to delete file from R2: ${media.url}`, error);
+        // Continue with database deletion even if R2 deletion fails
+      }
+    }
+
+    // Delete from database
+    await this.mediaRepository.delete(id);
+  }
+
+  /**
+   * Delete multiple media by IDs (also removes files from R2)
+   */
+  async deleteMany(ids: number[]): Promise<void> {
+    if (ids.length === 0) return;
+
+    const mediaItems = await this.mediaRepository.find({
+      where: { id: In(ids) },
+    });
+
+    if (mediaItems.length === 0) return;
+
+    // Collect URLs to delete from R2
+    const urls = mediaItems
+      .map((m) => m.url)
+      .filter((url): url is string => !!url);
+
+    // Delete from R2
+    if (urls.length > 0) {
+      try {
+        await this.r2StorageService.deleteFiles(urls);
+      } catch (error) {
+        this.logger.warn('Failed to delete some files from R2', error);
+        // Continue with database deletion even if R2 deletion fails
+      }
+    }
+
+    // Delete from database
+    await this.mediaRepository.delete(ids);
+  }
+
+  /**
+   * Delete a file from R2 by URL (without database operation)
+   */
+  async deleteFileFromStorage(url: string): Promise<void> {
+    if (!url) return;
+    try {
+      await this.r2StorageService.deleteFile(url);
+    } catch (error) {
+      this.logger.warn(`Failed to delete file from R2: ${url}`, error);
     }
   }
 }

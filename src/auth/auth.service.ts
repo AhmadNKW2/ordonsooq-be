@@ -1,5 +1,6 @@
 import { Injectable, UnauthorizedException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { UsersService } from '../users/users.service';
@@ -8,27 +9,149 @@ import { RegisterDto } from './dto/register.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { PasswordResetToken } from './entities/password-reset-token.entity';
+import { RefreshToken } from './entities/refresh-token.entity';
+import { TokenBlacklist } from './entities/token-blacklist.entity';
 import * as crypto from 'crypto';
+import { v4 as uuidv4 } from 'uuid';
+
+export interface TokenPayload {
+    sub: number;
+    email: string;
+    role: string;
+    jti: string;
+    type: 'access' | 'refresh';
+}
+
+export interface AuthTokens {
+    accessToken: string;
+    refreshToken: string;
+    accessTokenExpiry: Date;
+    refreshTokenExpiry: Date;
+}
+
+export interface RequestMetadata {
+    userAgent?: string;
+    ipAddress?: string;
+}
 
 @Injectable()
 export class AuthService {
+    private readonly accessTokenExpiresIn: number;
+    private readonly refreshTokenExpiresIn: number;
+    private readonly refreshTokenMaxAge: number;
+
     constructor(
         private usersService: UsersService,
         private jwtService: JwtService,
+        private configService: ConfigService,
         @InjectRepository(PasswordResetToken)
         private passwordResetTokenRepository: Repository<PasswordResetToken>,
-    ) { }
+        @InjectRepository(RefreshToken)
+        private refreshTokenRepository: Repository<RefreshToken>,
+        @InjectRepository(TokenBlacklist)
+        private tokenBlacklistRepository: Repository<TokenBlacklist>,
+    ) {
+        // Access token: 15 minutes (in seconds)
+        this.accessTokenExpiresIn = this.configService.get<number>('ACCESS_TOKEN_EXPIRES_IN') || 900;
+        // Refresh token: 7 days (in seconds)
+        this.refreshTokenExpiresIn = this.configService.get<number>('REFRESH_TOKEN_EXPIRES_IN') || 604800;
+        // Max age for refresh token sliding expiration: 30 days (in seconds)
+        this.refreshTokenMaxAge = this.configService.get<number>('REFRESH_TOKEN_MAX_AGE') || 2592000;
+    }
 
-    async register(registerDto: RegisterDto) {
+    /**
+     * Generate access and refresh tokens
+     */
+    private async generateTokens(
+        userId: number,
+        email: string,
+        role: string,
+        metadata?: RequestMetadata,
+    ): Promise<AuthTokens> {
+        const accessTokenJti = uuidv4();
+        const refreshTokenJti = uuidv4();
+
+        const accessTokenExpiry = new Date(Date.now() + this.accessTokenExpiresIn * 1000);
+        const refreshTokenExpiry = new Date(Date.now() + this.refreshTokenExpiresIn * 1000);
+
+        // Generate access token
+        const accessPayload: TokenPayload = {
+            sub: userId,
+            email,
+            role,
+            jti: accessTokenJti,
+            type: 'access',
+        };
+        const accessToken = this.jwtService.sign(accessPayload, {
+            expiresIn: this.accessTokenExpiresIn,
+        });
+
+        // Generate refresh token
+        const refreshPayload: TokenPayload = {
+            sub: userId,
+            email,
+            role,
+            jti: refreshTokenJti,
+            type: 'refresh',
+        };
+        const refreshToken = this.jwtService.sign(refreshPayload, {
+            expiresIn: this.refreshTokenExpiresIn,
+        });
+
+        // Store refresh token in database
+        const refreshTokenEntity = this.refreshTokenRepository.create({
+            token: refreshTokenJti,
+            userId,
+            expiresAt: refreshTokenExpiry,
+            userAgent: metadata?.userAgent,
+            ipAddress: metadata?.ipAddress,
+        });
+        await this.refreshTokenRepository.save(refreshTokenEntity);
+
+        return {
+            accessToken,
+            refreshToken,
+            accessTokenExpiry,
+            refreshTokenExpiry,
+        };
+    }
+
+    /**
+     * Get cookie options for access token
+     */
+    getCookieOptions(isProduction: boolean) {
+        return {
+            access: {
+                httpOnly: true,
+                secure: isProduction,
+                sameSite: 'lax' as const,
+                maxAge: this.accessTokenExpiresIn * 1000,
+                path: '/',
+            },
+            refresh: {
+                httpOnly: true,
+                secure: isProduction,
+                sameSite: 'lax' as const,
+                maxAge: this.refreshTokenExpiresIn * 1000,
+                path: '/api/auth', // Only send refresh token to auth endpoints
+            },
+        };
+    }
+
+    async register(registerDto: RegisterDto, metadata?: RequestMetadata) {
         // Create user with specified role (or default to USER)
         const user = await this.usersService.create(registerDto);
 
-        // Generate JWT token
-        const payload = { sub: user.id, email: user.email, role: user.role };
-        const access_token = this.jwtService.sign(payload);
+        // Generate tokens
+        const tokens = await this.generateTokens(
+            user.id,
+            user.email,
+            user.role,
+            metadata,
+        );
 
         return {
-            access_token,
+            tokens,
             user: {
                 id: user.id,
                 email: user.email,
@@ -39,7 +162,7 @@ export class AuthService {
         };
     }
 
-    async login(loginDto: LoginDto) {
+    async login(loginDto: LoginDto, metadata?: RequestMetadata) {
         const user = await this.usersService.findByEmail(loginDto.email);
 
         if (!user) {
@@ -59,11 +182,16 @@ export class AuthService {
             throw new UnauthorizedException('Account is deactivated');
         }
 
-        const payload = { sub: user.id, email: user.email, role: user.role };
-        const access_token = this.jwtService.sign(payload);
+        // Generate tokens
+        const tokens = await this.generateTokens(
+            user.id,
+            user.email,
+            user.role,
+            metadata,
+        );
 
         return {
-            access_token,
+            tokens,
             user: {
                 id: user.id,
                 email: user.email,
@@ -74,8 +202,188 @@ export class AuthService {
         };
     }
 
+    /**
+     * Refresh access token using refresh token
+     * Implements refresh token rotation for security
+     */
+    async refreshTokens(refreshToken: string, metadata?: RequestMetadata): Promise<AuthTokens> {
+        try {
+            // Verify the refresh token
+            const payload = this.jwtService.verify<TokenPayload>(refreshToken);
+
+            if (payload.type !== 'refresh') {
+                throw new UnauthorizedException('Invalid token type');
+            }
+
+            // Check if refresh token exists and is not revoked
+            const storedToken = await this.refreshTokenRepository.findOne({
+                where: { token: payload.jti },
+            });
+
+            if (!storedToken) {
+                throw new UnauthorizedException('Invalid refresh token');
+            }
+
+            if (storedToken.revoked) {
+                // Token reuse detected - possible theft
+                // Revoke all tokens for this user as security measure
+                await this.revokeAllUserTokens(payload.sub, 'token_reuse_detected');
+                throw new UnauthorizedException('Token has been revoked. Please login again.');
+            }
+
+            if (new Date() > storedToken.expiresAt) {
+                throw new UnauthorizedException('Refresh token has expired');
+            }
+
+            // Verify user still exists and is active
+            const user = await this.usersService.findOne(payload.sub);
+            if (!user || !user.isActive) {
+                throw new UnauthorizedException('User not found or deactivated');
+            }
+
+            // Revoke the old refresh token (rotation)
+            storedToken.revoked = true;
+            storedToken.revokedAt = new Date();
+
+            // Generate new tokens
+            const newTokens = await this.generateTokens(
+                user.id,
+                user.email,
+                user.role,
+                metadata,
+            );
+
+            // Link old token to new one for audit
+            storedToken.replacedByToken = newTokens.refreshToken;
+            await this.refreshTokenRepository.save(storedToken);
+
+            return newTokens;
+        } catch (error) {
+            if (error instanceof UnauthorizedException) {
+                throw error;
+            }
+            throw new UnauthorizedException('Invalid refresh token');
+        }
+    }
+
+    /**
+     * Logout - blacklist access token and revoke refresh token
+     */
+    async logout(accessToken: string, refreshToken?: string): Promise<void> {
+        try {
+            // Blacklist access token
+            const accessPayload = this.jwtService.decode<TokenPayload>(accessToken);
+            if (accessPayload && accessPayload.jti) {
+                const accessExpiry = new Date((accessPayload as any).exp * 1000);
+                await this.tokenBlacklistRepository.save({
+                    jti: accessPayload.jti,
+                    userId: accessPayload.sub,
+                    expiresAt: accessExpiry,
+                    reason: 'logout',
+                });
+            }
+
+            // Revoke refresh token if provided
+            if (refreshToken) {
+                const refreshPayload = this.jwtService.decode<TokenPayload>(refreshToken);
+                if (refreshPayload && refreshPayload.jti) {
+                    await this.refreshTokenRepository.update(
+                        { token: refreshPayload.jti },
+                        { revoked: true, revokedAt: new Date() },
+                    );
+                }
+            }
+        } catch {
+            // Silently handle decode errors - token might be malformed
+        }
+    }
+
+    /**
+     * Logout from all devices - revoke all refresh tokens for user
+     */
+    async logoutAllDevices(userId: number, accessTokenJti?: string): Promise<void> {
+        // Revoke all refresh tokens for user
+        await this.revokeAllUserTokens(userId, 'logout_all_devices');
+
+        // Blacklist current access token if provided
+        if (accessTokenJti) {
+            const accessExpiry = new Date(Date.now() + this.accessTokenExpiresIn * 1000);
+            await this.tokenBlacklistRepository.save({
+                jti: accessTokenJti,
+                userId,
+                expiresAt: accessExpiry,
+                reason: 'logout_all_devices',
+            });
+        }
+    }
+
+    /**
+     * Revoke all refresh tokens for a user
+     */
+    private async revokeAllUserTokens(userId: number, reason: string): Promise<void> {
+        await this.refreshTokenRepository.update(
+            { userId, revoked: false },
+            { revoked: true, revokedAt: new Date() },
+        );
+    }
+
+    /**
+     * Check if access token is blacklisted
+     */
+    async isTokenBlacklisted(jti: string): Promise<boolean> {
+        const blacklisted = await this.tokenBlacklistRepository.findOne({
+            where: { jti },
+        });
+        return !!blacklisted;
+    }
+
+    /**
+     * Clean up expired tokens from database
+     * Should be called periodically via cron job
+     */
+    async cleanupExpiredTokens(): Promise<void> {
+        const now = new Date();
+
+        // Remove expired refresh tokens
+        await this.refreshTokenRepository.delete({
+            expiresAt: LessThan(now),
+        });
+
+        // Remove expired blacklist entries
+        await this.tokenBlacklistRepository.delete({
+            expiresAt: LessThan(now),
+        });
+
+        // Remove expired password reset tokens
+        await this.passwordResetTokenRepository.delete({
+            expiresAt: LessThan(now),
+        });
+    }
+
     async validateUser(userId: number) {
         return await this.usersService.findOne(userId);
+    }
+
+    /**
+     * Validate token payload and check blacklist
+     */
+    async validateToken(payload: TokenPayload) {
+        // Check if token is blacklisted
+        if (await this.isTokenBlacklisted(payload.jti)) {
+            throw new UnauthorizedException('Token has been revoked');
+        }
+
+        // Validate user
+        const user = await this.usersService.findOne(payload.sub);
+        if (!user) {
+            throw new UnauthorizedException('User not found');
+        }
+
+        if (!user.isActive) {
+            throw new UnauthorizedException('Account is deactivated');
+        }
+
+        return user;
     }
 
     async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {

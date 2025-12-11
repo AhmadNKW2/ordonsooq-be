@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Category, CategoryStatus } from './entities/category.entity';
@@ -9,9 +9,12 @@ import { RestoreCategoryDto, PermanentDeleteCategoryDto, RestoreSubcategoryOptio
 import { Product, ProductStatus } from '../products/entities/product.entity';
 import { ProductCategory } from '../products/entities/product-category.entity';
 import { VendorStatus } from '../vendors/entities/vendor.entity';
+import { R2StorageService } from '../common/services/r2-storage.service';
 
 @Injectable()
 export class CategoriesService {
+    private readonly logger = new Logger(CategoriesService.name);
+
     constructor(
         @InjectRepository(Category)
         private categoriesRepository: Repository<Category>,
@@ -19,6 +22,7 @@ export class CategoriesService {
         private productsRepository: Repository<Product>,
         @InjectRepository(ProductCategory)
         private productCategoriesRepository: Repository<ProductCategory>,
+        private r2StorageService: R2StorageService,
     ) { }
 
     async create(createCategoryDto: CreateCategoryDto): Promise<Category> {
@@ -171,11 +175,20 @@ export class CategoriesService {
     async findOne(id: number): Promise<Category> {
         const category = await this.categoriesRepository.findOne({
             where: { id },
-            relations: ['parent', 'children', 'products'],
+            relations: ['parent', 'children', 'productCategories', 'productCategories.product'],
         });
 
         if (!category) {
             throw new NotFoundException('Category not found');
+        }
+
+        // Transform productCategories to products array for backward compatibility
+        if (category.productCategories) {
+            (category as any).products = category.productCategories
+                .map(pc => pc.product)
+                .filter(Boolean);
+            // Remove productCategories from response
+            delete (category as any).productCategories;
         }
 
         return category;
@@ -183,18 +196,29 @@ export class CategoriesService {
 
     async update(id: number, updateCategoryDto: UpdateCategoryDto): Promise<Category> {
         const category = await this.findOne(id);
+        const oldImageUrl = category.image;
 
         const { product_ids, ...updateData } = updateCategoryDto;
 
         Object.assign(category, updateData);
-        const savedCategory = await this.categoriesRepository.save(category);
+        await this.categoriesRepository.save(category);
+
+        // Delete old image from R2 if a new one was uploaded
+        if (updateData.image && oldImageUrl && updateData.image !== oldImageUrl) {
+            try {
+                await this.r2StorageService.deleteFile(oldImageUrl);
+            } catch (error) {
+                this.logger.warn(`Failed to delete old category image: ${oldImageUrl}`, error);
+            }
+        }
 
         // Sync products if provided
         if (product_ids !== undefined) {
             await this.syncProductsToCategory(id, product_ids);
         }
 
-        return savedCategory;
+        // Re-fetch to get updated relations
+        return this.findOne(id);
     }
 
     // ========== LIFECYCLE MANAGEMENT ==========
@@ -764,8 +788,19 @@ export class CategoriesService {
             }
         }
 
+        const imageUrl = category.image;
+
         // Perform hard delete of category
         await this.categoriesRepository.delete(id);
+
+        // Delete image from R2
+        if (imageUrl) {
+            try {
+                await this.r2StorageService.deleteFile(imageUrl);
+            } catch (error) {
+                this.logger.warn(`Failed to delete category image: ${imageUrl}`, error);
+            }
+        }
 
         return { message: `Category "${category.name_en}" permanently deleted` };
     }

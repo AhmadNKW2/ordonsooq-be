@@ -13,7 +13,7 @@ import {
   Put,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
+import { memoryStorage } from 'multer';
 import { VendorsService } from './vendors.service';
 import { CreateVendorDto } from './dto/create-vendor.dto';
 import { UpdateVendorDto } from './dto/update-vendor.dto';
@@ -23,33 +23,36 @@ import { AssignProductsToVendorDto } from './dto/assign-products.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles, UserRole } from '../common/decorators/roles.decorator';
-import { imageFileFilter, editFileName } from '../common/utils/file-upload.helper';
+import { imageFileFilter } from '../common/utils/file-upload.helper';
+import { R2StorageService } from '../common/services/r2-storage.service';
 
 @Controller('vendors')
 export class VendorsController {
-  constructor(private readonly vendorsService: VendorsService) {}
+  constructor(
+    private readonly vendorsService: VendorsService,
+    private readonly r2StorageService: R2StorageService,
+  ) {}
 
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @UseInterceptors(
     FileInterceptor('logo', {
-      storage: diskStorage({
-        destination: './uploads/vendors',
-        filename: editFileName,
-      }),
+      storage: memoryStorage(),
       fileFilter: imageFileFilter,
       limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
     }),
   )
-  create(
+  async create(
     @Body() createVendorDto: CreateVendorDto,
     @UploadedFile() logo: Express.Multer.File,
     @Req() req: any,
   ) {
-    const logoUrl = logo
-      ? `${req.protocol}://${req.get('host')}/uploads/vendors/${logo.filename}`
-      : undefined;
+    let logoUrl: string | undefined;
+    if (logo) {
+      const uploadResult = await this.r2StorageService.uploadFile(logo, 'vendors');
+      logoUrl = uploadResult.url;
+    }
     return this.vendorsService.create(createVendorDto, logoUrl);
   }
 
@@ -75,23 +78,22 @@ export class VendorsController {
   @Roles(UserRole.ADMIN)
   @UseInterceptors(
     FileInterceptor('logo', {
-      storage: diskStorage({
-        destination: './uploads/vendors',
-        filename: editFileName,
-      }),
+      storage: memoryStorage(),
       fileFilter: imageFileFilter,
       limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
     }),
   )
-  update(
+  async update(
     @Param('id') id: string,
     @Body() updateVendorDto: UpdateVendorDto,
     @UploadedFile() logo: Express.Multer.File,
     @Req() req: any,
   ) {
-    const logoUrl = logo
-      ? `${req.protocol}://${req.get('host')}/uploads/vendors/${logo.filename}`
-      : undefined;
+    let logoUrl: string | undefined;
+    if (logo) {
+      const uploadResult = await this.r2StorageService.uploadFile(logo, 'vendors');
+      logoUrl = uploadResult.url;
+    }
     return this.vendorsService.update(+id, updateVendorDto, logoUrl);
   }
 

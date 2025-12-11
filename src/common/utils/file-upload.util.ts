@@ -5,6 +5,7 @@ import { BadRequestException } from '@nestjs/common';
 export const UPLOAD_FOLDERS = {
   PRODUCTS: 'uploads/products',
   CATEGORIES: 'uploads/categories',
+  BANNERS: 'uploads/banners',
 } as const;
 
 export const FILE_LIMITS = {
