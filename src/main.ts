@@ -53,7 +53,7 @@ async function bootstrap() {
       }
       
       // Check if origin is in allowed list
-      if (allowedOrigins.includes(origin) || process.env.NODE_ENV !== 'production') {
+      if (allowedOrigins.includes(origin) || process.env.IS_PRODUCTION !== 'true') {
         return callback(null, true);
       }
       
