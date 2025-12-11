@@ -6,8 +6,10 @@ import {
   DeleteObjectCommand,
   DeleteObjectsCommand,
 } from '@aws-sdk/client-s3';
+import { Upload } from '@aws-sdk/lib-storage';
 import { v4 as uuidv4 } from 'uuid';
 import { extname } from 'path';
+import sharp from 'sharp';
 
 export interface UploadResult {
   key: string;
@@ -15,6 +17,13 @@ export interface UploadResult {
   originalName: string;
   mimeType: string;
   size: number;
+}
+
+export interface ImageOptimizationOptions {
+  maxWidth?: number;
+  maxHeight?: number;
+  quality?: number;
+  format?: 'jpeg' | 'png' | 'webp';
 }
 
 @Injectable()
@@ -51,30 +60,46 @@ export class R2StorageService {
   }
 
   /**
-   * Upload a file to R2
+   * Upload a file to R2 with automatic image optimization
    * @param file - The file buffer or Express.Multer.File
    * @param folder - The folder/prefix to store the file in (e.g., 'products', 'banners')
+   * @param options - Optional image optimization settings
    * @returns Upload result with key, URL, and file metadata
    */
   async uploadFile(
     file: Express.Multer.File,
     folder: string,
+    options?: ImageOptimizationOptions,
   ): Promise<UploadResult> {
-    const ext = extname(file.originalname).toLowerCase();
+    let fileBuffer = file.buffer;
+    let mimeType = file.mimetype;
+    let ext = extname(file.originalname).toLowerCase();
+    let fileSize = file.size;
+
+    // Optimize images if it's an image file
+    if (file.mimetype.startsWith('image/')) {
+      try {
+        const optimized = await this.optimizeImage(file.buffer, options);
+        fileBuffer = optimized.buffer;
+        fileSize = optimized.size;
+        mimeType = optimized.mimeType;
+        ext = optimized.ext;
+        this.logger.log(`Image optimized: ${file.originalname} (${file.size} → ${fileSize} bytes)`);
+      } catch (error) {
+        this.logger.warn(`Failed to optimize image, using original: ${error.message}`);
+      }
+    }
+
     const uniqueId = uuidv4();
     const key = `${folder}/${uniqueId}${ext}`;
 
     try {
-      await this.s3Client.send(
-        new PutObjectCommand({
-          Bucket: this.bucketName,
-          Key: key,
-          Body: file.buffer,
-          ContentType: file.mimetype,
-          // Set cache control for better CDN performance
-          CacheControl: 'public, max-age=31536000',
-        }),
-      );
+      // Use multipart upload for files larger than 5MB
+      if (fileSize > 5 * 1024 * 1024) {
+        await this.uploadLargeFile(key, fileBuffer, mimeType);
+      } else {
+        await this.uploadSmallFile(key, fileBuffer, mimeType);
+      }
 
       const url = `${this.publicUrl}/${key}`;
 
@@ -84,13 +109,110 @@ export class R2StorageService {
         key,
         url,
         originalName: file.originalname,
-        mimeType: file.mimetype,
-        size: file.size,
+        mimeType,
+        size: fileSize,
       };
     } catch (error) {
       this.logger.error(`Failed to upload file: ${error.message}`, error.stack);
       throw error;
     }
+  }
+
+  /**
+   * Optimize image using sharp
+   */
+  private async optimizeImage(
+    buffer: Buffer,
+    options?: ImageOptimizationOptions,
+  ): Promise<{ buffer: Buffer; size: number; mimeType: string; ext: string }> {
+    const {
+      maxWidth = 2000,
+      maxHeight = 2000,
+      quality = 85,
+      format = 'webp',
+    } = options || {};
+
+    let sharpInstance = sharp(buffer);
+
+    // Get metadata to check dimensions
+    const metadata = await sharpInstance.metadata();
+
+    // Resize if necessary
+    if (metadata.width && metadata.width > maxWidth || metadata.height && metadata.height > maxHeight) {
+      sharpInstance = sharpInstance.resize(maxWidth, maxHeight, {
+        fit: 'inside',
+        withoutEnlargement: true,
+      });
+    }
+
+    // Convert to optimized format
+    let optimizedBuffer: Buffer;
+    let mimeType: string;
+    let ext: string;
+
+    if (format === 'webp') {
+      optimizedBuffer = await sharpInstance.webp({ quality }).toBuffer();
+      mimeType = 'image/webp';
+      ext = '.webp';
+    } else if (format === 'jpeg') {
+      optimizedBuffer = await sharpInstance.jpeg({ quality }).toBuffer();
+      mimeType = 'image/jpeg';
+      ext = '.jpg';
+    } else {
+      optimizedBuffer = await sharpInstance.png({ quality }).toBuffer();
+      mimeType = 'image/png';
+      ext = '.png';
+    }
+
+    return {
+      buffer: optimizedBuffer,
+      size: optimizedBuffer.length,
+      mimeType,
+      ext,
+    };
+  }
+
+  /**
+   * Upload small files using PutObjectCommand
+   */
+  private async uploadSmallFile(
+    key: string,
+    buffer: Buffer,
+    mimeType: string,
+  ): Promise<void> {
+    await this.s3Client.send(
+      new PutObjectCommand({
+        Bucket: this.bucketName,
+        Key: key,
+        Body: buffer,
+        ContentType: mimeType,
+        CacheControl: 'public, max-age=31536000',
+      }),
+    );
+  }
+
+  /**
+   * Upload large files using multipart upload
+   */
+  private async uploadLargeFile(
+    key: string,
+    buffer: Buffer,
+    mimeType: string,
+  ): Promise<void> {
+    const upload = new Upload({
+      client: this.s3Client,
+      params: {
+        Bucket: this.bucketName,
+        Key: key,
+        Body: buffer,
+        ContentType: mimeType,
+        CacheControl: 'public, max-age=31536000',
+      },
+      queueSize: 4, // Number of concurrent parts
+      partSize: 5 * 1024 * 1024, // 5MB parts
+    });
+
+    await upload.done();
   }
 
   /**
