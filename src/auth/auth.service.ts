@@ -12,7 +12,6 @@ import { PasswordResetToken } from './entities/password-reset-token.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { TokenBlacklist } from './entities/token-blacklist.entity';
 import * as crypto from 'crypto';
-import { v4 as uuidv4 } from 'uuid';
 
 export interface TokenPayload {
     sub: number;
@@ -68,8 +67,8 @@ export class AuthService {
         role: string,
         metadata?: RequestMetadata,
     ): Promise<AuthTokens> {
-        const accessTokenJti = uuidv4();
-        const refreshTokenJti = uuidv4();
+        const accessTokenJti = crypto.randomUUID();
+        const refreshTokenJti = crypto.randomUUID();
 
         const accessTokenExpiry = new Date(Date.now() + this.accessTokenExpiresIn * 1000);
         const refreshTokenExpiry = new Date(Date.now() + this.refreshTokenExpiresIn * 1000);
@@ -123,15 +122,15 @@ export class AuthService {
         return {
             access: {
                 httpOnly: true,
-                secure: isProduction,
-                sameSite: 'lax' as const,
+                secure: true, // Required for SameSite=None
+                sameSite: 'none' as const, // Allows cross-origin
                 maxAge: this.accessTokenExpiresIn * 1000,
                 path: '/',
             },
             refresh: {
                 httpOnly: true,
-                secure: isProduction,
-                sameSite: 'lax' as const,
+                secure: true, // Required for SameSite=None
+                sameSite: 'none' as const, // Allows cross-origin
                 maxAge: this.refreshTokenExpiresIn * 1000,
                 path: '/api/auth', // Only send refresh token to auth endpoints
             },

@@ -7,8 +7,8 @@ import {
   DeleteObjectsCommand,
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
-import { v4 as uuidv4 } from 'uuid';
 import { extname } from 'path';
+import * as crypto from 'crypto';
 import sharp from 'sharp';
 
 export interface UploadResult {
@@ -90,7 +90,7 @@ export class R2StorageService {
       }
     }
 
-    const uniqueId = uuidv4();
+    const uniqueId = crypto.randomUUID();
     const key = `${folder}/${uniqueId}${ext}`;
 
     try {
