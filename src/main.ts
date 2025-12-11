@@ -44,6 +44,11 @@ async function bootstrap() {
   // Enable CORS with credentials support for cookie-based auth
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
   const allowedOrigins = frontendUrl.split(',').map(url => url.trim());
+  const isProduction = process.env.IS_PRODUCTION === 'true';
+  
+  console.log('CORS Configuration:');
+  console.log('- IS_PRODUCTION:', isProduction);
+  console.log('- Allowed Origins:', allowedOrigins);
   
   app.enableCors({
     origin: (origin, callback) => {
@@ -53,7 +58,10 @@ async function bootstrap() {
       }
       
       // Check if origin is in allowed list
-      if (allowedOrigins.includes(origin) || process.env.IS_PRODUCTION !== 'true') {
+      const isAllowed = allowedOrigins.includes(origin) || !isProduction;
+      console.log(`CORS check - Origin: ${origin}, Allowed: ${isAllowed}`);
+      
+      if (isAllowed) {
         return callback(null, true);
       }
       
