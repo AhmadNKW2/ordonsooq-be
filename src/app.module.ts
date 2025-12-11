@@ -16,6 +16,7 @@ import { BannersModule } from './banners/banners.module';
 import { HomeModule } from './home/home.module';
 import { BrandsModule } from './brands/brands.module';
 import { CommonModule } from './common/common.module';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { CommonModule } from './common/common.module';
       isGlobal: true,
     }),
     CommonModule,
+    HealthModule,
     TypeOrmModule.forRoot({
       type: 'postgres',
       host: process.env.DB_HOST,
