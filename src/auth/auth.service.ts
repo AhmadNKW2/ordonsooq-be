@@ -117,20 +117,27 @@ export class AuthService {
 
     /**
      * Get cookie options for access token
+     * For production/HTTPS (cross-origin): secure=true, sameSite=none
+     * For development/HTTP (localhost): secure=false, sameSite=lax
      */
-    getCookieOptions(isProduction: boolean) {
+    getCookieOptions(useSecureCookies: boolean) {
+        // Use secure cookies for HTTPS environments
+        // In HTTP environments (localhost), allow insecure cookies
+        const isSecure = useSecureCookies;
+        const sameSiteValue: 'none' | 'lax' = useSecureCookies ? 'none' : 'lax';
+        
         return {
             access: {
                 httpOnly: true,
-                secure: true, // Required for SameSite=None
-                sameSite: 'none' as const, // Allows cross-origin
+                secure: isSecure,
+                sameSite: sameSiteValue,
                 maxAge: this.accessTokenExpiresIn * 1000,
                 path: '/',
             },
             refresh: {
                 httpOnly: true,
-                secure: true, // Required for SameSite=None
-                sameSite: 'none' as const, // Allows cross-origin
+                secure: isSecure,
+                sameSite: sameSiteValue,
                 maxAge: this.refreshTokenExpiresIn * 1000,
                 path: '/api/auth', // Only send refresh token to auth endpoints
             },
