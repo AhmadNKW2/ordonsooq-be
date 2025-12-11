@@ -117,14 +117,12 @@ export class AuthService {
 
     /**
      * Get cookie options for access token
-     * For production/HTTPS (cross-origin): secure=true, sameSite=none
-     * For development/HTTP (localhost): secure=false, sameSite=lax
+     * Production (IS_PRODUCTION=true): secure=true, sameSite=none (HTTPS, cross-origin)
+     * Development (IS_PRODUCTION=false): secure=false, sameSite=lax (HTTP localhost)
      */
-    getCookieOptions(useSecureCookies: boolean) {
-        // Use secure cookies for HTTPS environments
-        // In HTTP environments (localhost), allow insecure cookies
-        const isSecure = useSecureCookies;
-        const sameSiteValue: 'none' | 'lax' = useSecureCookies ? 'none' : 'lax';
+    getCookieOptions(isProduction: boolean) {
+        const isSecure = isProduction;
+        const sameSiteValue: 'none' | 'lax' = isProduction ? 'none' : 'lax';
         
         return {
             access: {

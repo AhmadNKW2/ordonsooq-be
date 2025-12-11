@@ -10,24 +10,20 @@ import { ConfigService } from '@nestjs/config';
 
 @Controller('auth')
 export class AuthController {
-    private readonly useSecureCookies: boolean;
+    private readonly isProduction: boolean;
 
     constructor(
         private authService: AuthService,
         private configService: ConfigService,
     ) {
-        // Use COOKIE_SECURE env variable, fallback to NODE_ENV check
-        const cookieSecure = this.configService.get('COOKIE_SECURE');
-        this.useSecureCookies = cookieSecure !== undefined 
-            ? cookieSecure === 'true' 
-            : this.configService.get('NODE_ENV') === 'production';
+        this.isProduction = this.configService.get('IS_PRODUCTION') === 'true';
     }
 
     /**
      * Set authentication cookies on response
      */
     private setAuthCookies(res: ExpressResponse, accessToken: string, refreshToken: string): void {
-        const cookieOptions = this.authService.getCookieOptions(this.useSecureCookies);
+        const cookieOptions = this.authService.getCookieOptions(this.isProduction);
 
         res.cookie('access_token', accessToken, cookieOptions.access);
         res.cookie('refresh_token', refreshToken, cookieOptions.refresh);
@@ -37,7 +33,7 @@ export class AuthController {
      * Clear authentication cookies
      */
     private clearAuthCookies(res: ExpressResponse): void {
-        const cookieOptions = this.authService.getCookieOptions(this.useSecureCookies);
+        const cookieOptions = this.authService.getCookieOptions(this.isProduction);
 
         res.cookie('access_token', '', {
             ...cookieOptions.access,
