@@ -31,6 +31,7 @@ export class R2StorageService {
   private readonly s3Client: S3Client;
   private readonly bucketName: string;
   private readonly publicUrl: string;
+  private readonly publicBaseUrl: string;
   private readonly logger = new Logger(R2StorageService.name);
 
   constructor(private configService: ConfigService) {
@@ -44,8 +45,12 @@ export class R2StorageService {
       `https://${accountId}.r2.cloudflarestorage.com`;
 
     // Public URL for accessing files (you may need to set up a custom domain or use R2.dev subdomain)
+    // When using account-level R2.dev (https://pub-<accountId>.r2.dev), the bucket name must be
+    // the first path segment: /<bucket>/<key>.
     this.publicUrl = this.configService.get<string>('R2_PUBLIC_URL') ||
       `https://pub-${accountId}.r2.dev`;
+
+    this.publicBaseUrl = this.normalizePublicBaseUrl(this.publicUrl);
 
     this.s3Client = new S3Client({
       region: 'auto',
@@ -57,6 +62,28 @@ export class R2StorageService {
     });
 
     this.logger.log(`R2 Storage initialized with bucket: ${this.bucketName}`);
+  }
+
+  private normalizePublicBaseUrl(url: string): string {
+    try {
+      const parsed = new URL(url);
+      const isAccountR2Dev = parsed.hostname.startsWith('pub-') && parsed.hostname.endsWith('.r2.dev');
+      const hasPath = parsed.pathname && parsed.pathname !== '/' && parsed.pathname !== '';
+      if (isAccountR2Dev && !hasPath) {
+        parsed.pathname = `/${this.bucketName}`;
+        return parsed.toString().replace(/\/$/, '');
+      }
+      // If the provided public URL already includes a path (e.g., custom domain mapped to a bucket,
+      // or an explicit /<bucket> path), leave it as-is.
+      return url.replace(/\/$/, '');
+    } catch {
+      // If it's not a valid URL, fall back to the raw string.
+      return url.replace(/\/$/, '');
+    }
+  }
+
+  private buildPublicUrl(key: string): string {
+    return `${this.publicBaseUrl}/${key}`;
   }
 
   /**
@@ -101,7 +128,7 @@ export class R2StorageService {
         await this.uploadSmallFile(key, fileBuffer, mimeType);
       }
 
-      const url = `${this.publicUrl}/${key}`;
+      const url = this.buildPublicUrl(key);
 
       this.logger.log(`File uploaded successfully: ${key}`);
 
@@ -295,7 +322,12 @@ export class R2StorageService {
     try {
       const url = new URL(keyOrUrl);
       // Remove leading slash from pathname
-      return url.pathname.startsWith('/') ? url.pathname.slice(1) : url.pathname;
+      const path = url.pathname.startsWith('/') ? url.pathname.slice(1) : url.pathname;
+      // If the URL includes the bucket as the first segment (common with pub-<account>.r2.dev), strip it.
+      if (path.startsWith(`${this.bucketName}/`)) {
+        return path.slice(this.bucketName.length + 1);
+      }
+      return path;
     } catch {
       this.logger.warn(`Invalid URL format: ${keyOrUrl}`);
       return null;
@@ -306,6 +338,6 @@ export class R2StorageService {
    * Get the public URL for a given key
    */
   getPublicUrl(key: string): string {
-    return `${this.publicUrl}/${key}`;
+    return this.buildPublicUrl(key);
   }
 }
