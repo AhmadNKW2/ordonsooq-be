@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, UseGuards, Request, Response, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Body, Get, UseGuards, Request, Response, HttpCode, HttpStatus, UnauthorizedException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
 import { AuthService } from './auth.service';
@@ -105,10 +105,7 @@ export class AuthController {
 
         if (!refreshToken) {
             this.clearAuthCookies(res);
-            return {
-                statusCode: HttpStatus.UNAUTHORIZED,
-                message: 'No refresh token provided',
-            };
+            throw new UnauthorizedException('No refresh token provided');
         }
 
         try {
@@ -124,7 +121,7 @@ export class AuthController {
         } catch {
             // Clear cookies on refresh failure
             this.clearAuthCookies(res);
-            throw new Error('Session expired. Please login again.');
+            throw new UnauthorizedException('Session expired. Please login again.');
         }
     }
 
