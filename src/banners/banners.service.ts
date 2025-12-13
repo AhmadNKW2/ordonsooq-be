@@ -30,6 +30,7 @@ export class BannersService {
         const bannerData: Partial<Banner> = {
             sort_order: sortOrder,
             image: imageUrl,
+            language: createBannerDto.language,
             visible: createBannerDto.visible !== undefined ? createBannerDto.visible : true,
         };
 
@@ -43,7 +44,7 @@ export class BannersService {
     }
 
     async findAll(filterDto?: FilterBannerDto) {
-        const { page = 1, limit = 10, sortBy = 'sort_order', sortOrder = 'ASC', visible } = filterDto || {};
+        const { page = 1, limit = 10, sortBy = 'sort_order', sortOrder = 'ASC', visible, language } = filterDto || {};
 
         const queryBuilder = this.bannersRepository
             .createQueryBuilder('banner');
@@ -51,6 +52,11 @@ export class BannersService {
         // Filter by visible
         if (visible !== undefined) {
             queryBuilder.where('banner.visible = :visible', { visible });
+        }
+
+        // Filter by language
+        if (language !== undefined) {
+            queryBuilder.andWhere('banner.language = :language', { language });
         }
 
         // Sorting
@@ -84,12 +90,16 @@ export class BannersService {
         return banner;
     }
 
-    async update(id: number, updateBannerDto: UpdateBannerDto, imageUrl?: string): Promise<Banner> {
+    async update(
+        id: number,
+        updateBannerDto: UpdateBannerDto,
+        imageUrl?: string,
+    ): Promise<Banner> {
         const banner = await this.findOne(id);
         const oldImageUrl = banner.image;
 
         Object.assign(banner, updateBannerDto);
-        
+
         if (imageUrl) {
             banner.image = imageUrl;
         }
@@ -123,7 +133,7 @@ export class BannersService {
         
         await this.bannersRepository.remove(banner);
 
-        // Delete image from R2
+        // Delete images from R2
         if (imageUrl) {
             try {
                 await this.r2StorageService.deleteFile(imageUrl);

@@ -46,7 +46,7 @@ export class HomeService {
                 visible: true,
             },
             order: { sort_order: 'ASC' },
-            select: ['id', 'image', 'link', 'sort_order'],
+            select: ['id', 'image', 'language', 'link', 'sort_order'],
         });
 
         // Get active brands ordered by sort_order

@@ -49,14 +49,15 @@ export class BannersController {
     )
     async create(
         @Body() createBannerDto: CreateBannerDto,
-        @UploadedFile() file: Express.Multer.File,
+        @UploadedFile() image: Express.Multer.File,
         @Req() req: any,
     ) {
-        if (!file) {
-            throw new BadRequestException('Image file is required');
+        if (!image) {
+            throw new BadRequestException('image file is required (field name: image)');
         }
-        const uploadResult = await this.r2StorageService.uploadFile(file, 'banners');
-        return this.bannersService.create(createBannerDto, uploadResult.url);
+
+        const upload = await this.r2StorageService.uploadFile(image, 'banners');
+        return this.bannersService.create(createBannerDto, upload.url);
     }
 
     @Get()
@@ -82,15 +83,14 @@ export class BannersController {
     async update(
         @Param('id') id: string,
         @Body() updateBannerDto: UpdateBannerDto,
-        @UploadedFile() file: Express.Multer.File,
+        @UploadedFile() image: Express.Multer.File,
         @Req() req: any,
     ) {
-        let imageUrl: string | undefined;
-        if (file) {
-            const uploadResult = await this.r2StorageService.uploadFile(file, 'banners');
-            imageUrl = uploadResult.url;
-        }
-        return this.bannersService.update(+id, updateBannerDto, imageUrl);
+        const upload = image
+            ? await this.r2StorageService.uploadFile(image, 'banners')
+            : undefined;
+
+        return this.bannersService.update(+id, updateBannerDto, upload?.url);
     }
 
     @Delete(':id')

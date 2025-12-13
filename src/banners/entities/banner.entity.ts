@@ -7,6 +7,11 @@ import {
     Index,
 } from 'typeorm';
 
+export enum BannerLanguage {
+    EN = 'en',
+    AR = 'ar',
+}
+
 @Entity('banners')
 @Index('idx_banners_visible', ['visible'])
 @Index('idx_banners_sort_order', ['sort_order'])
@@ -16,6 +21,19 @@ export class Banner {
 
     @Column({ nullable: true })
     image: string;
+
+    @Column({
+        type: 'enum',
+        enum: BannerLanguage,
+        default: BannerLanguage.EN,
+    })
+    language: BannerLanguage;
+
+    @Column({ nullable: true })
+    image_en: string;
+
+    @Column({ nullable: true })
+    image_ar: string;
 
     @Column({ nullable: true })
     link: string; // URL to redirect when banner is clicked

@@ -1,5 +1,6 @@
 import { IsOptional, IsEnum, IsBoolean, IsString } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
+import { BannerLanguage } from '../entities/banner.entity';
 
 export enum BannerSortBy {
     CREATED_AT = 'created_at',
@@ -32,6 +33,11 @@ export class FilterBannerDto {
     @Type(() => Boolean)
     @IsBoolean()
     visible?: boolean;
+
+    @IsOptional()
+    @IsEnum(BannerLanguage)
+    @Transform(({ value }) => (value === undefined ? undefined : String(value).trim().toLowerCase()))
+    language?: BannerLanguage;
 
     @IsOptional()
     @IsString()
