@@ -44,13 +44,18 @@ export class R2StorageService {
     const endpoint = this.configService.get<string>('R2_ENDPOINT') ||
       `https://${accountId}.r2.cloudflarestorage.com`;
 
-    // Public URL for accessing files (you may need to set up a custom domain or use R2.dev subdomain)
-    // When using account-level R2.dev (https://pub-<accountId>.r2.dev), the bucket name must be
-    // the first path segment: /<bucket>/<key>.
-    this.publicUrl = this.configService.get<string>('R2_PUBLIC_URL') ||
-      `https://pub-${accountId}.r2.dev`;
+    // Public URL for accessing files.
+    // If you set R2_PUBLIC_URL explicitly (recommended), we will use it as-is (trim trailing '/').
+    // Cloudflare's Bucket "Public Development URL" can be bucket-scoped already (as shown in the UI),
+    // so it may NOT require adding the bucket name.
+    const configuredPublicUrl = this.configService.get<string>('R2_PUBLIC_URL');
+    this.publicUrl = configuredPublicUrl || `https://pub-${accountId}.r2.dev`;
 
-    this.publicBaseUrl = this.normalizePublicBaseUrl(this.publicUrl);
+    this.publicBaseUrl = this.normalizePublicBaseUrl(
+      this.publicUrl,
+      !!configuredPublicUrl,
+      accountId,
+    );
 
     this.s3Client = new S3Client({
       region: 'auto',
@@ -64,18 +69,24 @@ export class R2StorageService {
     this.logger.log(`R2 Storage initialized with bucket: ${this.bucketName}`);
   }
 
-  private normalizePublicBaseUrl(url: string): string {
+  private normalizePublicBaseUrl(url: string, isExplicit: boolean, accountId?: string): string {
     try {
       const parsed = new URL(url);
-      const isAccountR2Dev = parsed.hostname.startsWith('pub-') && parsed.hostname.endsWith('.r2.dev');
+      const trimmed = url.replace(/\/$/, '');
+
+      // Only auto-prefix the bucket when we're using the fallback account-level pub URL.
+      // If the URL is explicitly configured, do not mutate it.
+      const expectedAccountHost = accountId ? `pub-${accountId}.r2.dev` : undefined;
+      const isFallbackAccountHost =
+        !isExplicit && !!expectedAccountHost && parsed.hostname === expectedAccountHost;
       const hasPath = parsed.pathname && parsed.pathname !== '/' && parsed.pathname !== '';
-      if (isAccountR2Dev && !hasPath) {
+
+      if (isFallbackAccountHost && !hasPath) {
         parsed.pathname = `/${this.bucketName}`;
         return parsed.toString().replace(/\/$/, '');
       }
-      // If the provided public URL already includes a path (e.g., custom domain mapped to a bucket,
-      // or an explicit /<bucket> path), leave it as-is.
-      return url.replace(/\/$/, '');
+
+      return trimmed;
     } catch {
       // If it's not a valid URL, fall back to the raw string.
       return url.replace(/\/$/, '');
