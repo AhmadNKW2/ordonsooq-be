@@ -117,12 +117,12 @@ export class AuthService {
 
     /**
      * Get cookie options for access token
-     * Production (IS_PRODUCTION=true): secure=true, sameSite=none (HTTPS, cross-origin)
-     * Development (IS_PRODUCTION=false): secure=false, sameSite=lax (HTTP localhost)
+     * HTTPS context: secure=true, sameSite=none (cross-site fetch is allowed)
+     * HTTP context: secure=false, sameSite=lax (local development)
      */
-    getCookieOptions(isProduction: boolean) {
-        const isSecure = isProduction;
-        const sameSiteValue: 'none' | 'lax' = isProduction ? 'none' : 'lax';
+    getCookieOptions(isSecureContext: boolean) {
+        const isSecure = isSecureContext;
+        const sameSiteValue: 'none' | 'lax' = isSecureContext ? 'none' : 'lax';
         
         return {
             access: {
@@ -140,6 +140,13 @@ export class AuthService {
                 path: '/api/auth', // Only send refresh token to auth endpoints
             },
         };
+    }
+
+    /**
+     * Access token expiry (seconds) for clients.
+     */
+    getAccessTokenExpiresInSeconds(): number {
+        return this.accessTokenExpiresIn;
     }
 
     async register(registerDto: RegisterDto, metadata?: RequestMetadata) {

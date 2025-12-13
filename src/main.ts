@@ -10,6 +10,10 @@ import cookieParser from 'cookie-parser';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Trust reverse proxy headers (Render/Vercel) so req.secure can reflect HTTPS.
+  // This helps when deciding cookie `secure` / `sameSite` options.
+  app.set('trust proxy', 1);
   
   // Create upload directories if they don't exist
   const uploadDirs = ['uploads', 'uploads/products', 'uploads/categories', 'uploads/vendors'];

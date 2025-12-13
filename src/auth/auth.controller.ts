@@ -22,9 +22,15 @@ export class AuthController {
     /**
      * Set authentication cookies on response
      */
-    private setAuthCookies(res: ExpressResponse, accessToken: string, refreshToken: string): void {
-        const cookieOptions = this.authService.getCookieOptions(this.isProduction);
+    private getIsSecureContext(req: ExpressRequest): boolean {
+        const forwardedProto = req.headers['x-forwarded-proto'];
+        const proto = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto;
+        const isHttps = proto === 'https' || (req as any).secure === true;
+        return this.isProduction || isHttps;
+    }
 
+    private setAuthCookies(req: ExpressRequest, res: ExpressResponse, accessToken: string, refreshToken: string): void {
+        const cookieOptions = this.authService.getCookieOptions(this.getIsSecureContext(req));
         res.cookie('access_token', accessToken, cookieOptions.access);
         res.cookie('refresh_token', refreshToken, cookieOptions.refresh);
     }
@@ -32,8 +38,8 @@ export class AuthController {
     /**
      * Clear authentication cookies
      */
-    private clearAuthCookies(res: ExpressResponse): void {
-        const cookieOptions = this.authService.getCookieOptions(this.isProduction);
+    private clearAuthCookies(req: ExpressRequest, res: ExpressResponse): void {
+        const cookieOptions = this.authService.getCookieOptions(this.getIsSecureContext(req));
 
         res.cookie('access_token', '', {
             ...cookieOptions.access,
@@ -66,11 +72,16 @@ export class AuthController {
         const result = await this.authService.register(registerDto, metadata);
 
         // Set HTTP-only cookies
-        this.setAuthCookies(res, result.tokens.accessToken, result.tokens.refreshToken);
+        this.setAuthCookies(req, res, result.tokens.accessToken, result.tokens.refreshToken);
 
         return {
+            success: true,
             message: 'Registration successful',
-            user: result.user,
+            data: {
+                user: result.user,
+                access_token: result.tokens.accessToken,
+                expires_in: this.authService.getAccessTokenExpiresInSeconds(),
+            },
         };
     }
 
@@ -86,11 +97,16 @@ export class AuthController {
         const result = await this.authService.login(loginDto, metadata);
 
         // Set HTTP-only cookies
-        this.setAuthCookies(res, result.tokens.accessToken, result.tokens.refreshToken);
+        this.setAuthCookies(req, res, result.tokens.accessToken, result.tokens.refreshToken);
 
         return {
+            success: true,
             message: 'Login successful',
-            user: result.user,
+            data: {
+                user: result.user,
+                access_token: result.tokens.accessToken,
+                expires_in: this.authService.getAccessTokenExpiresInSeconds(),
+            },
         };
     }
 
@@ -104,7 +120,7 @@ export class AuthController {
         const refreshToken = req.cookies?.refresh_token;
 
         if (!refreshToken) {
-            this.clearAuthCookies(res);
+            this.clearAuthCookies(req, res);
             throw new UnauthorizedException('No refresh token provided');
         }
 
@@ -113,14 +129,19 @@ export class AuthController {
             const tokens = await this.authService.refreshTokens(refreshToken, metadata);
 
             // Set new cookies with rotated tokens
-            this.setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
+            this.setAuthCookies(req, res, tokens.accessToken, tokens.refreshToken);
 
             return {
+                success: true,
                 message: 'Token refreshed successfully',
+                data: {
+                    access_token: tokens.accessToken,
+                    expires_in: this.authService.getAccessTokenExpiresInSeconds(),
+                },
             };
         } catch {
             // Clear cookies on refresh failure
-            this.clearAuthCookies(res);
+            this.clearAuthCookies(req, res);
             throw new UnauthorizedException('Session expired. Please login again.');
         }
     }
@@ -140,7 +161,7 @@ export class AuthController {
         await this.authService.logout(accessToken, refreshToken);
 
         // Clear cookies
-        this.clearAuthCookies(res);
+        this.clearAuthCookies(req, res);
 
         return {
             message: 'Logged out successfully',
@@ -176,7 +197,7 @@ export class AuthController {
         await this.authService.logoutAllDevices(user.id, accessTokenJti);
 
         // Clear cookies
-        this.clearAuthCookies(res);
+        this.clearAuthCookies(req, res);
 
         return {
             message: 'Logged out from all devices successfully',
