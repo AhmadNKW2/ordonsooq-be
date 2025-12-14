@@ -30,12 +30,6 @@ export class Banner {
     language: BannerLanguage;
 
     @Column({ nullable: true })
-    image_en: string;
-
-    @Column({ nullable: true })
-    image_ar: string;
-
-    @Column({ nullable: true })
     link: string; // URL to redirect when banner is clicked
 
     @Column({ default: true })

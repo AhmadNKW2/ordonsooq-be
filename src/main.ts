@@ -46,9 +46,15 @@ async function bootstrap() {
   }));
   
   // Enable CORS with credentials support for cookie-based auth
-  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3001';
-  const allowedOrigins = frontendUrl.split(',').map(url => url.trim());
   const isProduction = process.env.IS_PRODUCTION === 'true';
+  const allowedOrigins = [
+    'https://ordonsooq-public.vercel.app',
+    'https://ordonsooq.com',
+    'https://www.ordonsooq.com',
+    'https://ordonsooq-admin-fe.vercel.app',
+    'http://localhost:3000',
+    'http://localhost:3002',
+  ];
   
   console.log('CORS Configuration:');
   console.log('- IS_PRODUCTION:', isProduction);
@@ -62,18 +68,18 @@ async function bootstrap() {
       }
       
       // Check if origin is in allowed list
-      const isAllowed = allowedOrigins.includes(origin) || !isProduction;
-      console.log(`CORS check - Origin: ${origin}, Allowed: ${isAllowed}`);
+      const isAllowed = allowedOrigins.includes(origin);
       
       if (isAllowed) {
         return callback(null, true);
       }
-      
+      console.warn(`CORS blocked - Origin: ${origin}`);
       callback(new Error('Not allowed by CORS'));
     },
     credentials: true, // Allow cookies to be sent
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+    optionsSuccessStatus: 204,
   });
   
   // Set global prefix for all routes
