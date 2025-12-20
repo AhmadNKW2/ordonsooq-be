@@ -1,4 +1,13 @@
-import { IsString, IsNotEmpty, IsOptional, IsEmail, IsBoolean, IsEnum, IsArray, IsNumber } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsEmail,
+  IsBoolean,
+  IsEnum,
+  IsArray,
+  IsNumber,
+} from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { VendorStatus } from '../entities/vendor.entity';
 
@@ -21,7 +30,7 @@ export class CreateVendorDto {
 
   @IsEmail()
   @IsOptional()
-  @Transform(({ value }) => value === '' ? undefined : value)
+  @Transform(({ value }) => (value === '' ? undefined : value))
   email?: string;
 
   @IsString()
@@ -34,7 +43,7 @@ export class CreateVendorDto {
 
   @IsEnum(VendorStatus)
   @IsOptional()
-  @Transform(({ value }) => value === '' ? undefined : value)
+  @Transform(({ value }) => (value === '' ? undefined : value))
   status?: VendorStatus;
 
   @IsBoolean()
@@ -55,7 +64,10 @@ export class CreateVendorDto {
         const parsed = JSON.parse(value);
         return Array.isArray(parsed) ? parsed : [];
       } catch {
-        return value.split(',').map(Number).filter(n => !isNaN(n));
+        return value
+          .split(',')
+          .map(Number)
+          .filter((n) => !isNaN(n));
       }
     }
     return Array.isArray(value) ? value : [];

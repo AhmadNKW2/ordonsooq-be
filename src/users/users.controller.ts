@@ -19,7 +19,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) { }
+  constructor(private readonly usersService: UsersService) {}
 
   // Create user (Admin only) - Can specify role during creation
   @Post()

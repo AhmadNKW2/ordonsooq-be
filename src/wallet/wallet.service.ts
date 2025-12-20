@@ -1,8 +1,16 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Wallet } from './entities/wallet.entity';
-import { WalletTransaction, TransactionType, TransactionSource } from './entities/wallet-transaction.entity';
+import {
+  WalletTransaction,
+  TransactionType,
+  TransactionSource,
+} from './entities/wallet-transaction.entity';
 import { AddFundsDto } from './dto/add-funds.dto';
 import { FilterTransactionDto } from './dto/filter-transaction.dto';
 
@@ -22,7 +30,11 @@ export class WalletService {
     });
 
     if (!wallet) {
-      wallet = this.walletRepository.create({ userId, balance: 0, totalCashback: 0 });
+      wallet = this.walletRepository.create({
+        userId,
+        balance: 0,
+        totalCashback: 0,
+      });
       wallet = await this.walletRepository.save(wallet);
     }
 
@@ -31,7 +43,7 @@ export class WalletService {
 
   async getWallet(userId: number) {
     const wallet = await this.getOrCreateWallet(userId);
-    
+
     return {
       data: wallet,
       message: 'Wallet retrieved successfully',
@@ -57,7 +69,8 @@ export class WalletService {
       wallet.balance = newBalance;
 
       if (addFundsDto.source === TransactionSource.CASHBACK) {
-        wallet.totalCashback = Number(wallet.totalCashback) + Number(addFundsDto.amount);
+        wallet.totalCashback =
+          Number(wallet.totalCashback) + Number(addFundsDto.amount);
       }
 
       await queryRunner.manager.save(wallet);
@@ -141,49 +154,62 @@ export class WalletService {
     }
   }
 
-    async getTransactions(userId: number, filterDto: FilterTransactionDto) {
-        const { page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'DESC', type, source, minAmount, maxAmount } = filterDto;
+  async getTransactions(userId: number, filterDto: FilterTransactionDto) {
+    const {
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      sortOrder = 'DESC',
+      type,
+      source,
+      minAmount,
+      maxAmount,
+    } = filterDto;
 
-        const wallet = await this.getOrCreateWallet(userId);
+    const wallet = await this.getOrCreateWallet(userId);
 
-        const queryBuilder = this.transactionRepository
-            .createQueryBuilder('transaction')
-            .where('transaction.walletId = :walletId', { walletId: wallet.id });
+    const queryBuilder = this.transactionRepository
+      .createQueryBuilder('transaction')
+      .where('transaction.walletId = :walletId', { walletId: wallet.id });
 
-        if (type) {
-            queryBuilder.andWhere('transaction.type = :type', { type });
-        }
+    if (type) {
+      queryBuilder.andWhere('transaction.type = :type', { type });
+    }
 
-        if (source) {
-            queryBuilder.andWhere('transaction.source = :source', { source });
-        }
+    if (source) {
+      queryBuilder.andWhere('transaction.source = :source', { source });
+    }
 
-        if (minAmount !== undefined) {
-            queryBuilder.andWhere('transaction.amount >= :minAmount', { minAmount });
-        }
+    if (minAmount !== undefined) {
+      queryBuilder.andWhere('transaction.amount >= :minAmount', { minAmount });
+    }
 
-        if (maxAmount !== undefined) {
-            queryBuilder.andWhere('transaction.amount <= :maxAmount', { maxAmount });
-        }
+    if (maxAmount !== undefined) {
+      queryBuilder.andWhere('transaction.amount <= :maxAmount', { maxAmount });
+    }
 
-        queryBuilder
-            .orderBy(`transaction.${sortBy}`, sortOrder)
-            .skip((page - 1) * limit)
-            .take(limit);
+    queryBuilder
+      .orderBy(`transaction.${sortBy}`, sortOrder)
+      .skip((page - 1) * limit)
+      .take(limit);
 
-        const [data, total] = await queryBuilder.getManyAndCount();
+    const [data, total] = await queryBuilder.getManyAndCount();
 
-        return {
-            data,
-            meta: {
-                total,
-                page,
-                limit,
-                totalPages: Math.ceil(total / limit),
-            },
-            message: 'Transactions retrieved successfully',
-        };
-    }  async calculateCashback(orderAmount: number, cashbackPercentage: number = 2): Promise<number> {
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+      message: 'Transactions retrieved successfully',
+    };
+  }
+  async calculateCashback(
+    orderAmount: number,
+    cashbackPercentage: number = 2,
+  ): Promise<number> {
     return (orderAmount * cashbackPercentage) / 100;
   }
 

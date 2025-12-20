@@ -27,7 +27,7 @@ export class ProductPriceGroupService {
 
   /**
    * Find or create a price group for a product based on attribute values
-   * 
+   *
    * @param product_id - The product ID
    * @param combination - Map of attribute_id -> attribute_value_id (only for pricing-controlling attributes)
    * @param priceData - The pricing data (cost, price, sale_price)
@@ -39,8 +39,11 @@ export class ProductPriceGroupService {
     priceData: PriceGroupData,
   ): Promise<ProductPriceGroup> {
     // Check if a group with exactly this combination already exists
-    const existingGroup = await this.findGroupByCombination(product_id, combination);
-    
+    const existingGroup = await this.findGroupByCombination(
+      product_id,
+      combination,
+    );
+
     if (existingGroup) {
       // Update the existing group with new price data
       existingGroup.cost = priceData.cost;
@@ -56,7 +59,7 @@ export class ProductPriceGroupService {
       price: priceData.price,
       sale_price: priceData.sale_price,
     });
-    
+
     const savedGroup = await this.priceGroupRepository.save(priceGroup);
 
     // Create group values for each attribute in the combination
@@ -100,7 +103,9 @@ export class ProductPriceGroupService {
       let allMatch = true;
       for (const [attrId, valueId] of Object.entries(combination)) {
         const matchingValue = group.groupValues.find(
-          gv => gv.attribute_id === parseInt(attrId) && gv.attribute_value_id === valueId
+          (gv) =>
+            gv.attribute_id === parseInt(attrId) &&
+            gv.attribute_value_id === valueId,
         );
         if (!matchingValue) {
           allMatch = false;
@@ -129,7 +134,7 @@ export class ProductPriceGroupService {
       relations: ['groupValues'],
     });
 
-    const simpleGroup = existingGroups.find(g => g.groupValues.length === 0);
+    const simpleGroup = existingGroups.find((g) => g.groupValues.length === 0);
 
     if (simpleGroup) {
       simpleGroup.cost = priceData.cost;
@@ -145,7 +150,7 @@ export class ProductPriceGroupService {
       price: priceData.price,
       sale_price: priceData.sale_price,
     });
-    
+
     return this.priceGroupRepository.save(priceGroup);
   }
 
@@ -153,7 +158,9 @@ export class ProductPriceGroupService {
    * Get the price group for a specific variant
    * Extracts pricing-controlling attribute values from the variant
    */
-  async getPriceGroupForVariant(variantId: number): Promise<ProductPriceGroup | null> {
+  async getPriceGroupForVariant(
+    variantId: number,
+  ): Promise<ProductPriceGroup | null> {
     const variant = await this.variantRepository.findOne({
       where: { id: variantId },
       relations: ['combinations', 'combinations.attribute_value', 'product'],
@@ -168,7 +175,7 @@ export class ProductPriceGroupService {
       where: { product_id: variant.product_id, controls_pricing: true },
     });
 
-    const pricingAttrIds = pricingAttrs.map(pa => pa.attribute_id);
+    const pricingAttrIds = pricingAttrs.map((pa) => pa.attribute_id);
 
     // Build combination from variant's attribute values that control pricing
     const combination: Record<string, number> = {};
@@ -185,11 +192,75 @@ export class ProductPriceGroupService {
   /**
    * Get all price groups for a product
    */
-  async getPriceGroupsForProduct(product_id: number): Promise<ProductPriceGroup[]> {
+  async getPriceGroupsForProduct(
+    product_id: number,
+  ): Promise<ProductPriceGroup[]> {
     return this.priceGroupRepository.find({
       where: { product_id: product_id },
-      relations: ['groupValues', 'groupValues.attribute', 'groupValues.attributeValue'],
+      relations: [
+        'groupValues',
+        'groupValues.attribute',
+        'groupValues.attributeValue',
+      ],
     });
+  }
+
+  /**
+   * Bulk create price groups and their values
+   * This assumes all previous groups have been deleted
+   */
+  async bulkCreatePriceGroups(
+    product_id: number,
+    items: Array<{
+      combination?: Record<string, number>;
+      cost: number;
+      price: number;
+      sale_price?: number;
+    }>,
+  ): Promise<void> {
+    if (items.length === 0) return;
+
+    // 1. Create all group entities
+    const groups = items.map((item) =>
+      this.priceGroupRepository.create({
+        product_id: product_id,
+        cost: item.cost,
+        price: item.price,
+        sale_price: item.sale_price,
+      }),
+    );
+
+    // 2. Save groups in bulk to get IDs
+    const savedGroups = await this.priceGroupRepository.save(groups);
+
+    // 3. Prepare group values
+    const groupValues: ProductPriceGroupValue[] = [];
+
+    items.forEach((item, index) => {
+      const group = savedGroups[index];
+      if (item.combination && Object.keys(item.combination).length > 0) {
+        for (const [attrId, valueId] of Object.entries(item.combination)) {
+          groupValues.push(
+            this.priceGroupValueRepository.create({
+              price_group_id: group.id,
+              attribute_id: parseInt(attrId),
+              attribute_value_id: valueId,
+            }),
+          );
+        }
+      }
+    });
+
+    // 4. Save group values in bulk
+    if (groupValues.length > 0) {
+      // Save in chunks to avoid parameter limit issues
+      const chunkSize = 1000;
+      for (let i = 0; i < groupValues.length; i += chunkSize) {
+        await this.priceGroupValueRepository.save(
+          groupValues.slice(i, i + chunkSize),
+        );
+      }
+    }
   }
 
   /**

@@ -28,7 +28,7 @@ export class ProductWeightGroupService {
 
   /**
    * Find or create a weight group for a product based on attribute values
-   * 
+   *
    * @param product_id - The product ID
    * @param combination - Map of attribute_id -> attribute_value_id (only for weight-controlling attributes)
    * @param weightData - The weight data (weight, dimensions)
@@ -40,8 +40,11 @@ export class ProductWeightGroupService {
     weightData: WeightGroupData,
   ): Promise<ProductWeightGroup> {
     // Check if a group with exactly this combination already exists
-    const existingGroup = await this.findGroupByCombination(product_id, combination);
-    
+    const existingGroup = await this.findGroupByCombination(
+      product_id,
+      combination,
+    );
+
     if (existingGroup) {
       // Update the existing group with new weight data
       existingGroup.weight = weightData.weight;
@@ -59,7 +62,7 @@ export class ProductWeightGroupService {
       width: weightData.width,
       height: weightData.height,
     });
-    
+
     const savedGroup = await this.weightGroupRepository.save(weightGroup);
 
     // Create group values for each attribute in the combination
@@ -103,7 +106,9 @@ export class ProductWeightGroupService {
       let allMatch = true;
       for (const [attrId, valueId] of Object.entries(combination)) {
         const matchingValue = group.groupValues.find(
-          gv => gv.attribute_id === parseInt(attrId) && gv.attribute_value_id === valueId
+          (gv) =>
+            gv.attribute_id === parseInt(attrId) &&
+            gv.attribute_value_id === valueId,
         );
         if (!matchingValue) {
           allMatch = false;
@@ -132,7 +137,7 @@ export class ProductWeightGroupService {
       relations: ['groupValues'],
     });
 
-    const simpleGroup = existingGroups.find(g => g.groupValues.length === 0);
+    const simpleGroup = existingGroups.find((g) => g.groupValues.length === 0);
 
     if (simpleGroup) {
       simpleGroup.weight = weightData.weight;
@@ -150,7 +155,7 @@ export class ProductWeightGroupService {
       width: weightData.width,
       height: weightData.height,
     });
-    
+
     return this.weightGroupRepository.save(weightGroup);
   }
 
@@ -158,7 +163,9 @@ export class ProductWeightGroupService {
    * Get the weight group for a specific variant
    * Extracts weight-controlling attribute values from the variant
    */
-  async getWeightGroupForVariant(variantId: number): Promise<ProductWeightGroup | null> {
+  async getWeightGroupForVariant(
+    variantId: number,
+  ): Promise<ProductWeightGroup | null> {
     const variant = await this.variantRepository.findOne({
       where: { id: variantId },
       relations: ['combinations', 'combinations.attribute_value', 'product'],
@@ -173,7 +180,7 @@ export class ProductWeightGroupService {
       where: { product_id: variant.product_id, controls_weight: true },
     });
 
-    const weightAttrIds = weightAttrs.map(pa => pa.attribute_id);
+    const weightAttrIds = weightAttrs.map((pa) => pa.attribute_id);
 
     // Build combination from variant's attribute values that control weight
     const combination: Record<string, number> = {};
@@ -190,11 +197,77 @@ export class ProductWeightGroupService {
   /**
    * Get all weight groups for a product
    */
-  async getWeightGroupsForProduct(product_id: number): Promise<ProductWeightGroup[]> {
+  async getWeightGroupsForProduct(
+    product_id: number,
+  ): Promise<ProductWeightGroup[]> {
     return this.weightGroupRepository.find({
       where: { product_id: product_id },
-      relations: ['groupValues', 'groupValues.attribute', 'groupValues.attributeValue'],
+      relations: [
+        'groupValues',
+        'groupValues.attribute',
+        'groupValues.attributeValue',
+      ],
     });
+  }
+
+  /**
+   * Bulk create weight groups and their values
+   * This assumes all previous groups have been deleted
+   */
+  async bulkCreateWeightGroups(
+    product_id: number,
+    items: Array<{
+      combination?: Record<string, number>;
+      weight: number;
+      length?: number;
+      width?: number;
+      height?: number;
+    }>,
+  ): Promise<void> {
+    if (items.length === 0) return;
+
+    // 1. Create all group entities
+    const groups = items.map((item) =>
+      this.weightGroupRepository.create({
+        product_id: product_id,
+        weight: item.weight,
+        length: item.length,
+        width: item.width,
+        height: item.height,
+      }),
+    );
+
+    // 2. Save groups in bulk to get IDs
+    const savedGroups = await this.weightGroupRepository.save(groups);
+
+    // 3. Prepare group values
+    const groupValues: ProductWeightGroupValue[] = [];
+
+    items.forEach((item, index) => {
+      const group = savedGroups[index];
+      if (item.combination && Object.keys(item.combination).length > 0) {
+        for (const [attrId, valueId] of Object.entries(item.combination)) {
+          groupValues.push(
+            this.weightGroupValueRepository.create({
+              weight_group_id: group.id,
+              attribute_id: parseInt(attrId),
+              attribute_value_id: valueId,
+            }),
+          );
+        }
+      }
+    });
+
+    // 4. Save group values in bulk
+    if (groupValues.length > 0) {
+      // Save in chunks to avoid parameter limit issues
+      const chunkSize = 1000;
+      for (let i = 0; i < groupValues.length; i += chunkSize) {
+        await this.weightGroupValueRepository.save(
+          groupValues.slice(i, i + chunkSize),
+        );
+      }
+    }
   }
 
   /**

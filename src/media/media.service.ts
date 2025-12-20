@@ -2,7 +2,10 @@ import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Media, MediaType } from './entities/media.entity';
-import { R2StorageService, UploadResult } from '../common/services/r2-storage.service';
+import {
+  R2StorageService,
+  UploadResult,
+} from '../common/services/r2-storage.service';
 
 @Injectable()
 export class MediaService {
@@ -25,7 +28,9 @@ export class MediaService {
     const uploadResult = await this.r2StorageService.uploadFile(file, folder);
 
     // Determine media type
-    const type = file.mimetype.startsWith('video/') ? MediaType.VIDEO : MediaType.IMAGE;
+    const type = file.mimetype.startsWith('video/')
+      ? MediaType.VIDEO
+      : MediaType.IMAGE;
 
     // Create media record
     const media = this.mediaRepository.create({

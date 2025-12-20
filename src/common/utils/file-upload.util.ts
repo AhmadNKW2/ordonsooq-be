@@ -13,8 +13,19 @@ export const FILE_LIMITS = {
   MAX_FILES: 10,
 };
 
-export const ALLOWED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif'];
-export const ALLOWED_VIDEO_TYPES = ['video/mp4', 'video/mpeg', 'video/quicktime', 'video/x-msvideo'];
+export const ALLOWED_IMAGE_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/avif',
+];
+export const ALLOWED_VIDEO_TYPES = [
+  'video/mp4',
+  'video/mpeg',
+  'video/quicktime',
+  'video/x-msvideo',
+];
 
 export const createMulterStorage = (folder: string) => {
   return diskStorage({
@@ -28,23 +39,45 @@ export const createMulterStorage = (folder: string) => {
   });
 };
 
-export const imageFileFilter = (req: any, file: Express.Multer.File, cb: any) => {
+export const imageFileFilter = (
+  req: any,
+  file: Express.Multer.File,
+  cb: any,
+) => {
   if (ALLOWED_IMAGE_TYPES.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new BadRequestException(`Only image files are allowed. Supported: ${ALLOWED_IMAGE_TYPES.join(', ')}`), false);
+    cb(
+      new BadRequestException(
+        `Only image files are allowed. Supported: ${ALLOWED_IMAGE_TYPES.join(', ')}`,
+      ),
+      false,
+    );
   }
 };
 
-export const videoFileFilter = (req: any, file: Express.Multer.File, cb: any) => {
+export const videoFileFilter = (
+  req: any,
+  file: Express.Multer.File,
+  cb: any,
+) => {
   if (ALLOWED_VIDEO_TYPES.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new BadRequestException(`Only video files are allowed. Supported: ${ALLOWED_VIDEO_TYPES.join(', ')}`), false);
+    cb(
+      new BadRequestException(
+        `Only video files are allowed. Supported: ${ALLOWED_VIDEO_TYPES.join(', ')}`,
+      ),
+      false,
+    );
   }
 };
 
-export const imageOrVideoFileFilter = (req: any, file: Express.Multer.File, cb: any) => {
+export const imageOrVideoFileFilter = (
+  req: any,
+  file: Express.Multer.File,
+  cb: any,
+) => {
   const allowedTypes = [...ALLOWED_IMAGE_TYPES, ...ALLOWED_VIDEO_TYPES];
   if (allowedTypes.includes(file.mimetype)) {
     cb(null, true);

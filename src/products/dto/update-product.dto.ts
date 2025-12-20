@@ -1,14 +1,14 @@
 import {
-    IsString,
-    IsNumber,
-    IsOptional,
-    IsBoolean,
-    IsArray,
-    ValidateNested,
-    MaxLength,
-    Min,
-    IsObject,
-    IsEnum,
+  IsString,
+  IsNumber,
+  IsOptional,
+  IsBoolean,
+  IsArray,
+  ValidateNested,
+  MaxLength,
+  Min,
+  IsObject,
+  IsEnum,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ProductStatus } from '../entities/product.entity';
@@ -17,7 +17,7 @@ import { ProductStatus } from '../entities/product.entity';
 
 /**
  * Media item DTO for syncing media with products
- * 
+ *
  * - media_id: ID from /api/media/upload response (existing uploaded file)
  * - is_primary: Whether this is the primary image (default: false)
  * - sort_order: Display order (default: 0)
@@ -25,20 +25,20 @@ import { ProductStatus } from '../entities/product.entity';
  *                to assign media to a specific variant group
  */
 export class MediaItemDto {
-    @IsNumber()
-    media_id: number;
+  @IsNumber()
+  media_id: number;
 
-    @IsBoolean()
-    @IsOptional()
-    is_primary?: boolean;
+  @IsBoolean()
+  @IsOptional()
+  is_primary?: boolean;
 
-    @IsNumber()
-    @IsOptional()
-    sort_order?: number;
+  @IsNumber()
+  @IsOptional()
+  sort_order?: number;
 
-    @IsObject()
-    @IsOptional()
-    combination?: Record<string, number>;
+  @IsObject()
+  @IsOptional()
+  combination?: Record<string, number>;
 }
 
 // ==================== ATTRIBUTES MANAGEMENT ====================
@@ -47,20 +47,20 @@ export class MediaItemDto {
  * Product attribute DTO - handles both add and update
  */
 export class ProductAttributeDto {
-    @IsNumber()
-    attribute_id: number;
+  @IsNumber()
+  attribute_id: number;
 
-    @IsBoolean()
-    @IsOptional()
-    controls_pricing?: boolean;
+  @IsBoolean()
+  @IsOptional()
+  controls_pricing?: boolean;
 
-    @IsBoolean()
-    @IsOptional()
-    controls_media?: boolean;
+  @IsBoolean()
+  @IsOptional()
+  controls_media?: boolean;
 
-    @IsBoolean()
-    @IsOptional()
-    controls_weight?: boolean;
+  @IsBoolean()
+  @IsOptional()
+  controls_weight?: boolean;
 }
 
 // ==================== PRICING ====================
@@ -71,19 +71,19 @@ export class ProductAttributeDto {
  * - For variant products: provide combination mapping attribute_id -> attribute_value_id
  */
 export class PriceDto {
-    @IsObject()
-    @IsOptional()
-    combination?: Record<string, number>;
+  @IsObject()
+  @IsOptional()
+  combination?: Record<string, number>;
 
-    @IsNumber()
-    cost: number;
+  @IsNumber()
+  cost: number;
 
-    @IsNumber()
-    price: number;
+  @IsNumber()
+  price: number;
 
-    @IsNumber()
-    @IsOptional()
-    sale_price?: number;
+  @IsNumber()
+  @IsOptional()
+  sale_price?: number;
 }
 
 // ==================== WEIGHT ====================
@@ -94,24 +94,24 @@ export class PriceDto {
  * - For variant products: provide combination mapping attribute_id -> attribute_value_id
  */
 export class WeightDto {
-    @IsObject()
-    @IsOptional()
-    combination?: Record<string, number>;
+  @IsObject()
+  @IsOptional()
+  combination?: Record<string, number>;
 
-    @IsNumber()
-    weight: number;
+  @IsNumber()
+  weight: number;
 
-    @IsNumber()
-    @IsOptional()
-    length?: number;
+  @IsNumber()
+  @IsOptional()
+  length?: number;
 
-    @IsNumber()
-    @IsOptional()
-    width?: number;
+  @IsNumber()
+  @IsOptional()
+  width?: number;
 
-    @IsNumber()
-    @IsOptional()
-    height?: number;
+  @IsNumber()
+  @IsOptional()
+  height?: number;
 }
 
 // ==================== STOCK ====================
@@ -122,145 +122,145 @@ export class WeightDto {
  * - For variant products: provide combination mapping attribute_id -> attribute_value_id
  */
 export class StockDto {
-    @IsObject()
-    @IsOptional()
-    combination?: Record<string, number>;
+  @IsObject()
+  @IsOptional()
+  combination?: Record<string, number>;
 
-    @IsNumber()
-    @Min(0)
-    quantity: number;
+  @IsNumber()
+  @Min(0)
+  quantity: number;
 }
 
 // ==================== MAIN UPDATE DTO ====================
 
 /**
  * Full update DTO for products (PUT request)
- * 
+ *
  * The payload represents the COMPLETE state of the product.
  * All basic product information is required.
- * 
+ *
  * For attributes, prices, weights, and stocks:
  * - Existing data is REPLACED with what's in the payload
  * - If a field is not provided or is empty, existing data will be cleared
  * - Media is managed separately via media_management
  */
 export class UpdateProductDto {
-    // ============== Basic Product Info (Required) ==============
-    
-    @IsString()
-    @MaxLength(200)
-    name_en: string;
+  // ============== Basic Product Info (Required) ==============
 
-    @IsString()
-    @MaxLength(200)
-    name_ar: string;
+  @IsString()
+  @MaxLength(200)
+  name_en: string;
 
-    @IsString()
-    @MaxLength(100)
-    @IsOptional()
-    sku?: string;
+  @IsString()
+  @MaxLength(200)
+  name_ar: string;
 
-    @IsString()
-    @MaxLength(500)
-    short_description_en: string;
+  @IsString()
+  @MaxLength(100)
+  @IsOptional()
+  sku?: string;
 
-    @IsString()
-    @MaxLength(500)
-    short_description_ar: string;
+  @IsString()
+  @MaxLength(500)
+  short_description_en: string;
 
-    @IsString()
-    long_description_en: string;
+  @IsString()
+  @MaxLength(500)
+  short_description_ar: string;
 
-    @IsString()
-    long_description_ar: string;
+  @IsString()
+  long_description_en: string;
 
-    @IsArray()
-    @IsNumber({}, { each: true })
-    category_ids: number[];
+  @IsString()
+  long_description_ar: string;
 
-    @IsNumber()
-    @IsOptional()
-    vendor_id?: number;
+  @IsArray()
+  @IsNumber({}, { each: true })
+  category_ids: number[];
 
-    @IsNumber()
-    @IsOptional()
-    brand_id?: number;
+  @IsNumber()
+  @IsOptional()
+  vendor_id?: number;
 
-    @IsEnum(ProductStatus)
-    @IsOptional()
-    status?: ProductStatus;
+  @IsNumber()
+  @IsOptional()
+  brand_id?: number;
 
-    @IsBoolean()
-    @IsOptional()
-    visible?: boolean;
+  @IsEnum(ProductStatus)
+  @IsOptional()
+  status?: ProductStatus;
 
-    // ============== Media ==============
+  @IsBoolean()
+  @IsOptional()
+  visible?: boolean;
 
-    /**
-     * Media array - REPLACES all existing media for this product
-     * 
-     * Sync logic:
-     * - Media IDs in payload but not in DB -> Link to product
-     * - Media IDs in DB but not in payload -> Unlink from product
-     * - Media IDs in both -> Update is_primary, sort_order, combination
-     * 
-     * If not provided, media is not changed.
-     * If empty array, all media is unlinked.
-     */
-    @IsArray()
-    @ValidateNested({ each: true })
-    @Type(() => MediaItemDto)
-    @IsOptional()
-    media?: MediaItemDto[];
+  // ============== Media ==============
 
-    // ============== Attributes Management ==============
+  /**
+   * Media array - REPLACES all existing media for this product
+   *
+   * Sync logic:
+   * - Media IDs in payload but not in DB -> Link to product
+   * - Media IDs in DB but not in payload -> Unlink from product
+   * - Media IDs in both -> Update is_primary, sort_order, combination
+   *
+   * If not provided, media is not changed.
+   * If empty array, all media is unlinked.
+   */
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => MediaItemDto)
+  @IsOptional()
+  media?: MediaItemDto[];
 
-    /**
-     * Product attributes - REPLACES all existing attributes
-     * If empty array or not provided, all existing attributes and variants will be removed
-     */
-    @IsArray()
-    @ValidateNested({ each: true })
-    @Type(() => ProductAttributeDto)
-    @IsOptional()
-    attributes?: ProductAttributeDto[];
+  // ============== Attributes Management ==============
 
-    // ============== Pricing ==============
+  /**
+   * Product attributes - REPLACES all existing attributes
+   * If empty array or not provided, all existing attributes and variants will be removed
+   */
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductAttributeDto)
+  @IsOptional()
+  attributes?: ProductAttributeDto[];
 
-    /**
-     * Unified prices array
-     * - Simple product: [{ cost, price, sale_price }]
-     * - Variant product: [{ combination: { "1": 2 }, cost, price, sale_price }, ...]
-     */
-    @IsArray()
-    @ValidateNested({ each: true })
-    @Type(() => PriceDto)
-    @IsOptional()
-    prices?: PriceDto[];
+  // ============== Pricing ==============
 
-    // ============== Weight ==============
+  /**
+   * Unified prices array
+   * - Simple product: [{ cost, price, sale_price }]
+   * - Variant product: [{ combination: { "1": 2 }, cost, price, sale_price }, ...]
+   */
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PriceDto)
+  @IsOptional()
+  prices?: PriceDto[];
 
-    /**
-     * Unified weights array
-     * - Simple product: [{ weight, length, width, height }]
-     * - Variant product: [{ combination: { "1": 2 }, weight, length, width, height }, ...]
-     */
-    @IsArray()
-    @ValidateNested({ each: true })
-    @Type(() => WeightDto)
-    @IsOptional()
-    weights?: WeightDto[];
+  // ============== Weight ==============
 
-    // ============== Stock ==============
+  /**
+   * Unified weights array
+   * - Simple product: [{ weight, length, width, height }]
+   * - Variant product: [{ combination: { "1": 2 }, weight, length, width, height }, ...]
+   */
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => WeightDto)
+  @IsOptional()
+  weights?: WeightDto[];
 
-    /**
-     * Unified stocks array
-     * - Simple product: [{ quantity }]
-     * - Variant product: [{ combination: { "1": 2, "2": 3 }, quantity }, ...]
-     */
-    @IsArray()
-    @ValidateNested({ each: true })
-    @Type(() => StockDto)
-    @IsOptional()
-    stocks?: StockDto[];
+  // ============== Stock ==============
+
+  /**
+   * Unified stocks array
+   * - Simple product: [{ quantity }]
+   * - Variant product: [{ combination: { "1": 2, "2": 3 }, quantity }, ...]
+   */
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => StockDto)
+  @IsOptional()
+  stocks?: StockDto[];
 }

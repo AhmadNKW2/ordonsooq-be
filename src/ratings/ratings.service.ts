@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Rating, RatingStatus } from './entities/rating.entity';
@@ -13,7 +18,10 @@ export class RatingsService {
     private ratingsRepository: Repository<Rating>,
   ) {}
 
-  async create(createRatingDto: CreateRatingDto, userId: number): Promise<Rating> {
+  async create(
+    createRatingDto: CreateRatingDto,
+    userId: number,
+  ): Promise<Rating> {
     // Check if user already rated this product
     const existingRating = await this.ratingsRepository.findOne({
       where: {
@@ -35,52 +43,63 @@ export class RatingsService {
     return await this.ratingsRepository.save(rating);
   }
 
-    async findAll(filterDto: FilterRatingDto) {
-        const { page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'DESC', status, product_id, userId, minRating, maxRating } = filterDto;
+  async findAll(filterDto: FilterRatingDto) {
+    const {
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      sortOrder = 'DESC',
+      status,
+      product_id,
+      userId,
+      minRating,
+      maxRating,
+    } = filterDto;
 
-        const queryBuilder = this.ratingsRepository
-            .createQueryBuilder('rating')
-            .leftJoinAndSelect('rating.user', 'user')
-            .leftJoinAndSelect('rating.product', 'product');
+    const queryBuilder = this.ratingsRepository
+      .createQueryBuilder('rating')
+      .leftJoinAndSelect('rating.user', 'user')
+      .leftJoinAndSelect('rating.product', 'product');
 
-        if (status) {
-            queryBuilder.andWhere('rating.status = :status', { status });
-        }
+    if (status) {
+      queryBuilder.andWhere('rating.status = :status', { status });
+    }
 
-        if (product_id) {
-            queryBuilder.andWhere('rating.product_id = :product_id', { product_id });
-        }
+    if (product_id) {
+      queryBuilder.andWhere('rating.product_id = :product_id', { product_id });
+    }
 
-        if (userId) {
-            queryBuilder.andWhere('rating.userId = :userId', { userId });
-        }
+    if (userId) {
+      queryBuilder.andWhere('rating.userId = :userId', { userId });
+    }
 
-        if (minRating !== undefined) {
-            queryBuilder.andWhere('rating.rating >= :minRating', { minRating });
-        }
+    if (minRating !== undefined) {
+      queryBuilder.andWhere('rating.rating >= :minRating', { minRating });
+    }
 
-        if (maxRating !== undefined) {
-            queryBuilder.andWhere('rating.rating <= :maxRating', { maxRating });
-        }
+    if (maxRating !== undefined) {
+      queryBuilder.andWhere('rating.rating <= :maxRating', { maxRating });
+    }
 
-        queryBuilder
-            .orderBy(`rating.${sortBy}`, sortOrder)
-            .skip((page - 1) * limit)
-            .take(limit);
+    queryBuilder
+      .orderBy(`rating.${sortBy}`, sortOrder)
+      .skip((page - 1) * limit)
+      .take(limit);
 
-        const [data, total] = await queryBuilder.getManyAndCount();
+    const [data, total] = await queryBuilder.getManyAndCount();
 
-        return {
-            data,
-            meta: {
-                total,
-                page,
-                limit,
-                totalPages: Math.ceil(total / limit),
-            },
-            message: 'Ratings retrieved successfully',
-        };
-    }  async findOne(id: number): Promise<Rating> {
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+      message: 'Ratings retrieved successfully',
+    };
+  }
+  async findOne(id: number): Promise<Rating> {
     const rating = await this.ratingsRepository.findOne({
       where: { id },
       relations: ['user', 'product'],
@@ -93,11 +112,19 @@ export class RatingsService {
     return rating;
   }
 
-  async updateStatus(id: number, updateStatusDto: UpdateRatingStatusDto): Promise<Rating> {
+  async updateStatus(
+    id: number,
+    updateStatusDto: UpdateRatingStatusDto,
+  ): Promise<Rating> {
     const rating = await this.findOne(id);
 
-    if (updateStatusDto.status === RatingStatus.REJECTED && !updateStatusDto.rejectionReason) {
-      throw new ConflictException('Rejection reason is required when rejecting a rating');
+    if (
+      updateStatusDto.status === RatingStatus.REJECTED &&
+      !updateStatusDto.rejectionReason
+    ) {
+      throw new ConflictException(
+        'Rejection reason is required when rejecting a rating',
+      );
     }
 
     rating.status = updateStatusDto.status;
@@ -108,7 +135,11 @@ export class RatingsService {
     return await this.ratingsRepository.save(rating);
   }
 
-  async delete(id: number, userId: number, isAdmin: boolean = false): Promise<void> {
+  async delete(
+    id: number,
+    userId: number,
+    isAdmin: boolean = false,
+  ): Promise<void> {
     const rating = await this.findOne(id);
 
     // Only allow owner or admin to delete
@@ -132,9 +163,8 @@ export class RatingsService {
     });
 
     const total = ratings.length;
-    const averageRating = total > 0
-      ? ratings.reduce((sum, r) => sum + r.rating, 0) / total
-      : 0;
+    const averageRating =
+      total > 0 ? ratings.reduce((sum, r) => sum + r.rating, 0) / total : 0;
 
     return {
       data: {

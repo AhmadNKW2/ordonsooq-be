@@ -5,6 +5,7 @@ import {
   IsBoolean,
   IsArray,
   ValidateNested,
+  IsHexColor,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -16,6 +17,14 @@ export class AttributeValueDto {
   @IsString()
   @IsNotEmpty()
   value_ar: string;
+
+  @IsOptional()
+  @IsHexColor()
+  color_code?: string;
+
+  @IsOptional()
+  @IsString()
+  image_url?: string;
 
   @IsBoolean()
   @IsOptional()

@@ -16,11 +16,11 @@ export enum MediaType {
 
 /**
  * Unified media entity - handles both uploaded files and product-linked media
- * 
+ *
  * This allows "upload first, link later" pattern:
  * 1. User uploads file -> Media entity created with url (product_id = null)
  * 2. User submits product form -> Media updated with product_id, sort_order, is_primary
- * 
+ *
  * For simple products: media_group_id is null or points to a simple group
  * For variant products: media_group_id points to a group with attribute values
  */
@@ -68,7 +68,10 @@ export class Media {
   @Column({ nullable: true })
   media_group_id: number | null;
 
-  @ManyToOne('ProductMediaGroup', 'media', { onDelete: 'SET NULL', nullable: true })
+  @ManyToOne('ProductMediaGroup', 'media', {
+    onDelete: 'SET NULL',
+    nullable: true,
+  })
   @JoinColumn({ name: 'media_group_id' })
   mediaGroup: any;
 

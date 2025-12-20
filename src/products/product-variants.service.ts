@@ -1,4 +1,8 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import { Product } from './entities/product.entity';
@@ -109,10 +113,15 @@ export class ProductVariantsService {
 
       if (existing) {
         // Update existing attribute
-        existing.controls_pricing = attr.controls_pricing ?? existing.controls_pricing;
-        existing.controls_media = attr.controls_media ?? existing.controls_media;
-        existing.controls_weight = attr.controls_weight ?? existing.controls_weight;
-        productAttributes.push(await this.productAttributeRepository.save(existing));
+        existing.controls_pricing =
+          attr.controls_pricing ?? existing.controls_pricing;
+        existing.controls_media =
+          attr.controls_media ?? existing.controls_media;
+        existing.controls_weight =
+          attr.controls_weight ?? existing.controls_weight;
+        productAttributes.push(
+          await this.productAttributeRepository.save(existing),
+        );
       } else {
         // Add new attribute
         const productAttr = this.productAttributeRepository.create({
@@ -122,7 +131,9 @@ export class ProductVariantsService {
           controls_media: attr.controls_media || false,
           controls_weight: attr.controls_weight || false,
         });
-        productAttributes.push(await this.productAttributeRepository.save(productAttr));
+        productAttributes.push(
+          await this.productAttributeRepository.save(productAttr),
+        );
       }
     }
 
@@ -132,7 +143,10 @@ export class ProductVariantsService {
   /**
    * Remove attribute from product by attribute ID
    */
-  async removeProductAttributeByAttributeId(product_id: number, attributeId: number): Promise<void> {
+  async removeProductAttributeByAttributeId(
+    product_id: number,
+    attributeId: number,
+  ): Promise<void> {
     const productAttr = await this.productAttributeRepository.findOne({
       where: { product_id: product_id, attribute_id: attributeId },
     });
@@ -166,7 +180,10 @@ export class ProductVariantsService {
     }
 
     // Check if this combination already exists
-    const existingVariant = await this.findVariantByCombination(product_id, attributeValueIds);
+    const existingVariant = await this.findVariantByCombination(
+      product_id,
+      attributeValueIds,
+    );
     if (existingVariant) {
       throw new BadRequestException(
         'A variant with this attribute combination already exists',
@@ -181,7 +198,9 @@ export class ProductVariantsService {
       });
 
       if (!attributeValue) {
-        throw new NotFoundException(`Attribute value with ID ${valueId} not found`);
+        throw new NotFoundException(
+          `Attribute value with ID ${valueId} not found`,
+        );
       }
 
       const productAttr = await this.productAttributeRepository.findOne({
@@ -203,7 +222,9 @@ export class ProductVariantsService {
       product_id: product_id,
       is_active: true,
       combinations: attributeValueIds.map((valueId) =>
-        this.variantCombinationRepository.create({ attribute_value_id: valueId }),
+        this.variantCombinationRepository.create({
+          attribute_value_id: valueId,
+        }),
       ),
     });
 
@@ -253,7 +274,9 @@ export class ProductVariantsService {
 
     const existingCombinationKeys = new Set(
       existingVariants.map((v) =>
-        this.createCombinationKey(v.combinations.map((c) => c.attribute_value_id)),
+        this.createCombinationKey(
+          v.combinations.map((c) => c.attribute_value_id),
+        ),
       ),
     );
 
@@ -267,7 +290,9 @@ export class ProductVariantsService {
           product_id: product_id,
           is_active: true,
           combinations: combo.map((valueId) =>
-            this.variantCombinationRepository.create({ attribute_value_id: valueId }),
+            this.variantCombinationRepository.create({
+              attribute_value_id: valueId,
+            }),
           ),
         });
         newVariants.push(await this.variantRepository.save(variant));
@@ -346,7 +371,11 @@ export class ProductVariantsService {
   async getProductVariants(product_id: number): Promise<ProductVariant[]> {
     return await this.variantRepository.find({
       where: { product_id: product_id },
-      relations: ['combinations', 'combinations.attribute_value', 'combinations.attribute_value.attribute'],
+      relations: [
+        'combinations',
+        'combinations.attribute_value',
+        'combinations.attribute_value.attribute',
+      ],
       order: { id: 'ASC' },
     });
   }
@@ -357,7 +386,11 @@ export class ProductVariantsService {
   async getVariant(variantId: number): Promise<ProductVariant> {
     const variant = await this.variantRepository.findOne({
       where: { id: variantId },
-      relations: ['combinations', 'combinations.attribute_value', 'combinations.attribute_value.attribute'],
+      relations: [
+        'combinations',
+        'combinations.attribute_value',
+        'combinations.attribute_value.attribute',
+      ],
     });
 
     if (!variant) {
@@ -406,7 +439,10 @@ export class ProductVariantsService {
   /**
    * Set stock for a simple product (no variant)
    */
-  async setSimpleStock(product_id: number, quantity: number): Promise<ProductStock> {
+  async setSimpleStock(
+    product_id: number,
+    quantity: number,
+  ): Promise<ProductStock> {
     const product = await this.productRepository.findOne({
       where: { id: product_id },
     });
@@ -488,7 +524,10 @@ export class ProductVariantsService {
     const attributeValueIds = Object.values(combination);
 
     // Find existing variant with this combination
-    let variant = await this.findVariantByCombination(product_id, attributeValueIds);
+    let variant = await this.findVariantByCombination(
+      product_id,
+      attributeValueIds,
+    );
 
     // If no variant exists, create one
     if (!variant) {
@@ -517,7 +556,11 @@ export class ProductVariantsService {
   ): Promise<ProductStock | null> {
     return await this.stockRepository.findOne({
       where: { product_id: product_id, variant_id: variantId },
-      relations: ['variant', 'variant.combinations', 'variant.combinations.attribute_value'],
+      relations: [
+        'variant',
+        'variant.combinations',
+        'variant.combinations.attribute_value',
+      ],
     });
   }
 
@@ -527,7 +570,11 @@ export class ProductVariantsService {
   async getAllStock(product_id: number): Promise<ProductStock[]> {
     return await this.stockRepository.find({
       where: { product_id: product_id },
-      relations: ['variant', 'variant.combinations', 'variant.combinations.attribute_value'],
+      relations: [
+        'variant',
+        'variant.combinations',
+        'variant.combinations.attribute_value',
+      ],
       order: { id: 'ASC' },
     });
   }
@@ -679,6 +726,68 @@ export class ProductVariantsService {
    */
   async deleteAllVariantsForProduct(product_id: number): Promise<void> {
     await this.variantRepository.delete({ product_id: product_id });
+  }
+
+  /**
+   * Bulk create stocks
+   * This assumes all previous stocks have been deleted
+   */
+  async bulkCreateStocks(
+    product_id: number,
+    items: Array<{
+      combination?: Record<string, number>;
+      quantity: number;
+    }>,
+  ): Promise<void> {
+    if (items.length === 0) return;
+
+    // For stocks, we need to resolve variant IDs for combinations
+    // This is tricky because variants might not exist yet if we just created attributes
+    // However, in the current flow, we don't explicitly create variants, they are derived or created on demand?
+    // Wait, ProductVariant entity exists.
+    // Let's look at setStockByCombination to see how it handles variants.
+
+    // It calls findOrCreateVariant.
+    // So we need to bulk findOrCreateVariant first? That's complex.
+    // Or we can just use the existing parallel logic for stocks if variants are involved.
+    // But if we can optimize simple stocks (no combination), that's easy.
+
+    const simpleStocks = items.filter(
+      (i) => !i.combination || Object.keys(i.combination).length === 0,
+    );
+    const combinationStocks = items.filter(
+      (i) => i.combination && Object.keys(i.combination).length > 0,
+    );
+
+    // Bulk insert simple stocks
+    if (simpleStocks.length > 0) {
+      const stocks = simpleStocks.map((item) =>
+        this.stockRepository.create({
+          product_id: product_id,
+          variant_id: null, // Simple stock has no variant
+          quantity: item.quantity,
+        }),
+      );
+      await this.stockRepository.save(stocks);
+    }
+
+    // For combination stocks, we still need to resolve variants.
+    // If we can't easily bulk resolve variants, we might have to stick to parallel processing for them.
+    // But we can at least parallelize the variant resolution and then bulk insert the stocks.
+
+    if (combinationStocks.length > 0) {
+      // We'll stick to the existing parallel method for combination stocks for now
+      // as it involves complex variant creation logic.
+      await Promise.all(
+        combinationStocks.map((item) =>
+          this.setStockByCombination(
+            product_id,
+            item.combination!,
+            item.quantity,
+          ),
+        ),
+      );
+    }
   }
 
   /**

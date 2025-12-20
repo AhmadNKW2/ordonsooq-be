@@ -1,4 +1,11 @@
-import { IsOptional, IsEnum, IsString, IsNumber, Min, Max } from 'class-validator';
+import {
+  IsOptional,
+  IsEnum,
+  IsString,
+  IsNumber,
+  Min,
+  Max,
+} from 'class-validator';
 import { RatingStatus } from '../entities/rating.entity';
 import { Type } from 'class-transformer';
 

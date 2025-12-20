@@ -12,4 +12,4 @@ import { Brand } from '../brands/entities/brand.entity';
   controllers: [HomeController],
   providers: [HomeService],
 })
-export class HomeModule { }
+export class HomeModule {}

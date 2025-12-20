@@ -12,7 +12,10 @@ export class UpdateVendorDto extends PartialType(CreateVendorDto) {
         const parsed = JSON.parse(value);
         return Array.isArray(parsed) ? parsed : [];
       } catch {
-        return value.split(',').map(Number).filter(n => !isNaN(n));
+        return value
+          .split(',')
+          .map(Number)
+          .filter((n) => !isNaN(n));
       }
     }
     return Array.isArray(value) ? value : [];

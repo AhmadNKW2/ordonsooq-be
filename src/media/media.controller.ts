@@ -23,12 +23,12 @@ export class MediaController {
 
   /**
    * Upload a media file (image or video) to Cloudflare R2
-   * 
+   *
    * This is a generic upload endpoint - files are uploaded independently
    * and can be linked to products later.
-   * 
+   *
    * Returns: { id, url, type, original_name, mime_type, size, created_at }
-   * 
+   *
    * Usage:
    * 1. Frontend uploads file immediately when user drops/selects it
    * 2. Frontend stores returned ID in component state

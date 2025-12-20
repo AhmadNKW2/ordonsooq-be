@@ -1,5 +1,8 @@
 import { IsOptional, IsEnum, IsNumber, Min } from 'class-validator';
-import { TransactionType, TransactionSource } from '../entities/wallet-transaction.entity';
+import {
+  TransactionType,
+  TransactionSource,
+} from '../entities/wallet-transaction.entity';
 import { Type } from 'class-transformer';
 
 export enum TransactionSortBy {

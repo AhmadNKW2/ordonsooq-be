@@ -17,7 +17,10 @@ import { memoryStorage } from 'multer';
 import { VendorsService } from './vendors.service';
 import { CreateVendorDto } from './dto/create-vendor.dto';
 import { UpdateVendorDto } from './dto/update-vendor.dto';
-import { PermanentDeleteVendorDto, RestoreVendorDto } from './dto/archive-vendor.dto';
+import {
+  PermanentDeleteVendorDto,
+  RestoreVendorDto,
+} from './dto/archive-vendor.dto';
 import { ReorderVendorsDto } from './dto/reorder-vendors.dto';
 import { AssignProductsToVendorDto } from './dto/assign-products.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -50,7 +53,10 @@ export class VendorsController {
   ) {
     let logoUrl: string | undefined;
     if (logo) {
-      const uploadResult = await this.r2StorageService.uploadFile(logo, 'vendors');
+      const uploadResult = await this.r2StorageService.uploadFile(
+        logo,
+        'vendors',
+      );
       logoUrl = uploadResult.url;
     }
     return this.vendorsService.create(createVendorDto, logoUrl);
@@ -91,7 +97,10 @@ export class VendorsController {
   ) {
     let logoUrl: string | undefined;
     if (logo) {
-      const uploadResult = await this.r2StorageService.uploadFile(logo, 'vendors');
+      const uploadResult = await this.r2StorageService.uploadFile(
+        logo,
+        'vendors',
+      );
       logoUrl = uploadResult.url;
     }
     return this.vendorsService.update(+id, updateVendorDto, logoUrl);
@@ -116,7 +125,10 @@ export class VendorsController {
   @Delete(':id/permanent')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
-  permanentDelete(@Param('id') id: string, @Body() options?: PermanentDeleteVendorDto) {
+  permanentDelete(
+    @Param('id') id: string,
+    @Body() options?: PermanentDeleteVendorDto,
+  ) {
     return this.vendorsService.permanentDelete(+id, options);
   }
 
@@ -133,7 +145,10 @@ export class VendorsController {
   @Post(':id/products')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
-  assignProducts(@Param('id') id: string, @Body() dto: AssignProductsToVendorDto) {
+  assignProducts(
+    @Param('id') id: string,
+    @Body() dto: AssignProductsToVendorDto,
+  ) {
     return this.vendorsService.assignProducts(+id, dto.product_ids);
   }
 
@@ -141,7 +156,10 @@ export class VendorsController {
   @Delete(':id/products')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
-  removeProducts(@Param('id') id: string, @Body() dto: AssignProductsToVendorDto) {
+  removeProducts(
+    @Param('id') id: string,
+    @Body() dto: AssignProductsToVendorDto,
+  ) {
     return this.vendorsService.removeProducts(+id, dto.product_ids);
   }
 

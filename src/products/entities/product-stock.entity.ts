@@ -14,7 +14,7 @@ import { ProductVariant } from './product-variant.entity';
 
 /**
  * Unified stock table for both simple and variant products.
- * 
+ *
  * For simple products: variant_id is NULL (single stock for the product)
  * For variant products: variant_id points to the specific variant
  */

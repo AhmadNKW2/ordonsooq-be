@@ -50,7 +50,10 @@ export class AttributesController {
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
-  update(@Param('id') id: string, @Body() updateAttributeDto: UpdateAttributeDto) {
+  update(
+    @Param('id') id: string,
+    @Body() updateAttributeDto: UpdateAttributeDto,
+  ) {
     return this.attributesService.update(+id, updateAttributeDto);
   }
 

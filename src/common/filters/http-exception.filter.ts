@@ -37,7 +37,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
             }
             return {
               field: msg.property || msg.field || 'unknown',
-              message: Object.values(msg.constraints || {}).join(', ') || msg.message || msg,
+              message:
+                Object.values(msg.constraints || {}).join(', ') ||
+                msg.message ||
+                msg,
             };
           });
           message = 'Validation failed';

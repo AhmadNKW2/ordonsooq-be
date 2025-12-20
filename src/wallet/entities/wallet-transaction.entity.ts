@@ -28,7 +28,9 @@ export class WalletTransaction {
   @PrimaryGeneratedColumn('increment')
   id: number;
 
-  @ManyToOne(() => Wallet, (wallet) => wallet.transactions, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Wallet, (wallet) => wallet.transactions, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'walletId' })
   wallet: Wallet;
 

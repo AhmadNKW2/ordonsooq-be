@@ -16,7 +16,7 @@ import { ProductWeightGroupValue } from './product-weight-group-value.entity';
  * Groups weight/dimensions by controlling attribute values.
  * Each group represents a unique combination of attribute values
  * that control weight for a product.
- * 
+ *
  * For simple products: One group with no group values
  * For variant products: Multiple groups, each with attribute values that define the group
  */
@@ -45,7 +45,11 @@ export class ProductWeightGroup {
   @Column('decimal', { precision: 10, scale: 2, nullable: true })
   height?: number;
 
-  @OneToMany(() => ProductWeightGroupValue, (groupValue) => groupValue.weightGroup, { cascade: true })
+  @OneToMany(
+    () => ProductWeightGroupValue,
+    (groupValue) => groupValue.weightGroup,
+    { cascade: true },
+  )
   groupValues: ProductWeightGroupValue[];
 
   @CreateDateColumn()

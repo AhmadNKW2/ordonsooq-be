@@ -15,7 +15,7 @@ import { AttributeValue } from '../../attributes/entities/attribute-value.entity
 /**
  * Junction table linking media groups to their defining attribute values.
  * Each row represents one attribute-value pair that defines the group.
- * 
+ *
  * Example: If Color=Red defines a media group,
  * there will be one row for Color=Red
  */
@@ -30,7 +30,9 @@ export class ProductMediaGroupValue {
   @Column()
   media_group_id: number;
 
-  @ManyToOne(() => ProductMediaGroup, (group) => group.groupValues, { onDelete: 'CASCADE' })
+  @ManyToOne(() => ProductMediaGroup, (group) => group.groupValues, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'media_group_id' })
   mediaGroup: ProductMediaGroup;
 

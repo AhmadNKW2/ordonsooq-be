@@ -17,10 +17,10 @@ import { Media } from '../../media/entities/media.entity';
  * Groups media by controlling attribute values.
  * Each group represents a unique combination of attribute values
  * that control media for a product.
- * 
+ *
  * For simple products: One group with no group values
  * For variant products: Multiple groups, each with attribute values that define the group
- * 
+ *
  * Media files are linked to this group via media_group_id in media table
  */
 @Entity('product_media_groups')
@@ -36,7 +36,11 @@ export class ProductMediaGroup {
   @JoinColumn({ name: 'product_id' })
   product: Product;
 
-  @OneToMany(() => ProductMediaGroupValue, (groupValue) => groupValue.mediaGroup, { cascade: true })
+  @OneToMany(
+    () => ProductMediaGroupValue,
+    (groupValue) => groupValue.mediaGroup,
+    { cascade: true },
+  )
   groupValues: ProductMediaGroupValue[];
 
   // Media items in this group

@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Wishlist } from './entities/wishlist.entity';
@@ -98,20 +103,24 @@ export class WishlistService {
         id: item.id,
         product_id: item.product_id,
         created_at: item.created_at,
-        product: item.product ? {
-          id: item.product.id,
-          name_en: item.product.name_en,
-          name_ar: item.product.name_ar,
-          sku: item.product.sku,
-          status: item.product.status,
-          visible: item.product.visible,
-          image,
-          vendor: item.product.vendor ? {
-            id: item.product.vendor.id,
-            name_en: item.product.vendor.name_en,
-            name_ar: item.product.vendor.name_ar,
-          } : null,
-        } : null,
+        product: item.product
+          ? {
+              id: item.product.id,
+              name_en: item.product.name_en,
+              name_ar: item.product.name_ar,
+              sku: item.product.sku,
+              status: item.product.status,
+              visible: item.product.visible,
+              image,
+              vendor: item.product.vendor
+                ? {
+                    id: item.product.vendor.id,
+                    name_en: item.product.vendor.name_en,
+                    name_ar: item.product.vendor.name_ar,
+                  }
+                : null,
+            }
+          : null,
       };
     });
 
@@ -135,7 +144,10 @@ export class WishlistService {
   /**
    * Check if a product is in user's wishlist
    */
-  async isProductInWishlist(userId: number, productId: number): Promise<boolean> {
+  async isProductInWishlist(
+    userId: number,
+    productId: number,
+  ): Promise<boolean> {
     const item = await this.wishlistRepository.findOne({
       where: { user_id: userId, product_id: productId },
     });

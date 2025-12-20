@@ -7,9 +7,7 @@ import { Wishlist } from '../wishlist/entities/wishlist.entity';
 import { Product } from '../products/entities/product.entity';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([User, Wishlist, Product]),
-  ],
+  imports: [TypeOrmModule.forFeature([User, Wishlist, Product])],
   controllers: [UsersController],
   providers: [UsersService],
   exports: [UsersService], // Export so other modules can use it

@@ -53,7 +53,9 @@ export class Rating {
   userId: number;
 
   // Product being rated
-  @ManyToOne(() => Product, (product) => product.ratings, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Product, (product) => product.ratings, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'product_id' })
   product: Product;
 

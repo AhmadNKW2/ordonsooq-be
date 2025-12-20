@@ -16,7 +16,7 @@ import { ProductPriceGroupValue } from './product-price-group-value.entity';
  * Groups pricing by controlling attribute values.
  * Each group represents a unique combination of attribute values
  * that control pricing for a product.
- * 
+ *
  * For simple products: One group with no group values
  * For variant products: Multiple groups, each with attribute values that define the group
  */
@@ -43,7 +43,11 @@ export class ProductPriceGroup {
   @Column('decimal', { precision: 10, scale: 2, nullable: true })
   sale_price?: number;
 
-  @OneToMany(() => ProductPriceGroupValue, (groupValue) => groupValue.priceGroup, { cascade: true })
+  @OneToMany(
+    () => ProductPriceGroupValue,
+    (groupValue) => groupValue.priceGroup,
+    { cascade: true },
+  )
   groupValues: ProductPriceGroupValue[];
 
   @CreateDateColumn()

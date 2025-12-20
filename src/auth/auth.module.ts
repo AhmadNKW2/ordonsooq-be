@@ -18,12 +18,18 @@ import { TokenBlacklist } from './entities/token-blacklist.entity';
     UsersModule, // Import to use UsersService
     PassportModule,
     ScheduleModule.forRoot(),
-    TypeOrmModule.forFeature([PasswordResetToken, RefreshToken, TokenBlacklist]),
+    TypeOrmModule.forFeature([
+      PasswordResetToken,
+      RefreshToken,
+      TokenBlacklist,
+    ]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
-        secret: configService.get('JWT_SECRET') || 'your-secret-key-change-in-production',
+        secret:
+          configService.get('JWT_SECRET') ||
+          'your-secret-key-change-in-production',
         signOptions: { expiresIn: '15m' }, // Default expiration, overridden in service
       }),
     }),
@@ -32,4 +38,4 @@ import { TokenBlacklist } from './entities/token-blacklist.entity';
   providers: [AuthService, JwtStrategy, TokenCleanupService],
   exports: [AuthService],
 })
-export class AuthModule { }
+export class AuthModule {}

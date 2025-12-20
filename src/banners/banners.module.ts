@@ -10,4 +10,4 @@ import { Banner } from './entities/banner.entity';
   providers: [BannersService],
   exports: [BannersService],
 })
-export class BannersModule { }
+export class BannersModule {}

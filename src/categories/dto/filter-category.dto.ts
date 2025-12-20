@@ -1,4 +1,10 @@
-import { IsOptional, IsEnum, IsString, IsBoolean, IsNumber } from 'class-validator';
+import {
+  IsOptional,
+  IsEnum,
+  IsString,
+  IsBoolean,
+  IsNumber,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { CategoryStatus } from '../entities/category.entity';
 

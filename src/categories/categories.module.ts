@@ -12,4 +12,4 @@ import { ProductCategory } from '../products/entities/product-category.entity';
   providers: [CategoriesService],
   exports: [CategoriesService],
 })
-export class CategoriesModule { }
+export class CategoriesModule {}

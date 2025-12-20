@@ -15,7 +15,7 @@ import { AttributeValue } from '../../attributes/entities/attribute-value.entity
 /**
  * Junction table linking weight groups to their defining attribute values.
  * Each row represents one attribute-value pair that defines the group.
- * 
+ *
  * Example: If Size=Large defines a weight group,
  * there will be one row for Size=Large
  */
@@ -30,7 +30,9 @@ export class ProductWeightGroupValue {
   @Column()
   weight_group_id: number;
 
-  @ManyToOne(() => ProductWeightGroup, (group) => group.groupValues, { onDelete: 'CASCADE' })
+  @ManyToOne(() => ProductWeightGroup, (group) => group.groupValues, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'weight_group_id' })
   weightGroup: ProductWeightGroup;
 

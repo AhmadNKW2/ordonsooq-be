@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Attribute } from './entities/attribute.entity';
@@ -81,7 +85,10 @@ export class AttributesService {
   ): Promise<Attribute> {
     const attribute = await this.findOne(id);
 
-    if (updateAttributeDto.name_en && updateAttributeDto.name_en !== attribute.name_en) {
+    if (
+      updateAttributeDto.name_en &&
+      updateAttributeDto.name_en !== attribute.name_en
+    ) {
       const existing = await this.attributeRepository.findOne({
         where: { name_en: updateAttributeDto.name_en },
       });
@@ -99,7 +106,11 @@ export class AttributesService {
     await this.attributeRepository.remove(attribute);
   }
 
-  async addValue(attributeId: number, valueEn: string, valueAr: string): Promise<AttributeValue> {
+  async addValue(
+    attributeId: number,
+    valueEn: string,
+    valueAr: string,
+  ): Promise<AttributeValue> {
     // Check if attribute exists
     const attribute = await this.attributeRepository.findOne({
       where: { id: attributeId },
@@ -133,7 +144,9 @@ export class AttributesService {
     });
 
     if (!value) {
-      throw new NotFoundException(`Attribute value with ID ${valueId} not found`);
+      throw new NotFoundException(
+        `Attribute value with ID ${valueId} not found`,
+      );
     }
 
     await this.attributeValueRepository.remove(value);
@@ -148,14 +161,18 @@ export class AttributesService {
     });
 
     if (!value) {
-      throw new NotFoundException(`Attribute value with ID ${valueId} not found`);
+      throw new NotFoundException(
+        `Attribute value with ID ${valueId} not found`,
+      );
     }
 
     Object.assign(value, updateDto);
     return await this.attributeValueRepository.save(value);
   }
 
-  async reorderAttributes(reorderDto: ReorderAttributesDto): Promise<Attribute[]> {
+  async reorderAttributes(
+    reorderDto: ReorderAttributesDto,
+  ): Promise<Attribute[]> {
     const attributeIds = reorderDto.attributes.map((attr) => attr.id);
     const attributes = await this.attributeRepository.find({
       where: { id: In(attributeIds) },
@@ -192,7 +209,9 @@ export class AttributesService {
     }
 
     const updatePromises = reorderDto.values.map((val) =>
-      this.attributeValueRepository.update(val.id, { sort_order: val.sort_order }),
+      this.attributeValueRepository.update(val.id, {
+        sort_order: val.sort_order,
+      }),
     );
 
     await Promise.all(updatePromises);

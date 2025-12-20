@@ -9,8 +9,14 @@ import { map } from 'rxjs/operators';
 import { ApiResponse } from '../interfaces/api-response.interface';
 
 @Injectable()
-export class ResponseInterceptor<T> implements NestInterceptor<T, ApiResponse<T>> {
-  intercept(context: ExecutionContext, next: CallHandler): Observable<ApiResponse<T>> {
+export class ResponseInterceptor<T> implements NestInterceptor<
+  T,
+  ApiResponse<T>
+> {
+  intercept(
+    context: ExecutionContext,
+    next: CallHandler,
+  ): Observable<ApiResponse<T>> {
     const now = new Date().toISOString();
 
     return next.handle().pipe(
@@ -24,7 +30,12 @@ export class ResponseInterceptor<T> implements NestInterceptor<T, ApiResponse<T>
         }
 
         // Check if data has meta (pagination)
-        if (data && typeof data === 'object' && 'data' in data && 'meta' in data) {
+        if (
+          data &&
+          typeof data === 'object' &&
+          'data' in data &&
+          'meta' in data
+        ) {
           return {
             success: true,
             data: data.data,

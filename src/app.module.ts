@@ -40,7 +40,7 @@ import { HealthModule } from './health/health.module';
         ssl: {
           rejectUnauthorized: false,
         },
-      }
+      },
     }),
     UsersModule,
     AuthModule,
@@ -58,4 +58,4 @@ import { HealthModule } from './health/health.module';
     BrandsModule,
   ],
 })
-export class AppModule { }
+export class AppModule {}

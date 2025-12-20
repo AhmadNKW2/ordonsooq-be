@@ -15,7 +15,7 @@ import { ProductVariantCombination } from './product-variant-combination.entity'
 /**
  * Represents a specific variant of a product.
  * A variant is a unique combination of attribute values (e.g., Red + Small).
- * 
+ *
  * Simple products don't have variants.
  * Variant products have one or more ProductVariant records.
  */
@@ -29,7 +29,9 @@ export class ProductVariant {
   @Column()
   product_id: number;
 
-  @ManyToOne(() => Product, (product) => product.variants, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Product, (product) => product.variants, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'product_id' })
   product: Product;
 

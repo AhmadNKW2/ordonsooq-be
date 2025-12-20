@@ -1,4 +1,11 @@
-import { IsNotEmpty, IsNumber, Min, IsEnum, IsOptional, IsString } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsNumber,
+  Min,
+  IsEnum,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 import { TransactionSource } from '../entities/wallet-transaction.entity';
 
 export class AddFundsDto {

@@ -37,11 +37,15 @@ export class R2StorageService {
   constructor(private configService: ConfigService) {
     const accountId = this.configService.get<string>('R2_ACCOUNT_ID');
     const accessKeyId = this.configService.get<string>('R2_ACCESS_KEY_ID');
-    const secretAccessKey = this.configService.get<string>('R2_SECRET_ACCESS_KEY');
-    this.bucketName = this.configService.get<string>('R2_BUCKET_NAME') || 'ordonsooq-media';
+    const secretAccessKey = this.configService.get<string>(
+      'R2_SECRET_ACCESS_KEY',
+    );
+    this.bucketName =
+      this.configService.get<string>('R2_BUCKET_NAME') || 'ordonsooq-media';
 
     // R2 endpoint format
-    const endpoint = this.configService.get<string>('R2_ENDPOINT') ||
+    const endpoint =
+      this.configService.get<string>('R2_ENDPOINT') ||
       `https://${accountId}.r2.cloudflarestorage.com`;
 
     // Public URL for accessing files.
@@ -69,17 +73,26 @@ export class R2StorageService {
     this.logger.log(`R2 Storage initialized with bucket: ${this.bucketName}`);
   }
 
-  private normalizePublicBaseUrl(url: string, isExplicit: boolean, accountId?: string): string {
+  private normalizePublicBaseUrl(
+    url: string,
+    isExplicit: boolean,
+    accountId?: string,
+  ): string {
     try {
       const parsed = new URL(url);
       const trimmed = url.replace(/\/$/, '');
 
       // Only auto-prefix the bucket when we're using the fallback account-level pub URL.
       // If the URL is explicitly configured, do not mutate it.
-      const expectedAccountHost = accountId ? `pub-${accountId}.r2.dev` : undefined;
+      const expectedAccountHost = accountId
+        ? `pub-${accountId}.r2.dev`
+        : undefined;
       const isFallbackAccountHost =
-        !isExplicit && !!expectedAccountHost && parsed.hostname === expectedAccountHost;
-      const hasPath = parsed.pathname && parsed.pathname !== '/' && parsed.pathname !== '';
+        !isExplicit &&
+        !!expectedAccountHost &&
+        parsed.hostname === expectedAccountHost;
+      const hasPath =
+        parsed.pathname && parsed.pathname !== '/' && parsed.pathname !== '';
 
       if (isFallbackAccountHost && !hasPath) {
         parsed.pathname = `/${this.bucketName}`;
@@ -122,9 +135,13 @@ export class R2StorageService {
         fileSize = optimized.size;
         mimeType = optimized.mimeType;
         ext = optimized.ext;
-        this.logger.log(`Image optimized: ${file.originalname} (${file.size} → ${fileSize} bytes)`);
+        this.logger.log(
+          `Image optimized: ${file.originalname} (${file.size} → ${fileSize} bytes)`,
+        );
       } catch (error) {
-        this.logger.warn(`Failed to optimize image, using original: ${error.message}`);
+        this.logger.warn(
+          `Failed to optimize image, using original: ${error.message}`,
+        );
       }
     }
 
@@ -176,7 +193,10 @@ export class R2StorageService {
     const metadata = await sharpInstance.metadata();
 
     // Resize if necessary
-    if (metadata.width && metadata.width > maxWidth || metadata.height && metadata.height > maxHeight) {
+    if (
+      (metadata.width && metadata.width > maxWidth) ||
+      (metadata.height && metadata.height > maxHeight)
+    ) {
       sharpInstance = sharpInstance.resize(maxWidth, maxHeight, {
         fit: 'inside',
         withoutEnlargement: true,
@@ -314,7 +334,10 @@ export class R2StorageService {
 
       this.logger.log(`Deleted ${keys.length} files successfully`);
     } catch (error) {
-      this.logger.error(`Failed to delete files: ${error.message}`, error.stack);
+      this.logger.error(
+        `Failed to delete files: ${error.message}`,
+        error.stack,
+      );
       throw error;
     }
   }
@@ -333,7 +356,9 @@ export class R2StorageService {
     try {
       const url = new URL(keyOrUrl);
       // Remove leading slash from pathname
-      const path = url.pathname.startsWith('/') ? url.pathname.slice(1) : url.pathname;
+      const path = url.pathname.startsWith('/')
+        ? url.pathname.slice(1)
+        : url.pathname;
       // If the URL includes the bucket as the first segment (common with pub-<account>.r2.dev), strip it.
       if (path.startsWith(`${this.bucketName}/`)) {
         return path.slice(this.bucketName.length + 1);

@@ -33,7 +33,10 @@ export class CouponsService {
     }
 
     // Validate percentage coupons
-    if (createCouponDto.type === CouponType.PERCENTAGE && createCouponDto.value > 100) {
+    if (
+      createCouponDto.type === CouponType.PERCENTAGE &&
+      createCouponDto.value > 100
+    ) {
       throw new BadRequestException('Percentage value cannot exceed 100');
     }
 
@@ -46,7 +49,17 @@ export class CouponsService {
   }
 
   async findAll(filterDto?: FilterCouponDto) {
-    const { page = 1, limit = 10, sortBy = 'createdAt', sortOrder = 'DESC', type, status, search, minValue, maxValue } = filterDto || {};
+    const {
+      page = 1,
+      limit = 10,
+      sortBy = 'createdAt',
+      sortOrder = 'DESC',
+      type,
+      status,
+      search,
+      minValue,
+      maxValue,
+    } = filterDto || {};
 
     const queryBuilder = this.couponRepository.createQueryBuilder('coupon');
 
@@ -72,7 +85,7 @@ export class CouponsService {
     if (search) {
       queryBuilder.andWhere(
         '(coupon.code ILIKE :search OR coupon.description ILIKE :search)',
-        { search: `%${search}%` }
+        { search: `%${search}%` },
       );
     }
 
@@ -121,7 +134,11 @@ export class CouponsService {
   async update(id: number, updateCouponDto: UpdateCouponDto): Promise<Coupon> {
     const coupon = await this.findOne(id);
 
-    if (updateCouponDto.type === CouponType.PERCENTAGE && updateCouponDto.value && updateCouponDto.value > 100) {
+    if (
+      updateCouponDto.type === CouponType.PERCENTAGE &&
+      updateCouponDto.value &&
+      updateCouponDto.value > 100
+    ) {
       throw new BadRequestException('Percentage value cannot exceed 100');
     }
 
@@ -152,7 +169,10 @@ export class CouponsService {
     }
 
     // Check minimum purchase amount
-    if (coupon.minPurchaseAmount && validateDto.orderAmount < coupon.minPurchaseAmount) {
+    if (
+      coupon.minPurchaseAmount &&
+      validateDto.orderAmount < coupon.minPurchaseAmount
+    ) {
       throw new BadRequestException(
         `Minimum purchase amount of ${coupon.minPurchaseAmount} required`,
       );
@@ -170,7 +190,9 @@ export class CouponsService {
       });
 
       if (userUsageCount >= coupon.perUserLimit) {
-        throw new BadRequestException('You have reached the usage limit for this coupon');
+        throw new BadRequestException(
+          'You have reached the usage limit for this coupon',
+        );
       }
     }
 
@@ -178,7 +200,10 @@ export class CouponsService {
     let discountAmount = 0;
     if (coupon.type === CouponType.PERCENTAGE) {
       discountAmount = (validateDto.orderAmount * coupon.value) / 100;
-      if (coupon.maxDiscountAmount && discountAmount > coupon.maxDiscountAmount) {
+      if (
+        coupon.maxDiscountAmount &&
+        discountAmount > coupon.maxDiscountAmount
+      ) {
         discountAmount = coupon.maxDiscountAmount;
       }
     } else {
@@ -200,7 +225,12 @@ export class CouponsService {
     };
   }
 
-  async applyCoupon(userId: number, couponId: number, orderId: string, discountAmount: number) {
+  async applyCoupon(
+    userId: number,
+    couponId: number,
+    orderId: string,
+    discountAmount: number,
+  ) {
     const coupon = await this.findOne(couponId);
 
     // Increment usage count

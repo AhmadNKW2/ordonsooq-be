@@ -15,7 +15,7 @@ import { AttributeValue } from '../../attributes/entities/attribute-value.entity
 /**
  * Junction table linking price groups to their defining attribute values.
  * Each row represents one attribute-value pair that defines the group.
- * 
+ *
  * Example: If Color=Red and Size=Large define a price group,
  * there will be two rows: one for Color=Red, one for Size=Large
  */
@@ -30,7 +30,9 @@ export class ProductPriceGroupValue {
   @Column()
   price_group_id: number;
 
-  @ManyToOne(() => ProductPriceGroup, (group) => group.groupValues, { onDelete: 'CASCADE' })
+  @ManyToOne(() => ProductPriceGroup, (group) => group.groupValues, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'price_group_id' })
   priceGroup: ProductPriceGroup;
 

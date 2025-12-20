@@ -1,10 +1,19 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  BadRequestException,
+  Logger,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Vendor, VendorStatus } from './entities/vendor.entity';
 import { CreateVendorDto } from './dto/create-vendor.dto';
 import { UpdateVendorDto } from './dto/update-vendor.dto';
-import { RestoreVendorDto, PermanentDeleteVendorDto } from './dto/archive-vendor.dto';
+import {
+  RestoreVendorDto,
+  PermanentDeleteVendorDto,
+} from './dto/archive-vendor.dto';
 import { ReorderVendorsDto } from './dto/reorder-vendors.dto';
 import { Product, ProductStatus } from '../products/entities/product.entity';
 import { R2StorageService } from '../common/services/r2-storage.service';
@@ -21,7 +30,10 @@ export class VendorsService {
     private r2StorageService: R2StorageService,
   ) {}
 
-  async create(createVendorDto: CreateVendorDto, logoUrl?: string): Promise<Vendor> {
+  async create(
+    createVendorDto: CreateVendorDto,
+    logoUrl?: string,
+  ): Promise<Vendor> {
     const existing = await this.vendorRepository.findOne({
       where: { name_en: createVendorDto.name_en },
     });
@@ -35,7 +47,7 @@ export class VendorsService {
       .createQueryBuilder('vendor')
       .select('MAX(vendor.sort_order)', 'max')
       .getRawOne();
-    
+
     const nextSortOrder = (maxSortOrder?.max ?? -1) + 1;
 
     const { product_ids, ...vendorData } = createVendorDto;
@@ -58,7 +70,10 @@ export class VendorsService {
   /**
    * Sync products to a vendor - replaces vendor assignment for specified products
    */
-  private async syncProductsToVendor(vendorId: number, product_ids: number[]): Promise<void> {
+  private async syncProductsToVendor(
+    vendorId: number,
+    product_ids: number[],
+  ): Promise<void> {
     // First, remove this vendor from all products that currently have it
     await this.productsRepository.update(
       { vendor_id: vendorId },
@@ -95,7 +110,11 @@ export class VendorsService {
     return vendor;
   }
 
-  async update(id: number, updateVendorDto: UpdateVendorDto, logoUrl?: string): Promise<Vendor> {
+  async update(
+    id: number,
+    updateVendorDto: UpdateVendorDto,
+    logoUrl?: string,
+  ): Promise<Vendor> {
     const vendor = await this.findOne(id);
     const oldLogoUrl = vendor.logo;
 
@@ -121,7 +140,10 @@ export class VendorsService {
       try {
         await this.r2StorageService.deleteFile(oldLogoUrl);
       } catch (error) {
-        this.logger.warn(`Failed to delete old vendor logo: ${oldLogoUrl}`, error);
+        this.logger.warn(
+          `Failed to delete old vendor logo: ${oldLogoUrl}`,
+          error,
+        );
       }
     }
 
@@ -139,7 +161,10 @@ export class VendorsService {
    * Archive a vendor (soft delete)
    * All products from this vendor will also be archived
    */
-  async archive(id: number, userId: number): Promise<{ message: string; archivedProducts: number }> {
+  async archive(
+    id: number,
+    userId: number,
+  ): Promise<{ message: string; archivedProducts: number }> {
     const vendor = await this.vendorRepository.findOne({
       where: { id, status: VendorStatus.ACTIVE },
     });
@@ -162,7 +187,7 @@ export class VendorsService {
         status: ProductStatus.ARCHIVED,
         archived_at: new Date(),
         archived_by: userId,
-      }
+      },
     );
 
     return {
@@ -175,8 +200,11 @@ export class VendorsService {
    * Restore an archived vendor
    * Options to restore all products, select specific products, or restore vendor only
    */
-  async restore(id: number, restoreDto?: RestoreVendorDto): Promise<{ 
-    message: string; 
+  async restore(
+    id: number,
+    restoreDto?: RestoreVendorDto,
+  ): Promise<{
+    message: string;
     restoredProducts: number;
     skippedProducts: number;
     skippedReason?: string;
@@ -207,13 +235,18 @@ export class VendorsService {
         .leftJoinAndSelect('product.productCategories', 'pc')
         .leftJoinAndSelect('pc.category', 'category')
         .where('product.vendor_id = :vendorId', { vendorId: id })
-        .andWhere('product.status = :status', { status: ProductStatus.ARCHIVED });
+        .andWhere('product.status = :status', {
+          status: ProductStatus.ARCHIVED,
+        });
 
       // If specific product IDs provided, filter by them
       if (restoreDto.product_ids && restoreDto.product_ids.length > 0) {
-        productsQuery = productsQuery.andWhere('product.id IN (:...product_ids)', { 
-          product_ids: restoreDto.product_ids 
-        });
+        productsQuery = productsQuery.andWhere(
+          'product.id IN (:...product_ids)',
+          {
+            product_ids: restoreDto.product_ids,
+          },
+        );
       }
 
       const products = await productsQuery.getMany();
@@ -221,12 +254,13 @@ export class VendorsService {
       for (const product of products) {
         // Check if product has at least one active category
         const hasActiveCategory = product.productCategories?.some(
-          pc => pc.category?.status === 'active'
+          (pc) => pc.category?.status === 'active',
         );
 
         if (!hasActiveCategory && product.productCategories?.length > 0) {
           skippedProducts++;
-          skippedReason = 'Some products skipped because all their categories are archived';
+          skippedReason =
+            'Some products skipped because all their categories are archived';
           continue;
         }
 
@@ -239,7 +273,7 @@ export class VendorsService {
       }
     }
 
-    return { 
+    return {
       message: `Vendor "${vendor.name_en}" restored successfully`,
       restoredProducts,
       skippedProducts,
@@ -261,7 +295,14 @@ export class VendorsService {
       vendors.map(async (vendor) => {
         const archivedProductsRaw = await this.productsRepository.find({
           where: { vendor_id: vendor.id, status: ProductStatus.ARCHIVED },
-          select: ['id', 'name_en', 'name_ar', 'sku', 'archived_at', 'archived_by'],
+          select: [
+            'id',
+            'name_en',
+            'name_ar',
+            'sku',
+            'archived_at',
+            'archived_by',
+          ],
           relations: ['media'],
         });
 
@@ -278,7 +319,7 @@ export class VendorsService {
           ...vendor,
           archivedProducts,
         };
-      })
+      }),
     );
 
     return vendorsWithProducts;
@@ -288,13 +329,18 @@ export class VendorsService {
    * Permanently delete a vendor (only if archived)
    * Must handle products: delete them or move to another vendor
    */
-  async permanentDelete(id: number, options?: PermanentDeleteVendorDto): Promise<{ message: string }> {
+  async permanentDelete(
+    id: number,
+    options?: PermanentDeleteVendorDto,
+  ): Promise<{ message: string }> {
     const vendor = await this.vendorRepository.findOne({
       where: { id, status: VendorStatus.ARCHIVED },
     });
 
     if (!vendor) {
-      throw new NotFoundException('Vendor not found or not archived. Only archived vendors can be permanently deleted.');
+      throw new NotFoundException(
+        'Vendor not found or not archived. Only archived vendors can be permanently deleted.',
+      );
     }
 
     // Count products
@@ -309,7 +355,7 @@ export class VendorsService {
     // Active products cannot be permanently deleted
     if (activeProductCount > 0) {
       throw new BadRequestException(
-        `Vendor has ${activeProductCount} active products. Archive them first before permanent deletion.`
+        `Vendor has ${activeProductCount} active products. Archive them first before permanent deletion.`,
       );
     }
 
@@ -317,35 +363,43 @@ export class VendorsService {
       if (!options?.deleteProducts && !options?.moveProductsToVendorId) {
         throw new BadRequestException(
           `Vendor has ${archivedProductCount} archived products. Choose one option:\n` +
-          '1. Set deleteProducts=true to permanently delete all products\n' +
-          '2. Set moveProductsToVendorId=<id> to move products to another vendor'
+            '1. Set deleteProducts=true to permanently delete all products\n' +
+            '2. Set moveProductsToVendorId=<id> to move products to another vendor',
         );
       }
 
       if (options.deleteProducts && options.moveProductsToVendorId) {
         throw new BadRequestException(
-          'Cannot use both deleteProducts and moveProductsToVendorId. Choose one option.'
+          'Cannot use both deleteProducts and moveProductsToVendorId. Choose one option.',
         );
       }
 
       if (options.moveProductsToVendorId) {
         // Validate target vendor exists and is active
         const targetVendor = await this.vendorRepository.findOne({
-          where: { id: options.moveProductsToVendorId, status: VendorStatus.ACTIVE },
+          where: {
+            id: options.moveProductsToVendorId,
+            status: VendorStatus.ACTIVE,
+          },
         });
 
         if (!targetVendor) {
-          throw new BadRequestException('Target vendor not found or is archived');
+          throw new BadRequestException(
+            'Target vendor not found or is archived',
+          );
         }
 
         // Move products to target vendor (keep them archived)
         await this.productsRepository.update(
           { vendor_id: id },
-          { vendor_id: options.moveProductsToVendorId }
+          { vendor_id: options.moveProductsToVendorId },
         );
       } else if (options.deleteProducts) {
         // Permanently delete all archived products
-        await this.productsRepository.delete({ vendor_id: id, status: ProductStatus.ARCHIVED });
+        await this.productsRepository.delete({
+          vendor_id: id,
+          status: ProductStatus.ARCHIVED,
+        });
       }
     }
 
@@ -370,8 +424,8 @@ export class VendorsService {
    * Reorder vendors
    */
   async reorder(dto: ReorderVendorsDto): Promise<{ message: string }> {
-    const updates = dto.vendors.map(item =>
-      this.vendorRepository.update(item.id, { sort_order: item.sort_order })
+    const updates = dto.vendors.map((item) =>
+      this.vendorRepository.update(item.id, { sort_order: item.sort_order }),
     );
 
     await Promise.all(updates);
@@ -440,7 +494,9 @@ export class VendorsService {
   /**
    * Get products for this vendor with vendor info
    */
-  async getProducts(vendorId: number): Promise<{ vendor: Vendor; products: Product[] }> {
+  async getProducts(
+    vendorId: number,
+  ): Promise<{ vendor: Vendor; products: Product[] }> {
     const vendor = await this.vendorRepository.findOne({
       where: { id: vendorId },
     });
@@ -451,7 +507,12 @@ export class VendorsService {
 
     const products = await this.productsRepository.find({
       where: { vendor_id: vendorId, status: ProductStatus.ACTIVE },
-      relations: ['media', 'priceGroups', 'productCategories', 'productCategories.category'],
+      relations: [
+        'media',
+        'priceGroups',
+        'productCategories',
+        'productCategories.category',
+      ],
       order: { created_at: 'DESC' },
     });
 
@@ -464,8 +525,8 @@ export class VendorsService {
   /**
    * Get archived products for this vendor (for restore selection)
    */
-  async getArchivedProducts(vendorId: number): Promise<{ 
-    vendor: Vendor; 
+  async getArchivedProducts(vendorId: number): Promise<{
+    vendor: Vendor;
     products: any[];
   }> {
     const vendor = await this.vendorRepository.findOne({
@@ -478,23 +539,30 @@ export class VendorsService {
 
     const products = await this.productsRepository.find({
       where: { vendor_id: vendorId, status: ProductStatus.ARCHIVED },
-      relations: ['media', 'priceGroups', 'productCategories', 'productCategories.category'],
+      relations: [
+        'media',
+        'priceGroups',
+        'productCategories',
+        'productCategories.category',
+      ],
       order: { archived_at: 'DESC' },
     });
 
     // Add canRestore flag based on category status
-    const productsWithRestoreInfo = products.map(product => {
+    const productsWithRestoreInfo = products.map((product) => {
       const hasActiveCategory = product.productCategories?.some(
-        pc => pc.category?.status === 'active'
+        (pc) => pc.category?.status === 'active',
       );
-      
+
       const { ...productData } = product;
       return {
         ...productData,
-        canRestore: hasActiveCategory || (product.productCategories?.length === 0),
-        blockedReason: !hasActiveCategory && product.productCategories?.length > 0 
-          ? 'All categories are archived' 
-          : undefined,
+        canRestore:
+          hasActiveCategory || product.productCategories?.length === 0,
+        blockedReason:
+          !hasActiveCategory && product.productCategories?.length > 0
+            ? 'All categories are archived'
+            : undefined,
       };
     });
 
