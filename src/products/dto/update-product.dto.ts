@@ -32,6 +32,10 @@ export class MediaItemDto {
   @IsOptional()
   is_primary?: boolean;
 
+  @IsBoolean()
+  @IsOptional()
+  is_group_primary?: boolean;
+
   @IsNumber()
   @IsOptional()
   sort_order?: number;

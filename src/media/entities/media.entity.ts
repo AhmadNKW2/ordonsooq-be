@@ -81,6 +81,9 @@ export class Media {
   @Column({ default: false })
   is_primary: boolean;
 
+  @Column({ default: false })
+  is_group_primary: boolean;
+
   @CreateDateColumn()
   created_at: Date;
 

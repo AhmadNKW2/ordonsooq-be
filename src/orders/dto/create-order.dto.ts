@@ -1,0 +1,82 @@
+import {
+  IsNotEmpty,
+  IsNumber,
+  IsString,
+  IsEnum,
+  IsOptional,
+  ValidateNested,
+  IsArray,
+  Min,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+import { PaymentMethod } from '../entities/order.entity';
+
+class OrderItemDto {
+  @IsNotEmpty()
+  @IsNumber()
+  productId: number;
+
+  @IsOptional()
+  @IsNumber()
+  variantId?: number;
+
+  @IsNotEmpty()
+  @IsNumber()
+  @Min(1)
+  quantity: number;
+}
+
+class AddressDto {
+  @IsString()
+  @IsNotEmpty()
+  fullName: string;
+
+  @IsString()
+  @IsOptional()
+  phone?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  street: string;
+  
+  @IsString()
+  @IsNotEmpty()
+  city: string;
+  
+  @IsString()
+  @IsNotEmpty()
+  country: string;
+
+  @IsOptional()
+  @IsString()
+  postalCode?: string;
+}
+
+export class CreateOrderDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => OrderItemDto)
+  items: OrderItemDto[];
+
+  @IsOptional()
+  @IsString()
+  couponCode?: string;
+
+  @IsNotEmpty()
+  @ValidateNested()
+  @Type(() => AddressDto)
+  shippingAddress: AddressDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => AddressDto)
+  billingAddress?: AddressDto;
+
+  @IsNotEmpty()
+  @IsEnum(PaymentMethod)
+  paymentMethod: PaymentMethod;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}

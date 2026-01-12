@@ -2379,6 +2379,121 @@
       ]
     },
     {
+      "name": "Cashback Rules",
+      "item": [
+        {
+          "name": "Create Rule",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Standard 2% Cashback\",\n  \"type\": \"percentage\",\n  \"value\": 2,\n  \"minOrderAmount\": 100,\n  \"maxCashbackAmount\": 50,\n  \"isActive\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/wallet/cashback-rules",
+              "host": ["{{baseUrl}}"],
+              "path": ["wallet", "cashback-rules"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "List Rules",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/wallet/cashback-rules",
+              "host": ["{{baseUrl}}"],
+              "path": ["wallet", "cashback-rules"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Update Rule",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"value\": 5,\n  \"maxCashbackAmount\": 100\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/wallet/cashback-rules/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["wallet", "cashback-rules", "1"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Rule",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/wallet/cashback-rules/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["wallet", "cashback-rules", "1"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "Wishlist",
       "item": [
         {
@@ -2478,6 +2593,89 @@
               "raw": "{{baseUrl}}/wishlist",
               "host": ["{{baseUrl}}"],
               "path": ["wishlist"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "item": [
+        {
+          "name": "Create Order",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"items\": [\n    {\n      \"productId\": 1,\n      \"quantity\": 2\n    },\n    {\n      \"productId\": 2,\n      \"variantId\": 5,\n      \"quantity\": 1\n    }\n  ],\n  \"paymentMethod\": \"cod\",\n  \"shippingAddress\": {\n    \"fullName\": \"John Doe\",\n    \"phone\": \"+962799999999\",\n    \"street\": \"Mecca St\",\n    \"city\": \"Amman\",\n    \"country\": \"Jordan\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Orders",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Get Order by ID",
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{authToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/orders/1",
+              "host": ["{{baseUrl}}"],
+              "path": ["orders", "1"]
             }
           },
           "response": []

@@ -49,6 +49,9 @@ async function bootstrap() {
       whitelist: true, // Remove unknown properties
       forbidNonWhitelisted: true, // Throw error for unknown properties
       transform: true, // Transform payloads to DTO instances
+      transformOptions: {
+        enableImplicitConversion: true, // Automatically convert types (e.g., string "3" to number 3)
+      },
     }),
   );
 

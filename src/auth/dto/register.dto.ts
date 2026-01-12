@@ -23,6 +23,10 @@ export class RegisterDto {
   @MinLength(6)
   password: string;
 
+  @IsString()
+  @IsOptional()
+  phone?: string;
+
   @IsEnum(UserRole)
   @IsOptional()
   role?: UserRole; // Can specify role during registration

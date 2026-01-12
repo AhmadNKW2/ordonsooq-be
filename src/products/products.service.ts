@@ -230,29 +230,31 @@ export class ProductsService {
       search,
     } = filterDto;
 
-    const queryBuilder = this.productsRepository
+    // NOTE: The list view previously did a huge multi-join + getManyAndCount.
+    // With relations like media/variants/stock/groups, this causes row explosion and slow COUNT.
+    // We optimize by:
+    // 1) Building a lightweight base query for filters + count + paginated IDs
+    // 2) Fetching full relations only for the page of product IDs
+
+    const baseQuery = this.productsRepository
       .createQueryBuilder('product')
-      .leftJoinAndSelect('product.category', 'category')
-      .leftJoinAndSelect('product.brand', 'brand')
-      .leftJoinAndSelect('product.productCategories', 'productCategories')
-      .leftJoinAndSelect('productCategories.category', 'categories')
       .where('product.status = :activeStatus', {
         activeStatus: ProductStatus.ACTIVE,
       });
 
     // Filter by status (override default ACTIVE if specified)
     if (status !== undefined) {
-      queryBuilder.andWhere('product.status = :status', { status });
+      baseQuery.andWhere('product.status = :status', { status });
     }
 
     // Filter by visible
     if (visible !== undefined) {
-      queryBuilder.andWhere('product.visible = :visible', { visible });
+      baseQuery.andWhere('product.visible = :visible', { visible });
     }
 
     // Filter by category (check in product_categories junction table)
     if (categoryId) {
-      queryBuilder.andWhere(
+      baseQuery.andWhere(
         'EXISTS (SELECT 1 FROM product_categories pc WHERE pc.product_id = product.id AND pc.category_id = :categoryId)',
         { categoryId },
       );
@@ -260,49 +262,86 @@ export class ProductsService {
 
     // Filter by vendor
     if (vendorId) {
-      queryBuilder.andWhere('product.vendor_id = :vendorId', { vendorId });
+      baseQuery.andWhere('product.vendor_id = :vendorId', { vendorId });
     }
 
     // Filter by brand
     if (brandId) {
-      queryBuilder.andWhere('product.brand_id = :brandId', { brandId });
+      baseQuery.andWhere('product.brand_id = :brandId', { brandId });
     }
 
     // Filter by rating range
     if (minRating !== undefined) {
-      queryBuilder.andWhere('product.average_rating >= :minRating', {
+      baseQuery.andWhere('product.average_rating >= :minRating', {
         minRating,
       });
     }
     if (maxRating !== undefined) {
-      queryBuilder.andWhere('product.average_rating <= :maxRating', {
+      baseQuery.andWhere('product.average_rating <= :maxRating', {
         maxRating,
       });
     }
 
     // Search by name, sku, or descriptions
     if (search) {
-      queryBuilder.andWhere(
+      baseQuery.andWhere(
         '(product.name_en ILIKE :search OR product.name_ar ILIKE :search OR product.sku ILIKE :search OR product.short_description_en ILIKE :search OR product.long_description_en ILIKE :search)',
         { search: `%${search}%` },
       );
     }
 
-    // Sorting
-    queryBuilder.orderBy(`product.${sortBy}`, sortOrder);
+    // Count (fast because there are no row-exploding joins)
+    const total = await baseQuery.getCount();
 
-    // Pagination
-    queryBuilder.skip((page - 1) * limit).take(limit);
+    // Fetch page IDs (fast)
+    const idRows = await baseQuery
+      .clone()
+      .select('product.id', 'id')
+      .orderBy(`product.${sortBy}`, sortOrder)
+      .skip((page - 1) * limit)
+      .take(limit)
+      .getRawMany<{ id: number }>();
 
-    // Add relations for full product info
-    queryBuilder
+    const ids = idRows.map((r) => Number(r.id)).filter((id) => !Number.isNaN(id));
+
+    if (ids.length === 0) {
+      return {
+        data: [],
+        meta: {
+          total,
+          page,
+          limit,
+          totalPages: Math.ceil(total / limit),
+        },
+      };
+    }
+
+    // Load full relations only for products in this page
+    const data = await this.productsRepository
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.category', 'category')
+      .leftJoinAndSelect('product.brand', 'brand')
+      .leftJoinAndSelect('product.productCategories', 'productCategories')
+      .leftJoinAndSelect('productCategories.category', 'categories')
       .leftJoinAndSelect('product.vendor', 'vendor')
       .leftJoinAndSelect('product.media', 'media')
+      .leftJoinAndSelect('media.mediaGroup', 'mediaGroup')
+      .leftJoinAndSelect('mediaGroup.groupValues', 'mediaGroupValues')
       .leftJoinAndSelect('product.stock', 'stock')
       .leftJoinAndSelect('product.priceGroups', 'priceGroups')
-      .leftJoinAndSelect('priceGroups.groupValues', 'priceGroupValues');
-
-    const [data, total] = await queryBuilder.getManyAndCount();
+      .leftJoinAndSelect('priceGroups.groupValues', 'priceGroupValues')
+      .leftJoinAndSelect('product.weightGroups', 'weightGroups')
+      .leftJoinAndSelect('weightGroups.groupValues', 'weightGroupValues')
+      .leftJoinAndSelect('product.variants', 'variants')
+      .leftJoinAndSelect('variants.combinations', 'combinations')
+      .leftJoinAndSelect('combinations.attribute_value', 'attributeValue')
+      .leftJoinAndSelect('attributeValue.attribute', 'comboAttribute')
+      .leftJoinAndSelect('product.attributes', 'attributes')
+      .leftJoinAndSelect('attributes.attribute', 'prodAttribute')
+      .where('product.id IN (:...ids)', { ids })
+      // Keep list ordering consistent with the requested sort
+      .orderBy(`product.${sortBy}`, sortOrder)
+      .getMany();
 
     // Transform each product to include primary_image and simplified structure
     const transformedData = data.map((product) =>
@@ -324,7 +363,18 @@ export class ProductsService {
    * Transform a product for the list view with primary image and stock
    */
   private transformProductListItem(product: Product): any {
-    const { media, priceGroups, stock, brand, ...rest } = product as any;
+    const { 
+      media, 
+      priceGroups, 
+      weightGroups,
+      stock, 
+      brand, 
+      variants, 
+      productCategories,
+      ...rest 
+    } = product as any;
+
+    // --- Legacy/Card View Fields ---
 
     // Find primary image or first image
     const primaryImage =
@@ -351,9 +401,34 @@ export class ProductsService {
         }
       : null;
 
+    // --- Full Details logic (similar to transformProductResponse) ---
+
+    // Transform media to include mediaGroup object and remove media_group_id
+    const transformedMedia =
+      media?.map((m: any) => {
+        const { media_group_id, mediaGroup, ...mediaRest } = m;
+        return {
+          ...mediaRest,
+          media_group: mediaGroup
+            ? {
+                id: mediaGroup.id,
+                product_id: mediaGroup.product_id,
+                groupValues: mediaGroup.groupValues,
+                created_at: mediaGroup.created_at,
+                updated_at: mediaGroup.updated_at,
+              }
+            : null,
+        };
+      }) || [];
+
+    // Transform productCategories to a clean categories array (if loaded)
+    const categories =
+      productCategories?.map((pc: any) => pc.category).filter(Boolean) || [];
+
     return {
       ...rest,
       brand: brandInfo,
+      // Card view fields
       primary_image: primaryImage
         ? {
             id: primaryImage.id,
@@ -364,10 +439,38 @@ export class ProductsService {
         : null,
       price: basePrice?.price || null,
       sale_price: basePrice?.sale_price || null,
-      stock: {
+      
+      // Full details fields
+      categories,
+      stock: stock || [], // Return detailed stock array, but also keep card view summary?
+                          // Actually, the previous implementation returned an object {total_quantity, in_stock}
+                          // Users might rely on that. Let's keep the SUMMARY object as `stock_summary` or just `stock`?
+                          // The `transformProductResponse` returns `stock` as array. 
+                          // The previous `transformProductListItem` returned `stock` as object.
+                          // This is a conflict. 
+                          // I'll return `stock` as the detailed array (like FindOne) and add `stock_summary` for the card view usage if needed?
+                          // Or better: Use `stock` for the ARRAY (standard) and `total_quantity` / `in_stock` as top level fields?
+                          // Comparing with previous `transformProductListItem`:
+                          // stock: { total_quantity: ..., in_stock: ... }
+                          // User requested "full details".
+                          // I will return `stock` as the array (details) AND `stock_summary` for the convenience.
+                          // Wait, checking user complaint: 
+                          // "stock": { "total_quantity": 15, "in_stock": true } (This was present in list view)
+                          // "stock": [ ... ] (This is present in detail view)
+                          // I will overwrite `stock` with the array to match detail view, and move the summary to `stock_info` or similar?
+                          // OR, since `stock` in detail view is an array, I should probably output the array to be consistent with "full details".
+                          
+      stock_summary: {
         total_quantity: totalStock,
         in_stock: hasStock,
       },
+      
+      variants: variants || [],
+      variants_ids: variants?.map((v: any) => v.id) || [],
+      
+      prices: priceGroups || [],
+      weights: weightGroups || [],
+      media: transformedMedia,
     };
   }
 

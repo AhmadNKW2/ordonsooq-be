@@ -7,10 +7,12 @@ import {
   Param,
   UseGuards,
   Request,
+  ForbiddenException,
 } from '@nestjs/common';
 import { WishlistService } from './wishlist.service';
 import { AddToWishlistDto } from './dto/add-to-wishlist.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { UserRole } from '../common/decorators/roles.decorator';
 
 @Controller('wishlist')
 @UseGuards(JwtAuthGuard)

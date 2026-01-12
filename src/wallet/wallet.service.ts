@@ -6,6 +6,9 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Wallet } from './entities/wallet.entity';
+import { CashbackRule, CashbackType } from './entities/cashback-rule.entity';
+import { CreateCashbackRuleDto } from './dto/create-cashback-rule.dto';
+import { UpdateCashbackRuleDto } from './dto/update-cashback-rule.dto';
 import {
   WalletTransaction,
   TransactionType,
@@ -21,6 +24,8 @@ export class WalletService {
     private walletRepository: Repository<Wallet>,
     @InjectRepository(WalletTransaction)
     private transactionRepository: Repository<WalletTransaction>,
+    @InjectRepository(CashbackRule)
+    private cashbackRuleRepository: Repository<CashbackRule>,
     private dataSource: DataSource,
   ) {}
 
@@ -206,15 +211,80 @@ export class WalletService {
       message: 'Transactions retrieved successfully',
     };
   }
-  async calculateCashback(
-    orderAmount: number,
-    cashbackPercentage: number = 2,
-  ): Promise<number> {
-    return (orderAmount * cashbackPercentage) / 100;
+
+
+
+  // --- Cashback Rules Management ---
+
+  async createCashbackRule(dto: CreateCashbackRuleDto) {
+    const rule = this.cashbackRuleRepository.create(dto);
+    return this.cashbackRuleRepository.save(rule);
+  }
+
+  async findAllCashbackRules() {
+    return this.cashbackRuleRepository.find({
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async updateCashbackRule(id: number, dto: UpdateCashbackRuleDto) {
+    const rule = await this.cashbackRuleRepository.findOne({ where: { id } });
+    if (!rule) {
+      throw new NotFoundException('Cashback rule not found');
+    }
+    Object.assign(rule, dto);
+    return this.cashbackRuleRepository.save(rule);
+  }
+
+  async deleteCashbackRule(id: number) {
+    const result = await this.cashbackRuleRepository.delete(id);
+    if (result.affected === 0) {
+      throw new NotFoundException('Cashback rule not found');
+    }
+    return { message: 'Cashback rule deleted successfully' };
+  }
+
+  async calculateCashback(orderAmount: number): Promise<number> {
+    const activeRules = await this.cashbackRuleRepository.find({
+      where: { isActive: true },
+    });
+
+    let bestCashback = 0;
+
+    for (const rule of activeRules) {
+        // Check minimum order amount
+        if (rule.minOrderAmount > 0 && orderAmount < rule.minOrderAmount) {
+            continue;
+        }
+
+        let currentCashback = 0;
+
+        if (rule.type === CashbackType.FIXED) {
+            currentCashback = Number(rule.value);
+        } else if (rule.type === CashbackType.PERCENTAGE) {
+            currentCashback = (orderAmount * Number(rule.value)) / 100;
+        }
+
+        // Apply Max Cap
+        if (rule.maxCashbackAmount !== null && currentCashback > rule.maxCashbackAmount) {
+            currentCashback = Number(rule.maxCashbackAmount);
+        }
+
+        // Keep the best offer for the customer
+        if (currentCashback > bestCashback) {
+            bestCashback = currentCashback;
+        }
+    }
+
+    return bestCashback;
   }
 
   async applyCashback(userId: number, orderAmount: number, orderId: string) {
     const cashbackAmount = await this.calculateCashback(orderAmount);
+    
+    if (cashbackAmount <= 0) {
+        return { message: 'No cashback applicable' };
+    }
 
     return await this.addFunds(userId, {
       amount: cashbackAmount,

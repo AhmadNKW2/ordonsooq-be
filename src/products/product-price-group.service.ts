@@ -79,6 +79,47 @@ export class ProductPriceGroupService {
     return result!;
   }
 
+  async getPriceForVariant(
+    productId: number,
+    variantId?: number,
+  ): Promise<ProductPriceGroup | null> {
+    if (!variantId) {
+      // Find default group (no attribute values)
+      const existingGroups = await this.priceGroupRepository.find({
+        where: { product_id: productId },
+        relations: ['groupValues'],
+      });
+      return existingGroups.find((g) => g.groupValues.length === 0) || null;
+    }
+
+    // Get variant combinations
+    const variant = await this.variantRepository.findOne({
+      where: { id: variantId },
+      relations: ['combinations'],
+    });
+
+    if (!variant) return null;
+
+    // Get pricing attributes for this product
+    const pricingAttributes = await this.productAttributeRepository.find({
+      where: { product_id: productId, controls_pricing: true },
+    });
+
+    const pricingAttributeIds = new Set(
+      pricingAttributes.map((pa) => pa.attribute_id),
+    );
+
+    // Build combination map
+    const combination: Record<string, number> = {};
+    for (const combo of variant.combinations) {
+      if (pricingAttributeIds.has(combo.attribute_value.attribute_id)) {
+        combination[combo.attribute_value.attribute_id] = combo.attribute_value_id;
+      }
+    }
+
+    return this.findGroupByCombination(productId, combination);
+  }
+
   /**
    * Find a price group that matches exactly the given combination
    */

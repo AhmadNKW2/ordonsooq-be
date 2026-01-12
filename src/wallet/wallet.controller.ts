@@ -2,14 +2,20 @@ import {
   Controller,
   Get,
   Post,
+  Patch,
+  Delete,
+  Param,
   Body,
   Query,
   UseGuards,
   Request,
+  ForbiddenException,
 } from '@nestjs/common';
 import { WalletService } from './wallet.service';
 import { AddFundsDto } from './dto/add-funds.dto';
 import { FilterTransactionDto } from './dto/filter-transaction.dto';
+import { CreateCashbackRuleDto } from './dto/create-cashback-rule.dto';
+import { UpdateCashbackRuleDto } from './dto/update-cashback-rule.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles, UserRole } from '../common/decorators/roles.decorator';
@@ -18,6 +24,38 @@ import { Roles, UserRole } from '../common/decorators/roles.decorator';
 @UseGuards(JwtAuthGuard)
 export class WalletController {
   constructor(private readonly walletService: WalletService) {}
+  
+  // --- Cashback Rules ---
+  
+  @Post('cashback-rules')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  createRule(@Body() dto: CreateCashbackRuleDto) {
+      return this.walletService.createCashbackRule(dto);
+  }
+
+  @Get('cashback-rules')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  listRules() {
+      return this.walletService.findAllCashbackRules();
+  }
+
+  @Patch('cashback-rules/:id')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  updateRule(@Param('id') id: string, @Body() dto: UpdateCashbackRuleDto) {
+      return this.walletService.updateCashbackRule(+id, dto);
+  }
+
+  @Delete('cashback-rules/:id')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  deleteRule(@Param('id') id: string) {
+      return this.walletService.deleteCashbackRule(+id);
+  }
+
+  // --- Wallet & Transactions ---
 
   @Get()
   getWallet(@Request() req) {

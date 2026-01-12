@@ -14,6 +14,7 @@ import { ProductVariant } from './entities/product-variant.entity';
 interface MediaSyncItem {
   media_id: number;
   is_primary?: boolean;
+  is_group_primary?: boolean;
   sort_order?: number;
   combination?: Record<string, number>;
 }
@@ -319,11 +320,12 @@ export class ProductMediaGroupService {
     product_id: number,
     mediaItems: MediaSyncItem[],
   ): Promise<void> {
-    // Validate: only one primary image allowed per product
+    // Validate: only one global primary image allowed per product
+    // Note: use is_group_primary for a "main image" within each media group.
     const primaryImages = mediaItems.filter((item) => item.is_primary === true);
     if (primaryImages.length > 1) {
       throw new BadRequestException(
-        `Product can only have one primary image. Found ${primaryImages.length} items marked as primary.`,
+        `Product can only have one primary image (is_primary). Found ${primaryImages.length} items marked as primary. Use is_group_primary for per-group main images.`,
       );
     }
     // Get all existing product media
@@ -350,6 +352,7 @@ export class ProductMediaGroupService {
 
           // Update fields
           media.is_primary = item.is_primary ?? false;
+          media.is_group_primary = item.is_group_primary ?? false;
           media.sort_order = item.sort_order ?? 0;
 
           // Handle combination change - find or create appropriate media group
@@ -395,6 +398,7 @@ export class ProductMediaGroupService {
           unlinkedMedia.media_group_id = mediaGroupId;
           unlinkedMedia.sort_order = item.sort_order ?? 0;
           unlinkedMedia.is_primary = item.is_primary ?? false;
+          unlinkedMedia.is_group_primary = item.is_group_primary ?? false;
 
           await this.mediaRepository.save(unlinkedMedia);
           payloadMediaIds.add(item.media_id);
@@ -409,6 +413,7 @@ export class ProductMediaGroupService {
           media.product_id = null;
           media.media_group_id = null;
           media.is_primary = false;
+          media.is_group_primary = false;
           media.sort_order = 0;
           await this.mediaRepository.save(media);
         }

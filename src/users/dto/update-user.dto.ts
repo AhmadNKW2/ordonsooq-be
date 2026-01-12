@@ -29,6 +29,10 @@ export class UpdateUserDto {
   @IsOptional()
   lastName?: string;
 
+  @IsString()
+  @IsOptional()
+  phone?: string;
+
   @IsEnum(UserRole)
   @IsOptional()
   role?: UserRole; // Can update role here

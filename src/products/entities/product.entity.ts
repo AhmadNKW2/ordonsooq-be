@@ -35,6 +35,8 @@ export enum ProductStatus {
 @Index('idx_products_status', ['status'])
 @Index('idx_products_visible', ['visible'])
 @Index('idx_products_status_visible', ['status', 'visible'])
+@Index('idx_products_status_visible_created_at', ['status', 'visible', 'created_at'])
+@Index('idx_products_status_visible_average_rating', ['status', 'visible', 'average_rating'])
 @Index('idx_products_sku', ['sku'])
 @Index('idx_products_status_category', ['status', 'category_id'])
 @Index('idx_products_created_at', ['created_at'])

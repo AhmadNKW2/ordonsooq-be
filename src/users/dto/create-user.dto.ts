@@ -29,6 +29,10 @@ export class CreateUserDto {
   @MinLength(6)
   password: string;
 
+  @IsString()
+  @IsOptional()
+  phone?: string;
+
   @IsEnum(UserRole)
   @IsOptional()
   role?: UserRole; // Optional, defaults to USER

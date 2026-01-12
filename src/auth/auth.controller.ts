@@ -9,8 +9,10 @@ import {
   HttpCode,
   HttpStatus,
   UnauthorizedException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { JwtService } from '@nestjs/jwt';
 import type {
   Request as ExpressRequest,
   Response as ExpressResponse,
@@ -21,6 +23,7 @@ import { RegisterDto } from './dto/register.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ConfigService } from '@nestjs/config';
+import { UserRole } from '../users/entities/user.entity';
 
 @Controller('auth')
 export class AuthController {
@@ -29,6 +32,7 @@ export class AuthController {
   constructor(
     private authService: AuthService,
     private configService: ConfigService,
+    private jwtService: JwtService,
   ) {
     this.isProduction = this.configService.get('IS_PRODUCTION') === 'true';
   }
@@ -93,6 +97,27 @@ export class AuthController {
     @Request() req: ExpressRequest,
     @Response({ passthrough: true }) res: ExpressResponse,
   ) {
+    if (registerDto.role === UserRole.ADMIN) {
+      const authHeader = req.headers['authorization'];
+      if (!authHeader) {
+        throw new ForbiddenException('Admin creation requires authentication');
+      }
+
+      const token = authHeader.split(' ')[1];
+      if (!token) {
+        throw new ForbiddenException('Invalid token');
+      }
+
+      try {
+        const payload = this.jwtService.verify(token);
+        if (payload.role !== UserRole.ADMIN) {
+          throw new ForbiddenException('Only admins can create other admins');
+        }
+      } catch (error) {
+        throw new ForbiddenException('Only admins can create other admins');
+      }
+    }
+
     const metadata = this.getRequestMetadata(req);
     const result = await this.authService.register(registerDto, metadata);
 
