@@ -5,7 +5,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, EntityManager } from 'typeorm';
 import { Coupon, CouponType, CouponStatus } from './entities/coupon.entity';
 import { CouponUsage } from './entities/coupon-usage.entity';
 import { CreateCouponDto } from './dto/create-coupon.dto';
@@ -230,12 +230,14 @@ export class CouponsService {
     couponId: number,
     orderId: string,
     discountAmount: number,
+    manager?: EntityManager
   ) {
     const coupon = await this.findOne(couponId);
+    const transactionalManager = manager || this.couponRepository.manager;
 
     // Increment usage count
     coupon.usageCount += 1;
-    await this.couponRepository.save(coupon);
+    await transactionalManager.save(coupon);
 
     // Record usage
     const usage = this.couponUsageRepository.create({
@@ -245,7 +247,7 @@ export class CouponsService {
       discountAmount,
     });
 
-    await this.couponUsageRepository.save(usage);
+    await transactionalManager.save(usage);
 
     return {
       data: usage,

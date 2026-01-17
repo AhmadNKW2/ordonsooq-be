@@ -4,7 +4,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource } from 'typeorm';
+import { Repository, DataSource, EntityManager, QueryRunner } from 'typeorm';
 import { Wallet } from './entities/wallet.entity';
 import { CashbackRule, CashbackType } from './entities/cashback-rule.entity';
 import { CreateCashbackRuleDto } from './dto/create-cashback-rule.dto';
@@ -55,13 +55,21 @@ export class WalletService {
     };
   }
 
-  async addFunds(userId: number, addFundsDto: AddFundsDto) {
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
+  async addFunds(userId: number, addFundsDto: AddFundsDto, manager?: EntityManager) {
+    let queryRunner: QueryRunner | null = null;
+    let transactionalManager: EntityManager;
+
+    if (manager) {
+      transactionalManager = manager;
+    } else {
+      queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+      transactionalManager = queryRunner.manager;
+    }
 
     try {
-      const wallet = await queryRunner.manager.findOne(Wallet, {
+      const wallet = await transactionalManager.findOne(Wallet, {
         where: { userId },
         lock: { mode: 'pessimistic_write' },
       });
@@ -78,9 +86,9 @@ export class WalletService {
           Number(wallet.totalCashback) + Number(addFundsDto.amount);
       }
 
-      await queryRunner.manager.save(wallet);
+      await transactionalManager.save(wallet);
 
-      const transaction = queryRunner.manager.create(WalletTransaction, {
+      const transaction = transactionalManager.create(WalletTransaction, {
         walletId: wallet.id,
         type: TransactionType.CREDIT,
         source: addFundsDto.source,
@@ -90,18 +98,25 @@ export class WalletService {
         referenceId: addFundsDto.referenceId,
       });
 
-      await queryRunner.manager.save(transaction);
-      await queryRunner.commitTransaction();
+      await transactionalManager.save(transaction);
+      
+      if (queryRunner) {
+        await queryRunner.commitTransaction();
+      }
 
       return {
         data: { wallet, transaction },
         message: 'Funds added successfully',
       };
     } catch (error) {
-      await queryRunner.rollbackTransaction();
+      if (queryRunner) {
+         await queryRunner.rollbackTransaction();
+      }
       throw error;
     } finally {
-      await queryRunner.release();
+      if (queryRunner) {
+         await queryRunner.release();
+      }
     }
   }
 
@@ -111,13 +126,22 @@ export class WalletService {
     source: TransactionSource,
     description?: string,
     referenceId?: string,
+    manager?: EntityManager,
   ) {
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
+    let queryRunner: QueryRunner | null = null;
+    let transactionalManager: EntityManager;
+
+    if (manager) {
+      transactionalManager = manager;
+    } else {
+      queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+      transactionalManager = queryRunner.manager;
+    }
 
     try {
-      const wallet = await queryRunner.manager.findOne(Wallet, {
+      const wallet = await transactionalManager.findOne(Wallet, {
         where: { userId },
         lock: { mode: 'pessimistic_write' },
       });
@@ -132,9 +156,9 @@ export class WalletService {
 
       const newBalance = Number(wallet.balance) - amount;
       wallet.balance = newBalance;
-      await queryRunner.manager.save(wallet);
+      await transactionalManager.save(wallet);
 
-      const transaction = queryRunner.manager.create(WalletTransaction, {
+      const transaction = transactionalManager.create(WalletTransaction, {
         walletId: wallet.id,
         type: TransactionType.DEBIT,
         source,
@@ -144,18 +168,25 @@ export class WalletService {
         referenceId,
       });
 
-      await queryRunner.manager.save(transaction);
-      await queryRunner.commitTransaction();
+      await transactionalManager.save(transaction);
+      
+      if (queryRunner) {
+          await queryRunner.commitTransaction();
+      }
 
       return {
         data: { wallet, transaction },
         message: 'Funds deducted successfully',
       };
     } catch (error) {
-      await queryRunner.rollbackTransaction();
+      if (queryRunner) {
+          await queryRunner.rollbackTransaction();
+      }
       throw error;
     } finally {
-      await queryRunner.release();
+      if (queryRunner) {
+          await queryRunner.release();
+      }
     }
   }
 

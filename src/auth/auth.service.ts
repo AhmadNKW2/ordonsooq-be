@@ -264,7 +264,7 @@ export class AuthService {
       }
 
       // Verify user still exists and is active
-      const user = await this.usersService.findOne(payload.sub);
+      const user = await this.usersService.findOneById(payload.sub);
       if (!user || !user.isActive) {
         throw new UnauthorizedException('User not found or deactivated');
       }
@@ -398,7 +398,7 @@ export class AuthService {
   }
 
   async validateUser(userId: number) {
-    return await this.usersService.findOne(userId);
+    return await this.usersService.findOneById(userId);
   }
 
   /**
@@ -411,7 +411,7 @@ export class AuthService {
     }
 
     // Validate user
-    const user = await this.usersService.findOne(payload.sub);
+    const user = await this.usersService.findOneById(payload.sub);
     if (!user) {
       throw new UnauthorizedException('User not found');
     }
@@ -420,7 +420,9 @@ export class AuthService {
       throw new UnauthorizedException('Account is deactivated');
     }
 
-    return user;
+    // Remove password from user object
+    const { password, ...result } = user;
+    return result;
   }
 
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto) {

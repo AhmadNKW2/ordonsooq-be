@@ -20,6 +20,17 @@ import {
 import { ProductCategory } from './entities/product-category.entity';
 import { Vendor, VendorStatus } from '../vendors/entities/vendor.entity';
 import { Brand, BrandStatus } from '../brands/entities/brand.entity';
+import { Media } from '../media/entities/media.entity';
+import { ProductVariant } from './entities/product-variant.entity';
+import { ProductPriceGroup } from './entities/product-price-group.entity';
+import { ProductWeightGroup } from './entities/product-weight-group.entity';
+import { ProductStock } from './entities/product-stock.entity';
+import { ProductAttribute } from './entities/product-attribute.entity';
+import { CartItem } from '../cart/entities/cart-item.entity';
+
+import { ProductVariantCombination } from './entities/product-variant-combination.entity';
+import { ProductPriceGroupValue } from './entities/product-price-group-value.entity';
+import { ProductWeightGroupValue } from './entities/product-weight-group-value.entity';
 
 @Injectable()
 export class ProductsService {
@@ -107,97 +118,203 @@ export class ProductsService {
         );
       }
 
-      // 4. Handle prices (unified - works for both simple and variant)
-      if (dto.prices && dto.prices.length > 0) {
-        for (const priceItem of dto.prices) {
-          const hasCombination =
-            priceItem.combination &&
-            Object.keys(priceItem.combination).length > 0;
+      // 4. Parallel Creation of Children
+      const creationTasks: Promise<any>[] = [];
+      const id = savedProduct.id;
 
-          if (hasCombination) {
-            await this.priceGroupService.findOrCreatePriceGroup(
-              savedProduct.id,
-              priceItem.combination!,
-              {
-                cost: priceItem.cost,
-                price: priceItem.price,
-                sale_price: priceItem.sale_price,
-              },
-            );
-          } else {
-            await this.priceGroupService.createSimplePriceGroup(
-              savedProduct.id,
-              {
-                cost: priceItem.cost,
-                price: priceItem.price,
-                sale_price: priceItem.sale_price,
-              },
-            );
-          }
-        }
-      }
-
-      // 5. Handle weights (unified - works for both simple and variant)
-      if (dto.weights && dto.weights.length > 0) {
-        for (const weightItem of dto.weights) {
-          const hasCombination =
-            weightItem.combination &&
-            Object.keys(weightItem.combination).length > 0;
-
-          if (hasCombination) {
-            await this.weightGroupService.findOrCreateWeightGroup(
-              savedProduct.id,
-              weightItem.combination!,
-              {
-                weight: weightItem.weight,
-                length: weightItem.length,
-                width: weightItem.width,
-                height: weightItem.height,
-              },
-            );
-          } else {
-            await this.weightGroupService.createSimpleWeightGroup(
-              savedProduct.id,
-              {
-                weight: weightItem.weight,
-                length: weightItem.length,
-                width: weightItem.width,
-                height: weightItem.height,
-              },
-            );
-          }
-        }
-      }
-
-      // 6. Handle stocks (unified - works for both simple and variant)
-      if (dto.stocks && dto.stocks.length > 0) {
-        for (const stockItem of dto.stocks) {
-          const hasCombination =
-            stockItem.combination &&
-            Object.keys(stockItem.combination).length > 0;
-
-          if (hasCombination) {
-            await this.variantsService.setStockByCombination(
-              savedProduct.id,
-              stockItem.combination!,
-              stockItem.quantity,
-            );
-          } else {
-            await this.variantsService.setSimpleStock(
-              savedProduct.id,
-              stockItem.quantity,
-            );
-          }
-        }
-      }
-
-      // 7. Handle media (link pre-uploaded media to product)
+      // Handle Media
       if (dto.media && dto.media.length > 0) {
-        await this.mediaGroupService.syncProductMedia(
-          savedProduct.id,
-          dto.media,
-        );
+         creationTasks.push(
+            this.mediaGroupService.syncProductMedia(id, dto.media)
+         );
       }
+
+      // Handle Prices (Batch Insert)
+      if (dto.prices && dto.prices.length > 0) {
+        const simplePrices = dto.prices.filter(
+          (p) => !p.combination || Object.keys(p.combination).length === 0,
+        );
+        const combinationPrices = dto.prices.filter(
+          (p) => p.combination && Object.keys(p.combination).length > 0,
+        );
+
+        if (simplePrices.length > 0) {
+          creationTasks.push(
+            this.priceGroupService.createSimplePriceGroup(id, {
+              cost: simplePrices[0].cost,
+              price: simplePrices[0].price,
+              sale_price: simplePrices[0].sale_price,
+            })
+          );
+        }
+
+        if (combinationPrices.length > 0) {
+          const runBatchPrices = async () => {
+             const priceRepo = this.dataSource.getRepository(ProductPriceGroup);
+             const priceValueRepo = this.dataSource.getRepository(ProductPriceGroupValue);
+
+             const groupsToSave = combinationPrices.map(p =>
+               priceRepo.create({
+                 product_id: id,
+                 cost: p.cost,
+                 price: p.price,
+                 sale_price: p.sale_price
+               })
+             );
+
+             const savedGroups = await priceRepo.save(groupsToSave);
+
+             const valuesToSave: any[] = [];
+             combinationPrices.forEach((p, index) => {
+               const groupId = savedGroups[index].id;
+               Object.entries(p.combination!).forEach(([attrId, valId]) => {
+                 valuesToSave.push(priceValueRepo.create({
+                   price_group_id: groupId,
+                   attribute_id: Number(attrId),
+                   attribute_value_id: valId
+                 }));
+               });
+             });
+
+             await priceValueRepo.save(valuesToSave);
+          };
+          creationTasks.push(runBatchPrices());
+        }
+      }
+
+      // Handle Weights (Batch Insert)
+      if (dto.weights && dto.weights.length > 0) {
+        const simpleWeights = dto.weights.filter(
+          (w) => !w.combination || Object.keys(w.combination).length === 0,
+        );
+        const combinationWeights = dto.weights.filter(
+          (w) => w.combination && Object.keys(w.combination).length > 0,
+        );
+
+         if (simpleWeights.length > 0) {
+          creationTasks.push(
+            this.weightGroupService.createSimpleWeightGroup(id, {
+              weight: simpleWeights[0].weight,
+              length: simpleWeights[0].length,
+              width: simpleWeights[0].width,
+              height: simpleWeights[0].height,
+            })
+          );
+        }
+
+        if (combinationWeights.length > 0) {
+          const runBatchWeights = async () => {
+             const weightRepo = this.dataSource.getRepository(ProductWeightGroup);
+             const weightValueRepo = this.dataSource.getRepository(ProductWeightGroupValue);
+
+             const groupsToSave = combinationWeights.map(w =>
+               weightRepo.create({
+                 product_id: id,
+                 weight: w.weight,
+                 length: w.length,
+                 width: w.width,
+                 height: w.height
+               })
+             );
+
+             const savedGroups = await weightRepo.save(groupsToSave);
+
+             const valuesToSave: any[] = [];
+             combinationWeights.forEach((w, index) => {
+               const groupId = savedGroups[index].id;
+               Object.entries(w.combination!).forEach(([attrId, valId]) => {
+                 valuesToSave.push(weightValueRepo.create({
+                   weight_group_id: groupId,
+                   attribute_id: Number(attrId),
+                   attribute_value_id: valId
+                 }));
+               });
+             });
+
+             await weightValueRepo.save(valuesToSave);
+          };
+          creationTasks.push(runBatchWeights());
+        }
+      }
+
+      // Handle Stocks and Variants (Batch Insert)
+      if (dto.stocks && dto.stocks.length > 0) {
+        const simpleStocks = dto.stocks.filter(
+          (s) => !s.combination || Object.keys(s.combination).length === 0,
+        );
+        const combinationStocks = dto.stocks.filter(
+          (s) => s.combination && Object.keys(s.combination).length > 0,
+        );
+
+        if (simpleStocks.length > 0) {
+          creationTasks.push(
+            this.variantsService.setSimpleStock(id, simpleStocks[0].quantity)
+          );
+        }
+
+        if (combinationStocks.length > 0) {
+          const runBatchStocks = async () => {
+             // 1. Create Variants
+             const variantRepo = this.dataSource.getRepository(ProductVariant);
+             const variantComboRepo = this.dataSource.getRepository(ProductVariantCombination);
+             const stockRepo = this.dataSource.getRepository(ProductStock);
+             const variantMap = new Map<string, number>();
+
+             // Deduplicate combinations
+             const uniqueCombinations = new Map<string, Record<string, number>>();
+             combinationStocks.forEach((s) => {
+               const key = Object.entries(s.combination!)
+                 .sort(([a], [b]) => Number(a) - Number(b))
+                 .map(([k, v]) => `${k}:${v}`)
+                 .join('|');
+               if (!uniqueCombinations.has(key)) {
+                 uniqueCombinations.set(key, s.combination!);
+               }
+             });
+
+             const variantsToCreate = Array.from(uniqueCombinations.keys()).map(() =>
+               variantRepo.create({ product_id: id, is_active: true })
+             );
+             
+             const savedVariants = await variantRepo.save(variantsToCreate);
+
+             const combosToSave: any[] = [];
+             let i = 0;
+             for (const [key, combination] of uniqueCombinations) {
+               const variant = savedVariants[i];
+               variantMap.set(key, variant.id);
+               
+               Object.values(combination).forEach(valId => {
+                 combosToSave.push(variantComboRepo.create({
+                   variant_id: variant.id,
+                   attribute_value_id: valId
+                 }));
+               });
+               i++;
+             }
+             
+             await variantComboRepo.save(combosToSave);
+
+             // 2. Create Stocks
+             const stocksToSave = combinationStocks.map(s => {
+               const key = Object.entries(s.combination!)
+                .sort(([a], [b]) => Number(a) - Number(b))
+                .map(([k, v]) => `${k}:${v}`)
+                .join('|');
+               return stockRepo.create({
+                  product_id: id,
+                  variant_id: variantMap.get(key),
+                  quantity: s.quantity
+               });
+             });
+             
+             await stockRepo.save(stocksToSave);
+          };
+          creationTasks.push(runBatchStocks());
+        }
+      }
+
+      await Promise.all(creationTasks);
 
       // Return the complete product
       const result = await this.findOne(savedProduct.id);
@@ -319,7 +436,6 @@ export class ProductsService {
     // Load full relations only for products in this page
     const data = await this.productsRepository
       .createQueryBuilder('product')
-      .leftJoinAndSelect('product.category', 'category')
       .leftJoinAndSelect('product.brand', 'brand')
       .leftJoinAndSelect('product.productCategories', 'productCategories')
       .leftJoinAndSelect('productCategories.category', 'categories')
@@ -328,16 +444,13 @@ export class ProductsService {
       .leftJoinAndSelect('media.mediaGroup', 'mediaGroup')
       .leftJoinAndSelect('mediaGroup.groupValues', 'mediaGroupValues')
       .leftJoinAndSelect('product.stock', 'stock')
+      // --- New: Load variants for the explicit variants list ---
+      .leftJoinAndSelect('product.variants', 'variants')
+      .leftJoinAndSelect('variants.combinations', 'variantCombinations')
+      .leftJoinAndSelect('variantCombinations.attribute_value', 'comboValue')
+      .leftJoinAndSelect('comboValue.attribute', 'comboAttribute')
       .leftJoinAndSelect('product.priceGroups', 'priceGroups')
       .leftJoinAndSelect('priceGroups.groupValues', 'priceGroupValues')
-      .leftJoinAndSelect('product.weightGroups', 'weightGroups')
-      .leftJoinAndSelect('weightGroups.groupValues', 'weightGroupValues')
-      .leftJoinAndSelect('product.variants', 'variants')
-      .leftJoinAndSelect('variants.combinations', 'combinations')
-      .leftJoinAndSelect('combinations.attribute_value', 'attributeValue')
-      .leftJoinAndSelect('attributeValue.attribute', 'comboAttribute')
-      .leftJoinAndSelect('product.attributes', 'attributes')
-      .leftJoinAndSelect('attributes.attribute', 'prodAttribute')
       .where('product.id IN (:...ids)', { ids })
       // Keep list ordering consistent with the requested sort
       .orderBy(`product.${sortBy}`, sortOrder)
@@ -360,36 +473,19 @@ export class ProductsService {
   }
 
   /**
-   * Transform a product for the list view with primary image and stock
+   * Transform a product for the list view with simplified structure as requested
    */
   private transformProductListItem(product: Product): any {
-    const { 
-      media, 
-      priceGroups, 
+    const {
+      media,
+      priceGroups,
       weightGroups,
-      stock, 
-      brand, 
-      variants, 
+      stock,
+      brand,
+      variants,
       productCategories,
-      ...rest 
+      ...rest
     } = product as any;
-
-    // --- Legacy/Card View Fields ---
-
-    // Find primary image or first image
-    const primaryImage =
-      media?.find((m: any) => m.is_primary) || media?.[0] || null;
-
-    // Get the base price (first price group with no combination or lowest price)
-    const simplePrice = priceGroups?.find(
-      (pg: any) => !pg.groupValues || pg.groupValues.length === 0,
-    );
-    const basePrice = simplePrice || priceGroups?.[0] || null;
-
-    // Get total stock quantity
-    const totalStock =
-      stock?.reduce((sum: number, s: any) => sum + (s.quantity || 0), 0) || 0;
-    const hasStock = totalStock > 0;
 
     const brandInfo = brand
       ? {
@@ -401,109 +497,252 @@ export class ProductsService {
         }
       : null;
 
-    // --- Full Details logic (similar to transformProductResponse) ---
-
-    // Transform media to include mediaGroup object and remove media_group_id
-    const transformedMedia =
-      media?.map((m: any) => {
-        const { media_group_id, mediaGroup, ...mediaRest } = m;
-        return {
-          ...mediaRest,
-          media_group: mediaGroup
-            ? {
-                id: mediaGroup.id,
-                product_id: mediaGroup.product_id,
-                groupValues: mediaGroup.groupValues,
-                created_at: mediaGroup.created_at,
-                updated_at: mediaGroup.updated_at,
-              }
-            : null,
-        };
-      }) || [];
-
-    // Transform productCategories to a clean categories array (if loaded)
+    // Transform productCategories to a clean categories array
     const categories =
       productCategories?.map((pc: any) => pc.category).filter(Boolean) || [];
 
-    return {
-      ...rest,
-      brand: brandInfo,
-      // Card view fields
-      primary_image: primaryImage
-        ? {
-            id: primaryImage.id,
-            url: primaryImage.url,
-            type: primaryImage.type,
-            alt_text: primaryImage.alt_text,
-          }
-        : null,
-      price: basePrice?.price || null,
-      sale_price: basePrice?.sale_price || null,
-      
-      // Full details fields
-      categories,
-      stock: stock || [], // Return detailed stock array, but also keep card view summary?
-                          // Actually, the previous implementation returned an object {total_quantity, in_stock}
-                          // Users might rely on that. Let's keep the SUMMARY object as `stock_summary` or just `stock`?
-                          // The `transformProductResponse` returns `stock` as array. 
-                          // The previous `transformProductListItem` returned `stock` as object.
-                          // This is a conflict. 
-                          // I'll return `stock` as the detailed array (like FindOne) and add `stock_summary` for the card view usage if needed?
-                          // Or better: Use `stock` for the ARRAY (standard) and `total_quantity` / `in_stock` as top level fields?
-                          // Comparing with previous `transformProductListItem`:
-                          // stock: { total_quantity: ..., in_stock: ... }
-                          // User requested "full details".
-                          // I will return `stock` as the array (details) AND `stock_summary` for the convenience.
-                          // Wait, checking user complaint: 
-                          // "stock": { "total_quantity": 15, "in_stock": true } (This was present in list view)
-                          // "stock": [ ... ] (This is present in detail view)
-                          // I will overwrite `stock` with the array to match detail view, and move the summary to `stock_info` or similar?
-                          // OR, since `stock` in detail view is an array, I should probably output the array to be consistent with "full details".
-                          
-      stock_summary: {
-        total_quantity: totalStock,
-        in_stock: hasStock,
-      },
-      
-      variants: variants || [],
-      variants_ids: variants?.map((v: any) => v.id) || [],
-      
-      prices: priceGroups || [],
-      weights: weightGroups || [],
-      media: transformedMedia,
+    // Helper to get variant stock
+    const getVariantStock = (variantId: number) => {
+      const stockItem = stock?.find((s: any) => s.variant_id === variantId);
+      return stockItem ? stockItem.quantity : 0;
     };
+
+    // Process variants
+    let variantsList: any[] = [];
+    if (variants && variants.length > 0) {
+      variantsList = variants
+        .map((v: any) => {
+          // Get quantity
+          const quantity = getVariantStock(v.id);
+
+          // 1. Show only variants ids that are not out of stock
+          if (quantity <= 0) return null;
+
+          // Get variant attribute value IDs for matching
+          const variantValueIds = new Set(
+            v.combinations?.map((c: any) => c.attribute_value_id) || [],
+          );
+
+          const isMatch = (groupValues: any[]) => {
+            // If group has no attributes, it is a generic match (lowest priority)
+            if (!groupValues || groupValues.length === 0) return true;
+            
+            const groupValueIds = groupValues.map(
+              (gv: any) => gv.attribute_value_id,
+            );
+            
+            // The group matches if all its attributes are present in the variant
+            // (i.e. group is a subset of variant)
+            return groupValueIds.every((id: any) => variantValueIds.has(id));
+          };
+
+          // Find matching price - Prioritize more specific matches (more attributes)
+          let matchingPriceGroup: any = null;
+          if (priceGroups) {
+             const matches = priceGroups.filter((pg: any) => isMatch(pg.groupValues));
+             // Sort by number of attributes descending
+             matches.sort((a: any, b: any) => (b.groupValues?.length || 0) - (a.groupValues?.length || 0));
+             matchingPriceGroup = matches[0];
+          }
+
+          const priceInfo = matchingPriceGroup
+            ? {
+                price: matchingPriceGroup.price,
+                sale_price: matchingPriceGroup.sale_price,
+              }
+            : null;
+
+          // Find matching media - Prioritize more specific matches
+          let matchingMedia: any = null;
+          if (media) {
+            const groups = new Map();
+            media.forEach((m: any) => {
+              if (m.mediaGroup && !groups.has(m.mediaGroup.id)) {
+                groups.set(m.mediaGroup.id, m.mediaGroup);
+              }
+            });
+
+            const matchingGroups: any[] = [];
+            for (const group of groups.values()) {
+              if (isMatch(group.groupValues)) {
+                matchingGroups.push(group);
+              }
+            }
+
+            // Sort by number of attributes descending
+            matchingGroups.sort((a: any, b: any) => (b.groupValues?.length || 0) - (a.groupValues?.length || 0));
+            
+            const bestGroup = matchingGroups[0];
+
+            if (bestGroup) {
+                const groupMedia = media.filter(
+                  (m: any) => m.mediaGroup?.id === bestGroup.id,
+                );
+                const primary =
+                  groupMedia.find((m: any) => m.is_primary) || groupMedia[0];
+                if (primary) {
+                  matchingMedia = {
+                    id: primary.id,
+                    url: primary.url,
+                    type: primary.type,
+                    alt_text: primary.alt_text,
+                  };
+                }
+            }
+          }
+
+          // 2. Appear quantity for each variant + attributes + price + media
+          return {
+            id: v.id,
+            is_active: v.is_active,
+            quantity: quantity,
+            attributes:
+              v.combinations?.map((c: any) => ({
+                attribute_id: c.attribute_value?.attribute_id,
+                attribute_name: c.attribute_value?.attribute?.name_en,
+                attribute_name_ar: c.attribute_value?.attribute?.name_ar,
+                value_id: c.attribute_value_id,
+                value_name: c.attribute_value?.value_en,
+                value_name_ar: c.attribute_value?.value_ar,
+                color_code: c.attribute_value?.color_code,
+              })) || [],
+            price: priceInfo,
+            media: matchingMedia,
+          };
+        })
+        .filter(Boolean); // Filter out nulls (out of stock)
+    }
+
+    // Fallback for simple products (no variants)
+    let priceData: any[] = [];
+    let mediaData: any[] = [];
+    const isSimpleProduct = !variants || variants.length === 0;
+
+    if (isSimpleProduct) {
+      // Simple Price
+      const simplePrice =
+        priceGroups?.find(
+          (pg: any) => !pg.groupValues || pg.groupValues.length === 0,
+        ) || priceGroups?.[0];
+      if (simplePrice) {
+        priceData.push({
+          id: simplePrice.id,
+          price: simplePrice.price,
+          sale_price: simplePrice.sale_price,
+          attributes: [],
+        });
+      }
+
+      // Simple Media
+      if (media && media.length > 0) {
+        const primary = media.find((m: any) => m.is_primary) || media[0];
+        if (primary) {
+          mediaData.push({
+            id: primary.id,
+            attributes: [],
+            image: {
+              id: primary.id,
+              url: primary.url,
+              type: primary.type,
+              alt_text: primary.alt_text,
+            },
+          });
+        }
+      }
+    }
+
+    // Clean rest
+    const {
+      category_id,
+      vendor_id,
+      brand_id, // 3. Remove brand id (handled by destructuring)
+      category,
+      attributes,
+      archived_at,
+      archived_by,
+      deleted_at,
+      ...cleanRest
+    } = rest;
+
+    // Construct response
+    const response: any = {
+      ...cleanRest,
+      brand: brandInfo,
+      categories,
+      variants: variantsList,
+    };
+
+    // 4. Remove price and media and put them inside the variants
+    // Only add them back if it is a simple product
+    if (isSimpleProduct) {
+      response.price = priceData;
+      response.media = mediaData;
+    }
+
+    return response;
   }
 
   async findOne(id: number): Promise<any> {
-    const product = await this.productsRepository.findOne({
+    const productBase = await this.productsRepository.findOne({
       where: { id },
-      relationLoadStrategy: 'query',
-      relations: [
-        'category',
-        'productCategories',
-        'productCategories.category',
-        'vendor',
-        'brand',
-        'media',
-        'media.mediaGroup',
-        'media.mediaGroup.groupValues',
-        'priceGroups',
-        'priceGroups.groupValues',
-        'weightGroups',
-        'weightGroups.groupValues',
-        'stock',
-        'variants',
-        'variants.combinations',
-        'attributes',
-        'attributes.attribute',
-      ],
+      relations: ['category', 'vendor', 'brand'],
     });
 
-    if (!product) {
+    if (!productBase) {
       throw new NotFoundException('Product not found');
     }
 
-    return this.transformProductResponse(product);
+    const [
+      productCategories,
+      media,
+      priceGroups,
+      weightGroups,
+      stock,
+      variants,
+      attributes,
+    ] = await Promise.all([
+      this.dataSource.getRepository(ProductCategory).find({
+        where: { product_id: id },
+        relations: ['category'],
+      }),
+      this.dataSource.getRepository(Media).find({
+        where: { product_id: id },
+        relations: ['mediaGroup', 'mediaGroup.groupValues'],
+      }),
+      this.dataSource.getRepository(ProductPriceGroup).find({
+        where: { product_id: id },
+        relations: ['groupValues'],
+      }),
+      this.dataSource.getRepository(ProductWeightGroup).find({
+        where: { product_id: id },
+        relations: ['groupValues'],
+      }),
+      this.dataSource.getRepository(ProductStock).find({
+        where: { product_id: id },
+      }),
+      this.dataSource.getRepository(ProductVariant).find({
+        where: { product_id: id },
+        relations: [
+          'combinations',
+          'combinations.attribute_value',
+          'combinations.attribute_value.attribute',
+        ],
+      }),
+      this.dataSource.getRepository(ProductAttribute).find({
+        where: { product_id: id },
+        relations: ['attribute'],
+      }),
+    ]);
+
+    productBase.productCategories = productCategories;
+    productBase.media = media;
+    productBase.priceGroups = priceGroups;
+    productBase.weightGroups = weightGroups;
+    productBase.stock = stock;
+    productBase.variants = variants;
+    productBase.attributes = attributes;
+
+    return this.transformProductResponse(productBase);
   }
 
   /**
@@ -521,6 +760,7 @@ export class ProductsService {
       productCategories,
       category,
       brand,
+      variants,
       ...rest
     } = product as any;
 
@@ -556,6 +796,19 @@ export class ProductsService {
         }
       : null;
 
+    const variantsList = variants?.map((v: any) => ({
+      id: v.id,
+      combinations: v.combinations?.map((c: any) => ({
+          attribute_id: c.attribute_value?.attribute_id,
+          attribute_name: c.attribute_value?.attribute?.name_en || null,
+          attribute_name_ar: c.attribute_value?.attribute?.name_ar || null,
+          value_id: c.attribute_value_id,
+          value_name: c.attribute_value?.value || null,
+          value_name_ar: c.attribute_value?.value_ar || null,
+          color_code: c.attribute_value?.color_code || null,
+      })) || []
+    })) || [];
+
     return {
       ...rest,
       brand: brandInfo,
@@ -563,6 +816,7 @@ export class ProductsService {
       media: transformedMedia,
       prices: priceGroups || [],
       weights: weightGroups || [],
+      variants: variantsList,
     };
   }
 
@@ -668,28 +922,116 @@ export class ProductsService {
 
     // Continue with other updates (outside transaction for now as services don't support it yet)
     try {
-      // 3. Handle media - sync media IDs (add new, remove missing)
+      // =================================================================
+      // PHASE 1: CLEANUP & SYNC (Parallelized)
+      // =================================================================
+      const cleanupTasks: Promise<any>[] = [];
+
+      // 1. Sync Media
       if (dto.media !== undefined) {
-        await this.mediaGroupService.syncProductMedia(id, dto.media || []);
+        cleanupTasks.push(
+          this.mediaGroupService.syncProductMedia(id, dto.media || []),
+        );
       }
 
-      // 4. Handle attributes - REPLACE all existing with new ones
-      // First, delete all existing variants (which depend on attributes)
-      await this.variantsService.deleteAllVariantsForProduct(id);
+      // 2. Delete Prices, Weights, Stocks (Independent groups)
+      cleanupTasks.push(this.priceGroupService.deletePriceGroupsForProduct(id));
+      cleanupTasks.push(
+        this.weightGroupService.deleteWeightGroupsForProduct(id),
+      );
+      cleanupTasks.push(this.variantsService.deleteAllStocksForProduct(id));
 
-      // Delete all existing attributes
-      await this.variantsService.deleteAllAttributesForProduct(id);
+      // 3. Variant Cleanup Chain (Cart -> Variants -> Attributes)
+      // NOTE: Deleting variants is extremely slow. We should only delete if absolutely necessary.
+      // But currently the logic requires full rebuild.
+      const variantCleanupTask = async () => {
+        // Delete related cart items to avoid Foreign Key constraint violations
+        await this.dataSource.getRepository(CartItem).delete({ product_id: id });
 
-      // Add new attributes if provided
+        // Delete all existing variants
+        await this.variantsService.deleteAllVariantsForProduct(id);
+
+        // Delete all existing attributes
+        await this.variantsService.deleteAllAttributesForProduct(id);
+      };
+      cleanupTasks.push(variantCleanupTask());
+
+      // Execute all cleanup tasks in parallel
+      await Promise.all(cleanupTasks);
+
+      // =================================================================
+      // PHASE 2: REBUILD STRUCTURE (Attributes)
+      // =================================================================
+      // Attributes define the structure for variants/combinations, so they must be created first
       if (dto.attributes && dto.attributes.length > 0) {
         await this.variantsService.addProductAttributes(id, dto.attributes);
       }
 
-      // 5. Handle prices - REPLACE all existing with new ones
-      await this.priceGroupService.deletePriceGroupsForProduct(id);
+      // =================================================================
+      // PHASE 3: REBUILD DATA (Optimized Batch Creation)
+      // =================================================================
+      
+      // 1. Create Variants for Stocks (Needed for mapping)
+      // We only strictly need variants for stocks. Prices/Weights use their own groups.
+      const variantMap = new Map<string, number>(); // combinationKey -> variantId
 
+      if (dto.stocks && dto.stocks.length > 0) {
+        const combinationStocks = dto.stocks.filter(
+          (s) => s.combination && Object.keys(s.combination).length > 0,
+        );
+
+        if (combinationStocks.length > 0) {
+          // Identify unique combinations from stocks
+          const uniqueCombinations = new Map<string, Record<string, number>>();
+          combinationStocks.forEach((s) => {
+            // Create a consistent key for the combination
+            const key = Object.entries(s.combination!)
+              .sort(([a], [b]) => Number(a) - Number(b))
+              .map(([k, v]) => `${k}:${v}`)
+              .join('|');
+            
+            if (!uniqueCombinations.has(key)) {
+              uniqueCombinations.set(key, s.combination!);
+            }
+          });
+
+          // Create variants in bulk
+          if (uniqueCombinations.size > 0) {
+            const variantRepo = this.dataSource.getRepository(ProductVariant);
+            const variantComboRepo = this.dataSource.getRepository(ProductVariantCombination);
+            
+            const variantsToCreate = Array.from(uniqueCombinations.keys()).map(() => 
+              variantRepo.create({ product_id: id, is_active: true })
+            );
+            
+            const savedVariants = await variantRepo.save(variantsToCreate);
+            
+            // Prepare combinations data
+            const combosToSave: any[] = [];
+            let i = 0;
+            for (const [key, combination] of uniqueCombinations) {
+              const variant = savedVariants[i];
+              variantMap.set(key, variant.id);
+              
+              const attributeValues = Object.values(combination);
+              attributeValues.forEach(valId => {
+                combosToSave.push(variantComboRepo.create({
+                  variant_id: variant.id,
+                  attribute_value_id: valId
+                }));
+              });
+              i++;
+            }
+            
+            await variantComboRepo.save(combosToSave);
+          }
+        }
+      }
+
+      const creationTasks: Promise<any>[] = [];
+
+      // 2. Rebuild Prices (Direct Insert - Skip Check)
       if (dto.prices && dto.prices.length > 0) {
-        // Separate simple prices from combination prices
         const simplePrices = dto.prices.filter(
           (p) => !p.combination || Object.keys(p.combination).length === 0,
         );
@@ -697,40 +1039,53 @@ export class ProductsService {
           (p) => p.combination && Object.keys(p.combination).length > 0,
         );
 
-        // Process simple prices (usually just one)
+        // Simple Prices
         if (simplePrices.length > 0) {
-          await Promise.all(
-            simplePrices.map((p) =>
-              this.priceGroupService.createSimplePriceGroup(id, {
-                cost: p.cost,
-                price: p.price,
-                sale_price: p.sale_price,
-              }),
-            ),
+          creationTasks.push(
+            this.priceGroupService.createSimplePriceGroup(id, {
+              cost: simplePrices[0].cost, // Take first valid simple price
+              price: simplePrices[0].price,
+              sale_price: simplePrices[0].sale_price,
+            })
           );
         }
 
-        // Process combination prices in parallel
+        // Combination Prices - Use Direct Insert for speed
         if (combinationPrices.length > 0) {
-          await Promise.all(
-            combinationPrices.map((p) =>
-              this.priceGroupService.findOrCreatePriceGroup(
-                id,
-                p.combination!,
-                {
-                  cost: p.cost,
-                  price: p.price,
-                  sale_price: p.sale_price,
-                },
-              ),
-            ),
-          );
+          const runBatchPrices = async () => {
+            const priceRepo = this.dataSource.getRepository(ProductPriceGroup);
+            const priceValueRepo = this.dataSource.getRepository(ProductPriceGroupValue);
+            
+            const groupsToSave = combinationPrices.map(p => 
+              priceRepo.create({
+                product_id: id,
+                cost: p.cost,
+                price: p.price,
+                sale_price: p.sale_price
+              })
+            );
+            
+            const savedGroups = await priceRepo.save(groupsToSave);
+            
+            const valuesToSave: any[] = [];
+            combinationPrices.forEach((p, index) => {
+              const groupId = savedGroups[index].id;
+              Object.entries(p.combination!).forEach(([attrId, valId]) => {
+                valuesToSave.push(priceValueRepo.create({
+                  price_group_id: groupId,
+                  attribute_id: Number(attrId),
+                  attribute_value_id: valId
+                }));
+              });
+            });
+            
+            await priceValueRepo.save(valuesToSave);
+          };
+          creationTasks.push(runBatchPrices());
         }
       }
 
-      // 5. Handle weights - REPLACE all existing with new ones
-      await this.weightGroupService.deleteWeightGroupsForProduct(id);
-
+      // 3. Rebuild Weights (Direct Insert - Skip Check)
       if (dto.weights && dto.weights.length > 0) {
         const simpleWeights = dto.weights.filter(
           (w) => !w.combination || Object.keys(w.combination).length === 0,
@@ -740,39 +1095,52 @@ export class ProductsService {
         );
 
         if (simpleWeights.length > 0) {
-          await Promise.all(
-            simpleWeights.map((w) =>
-              this.weightGroupService.createSimpleWeightGroup(id, {
-                weight: w.weight,
-                length: w.length,
-                width: w.width,
-                height: w.height,
-              }),
-            ),
+          creationTasks.push(
+            this.weightGroupService.createSimpleWeightGroup(id, {
+              weight: simpleWeights[0].weight,
+              length: simpleWeights[0].length,
+              width: simpleWeights[0].width,
+              height: simpleWeights[0].height,
+            })
           );
         }
 
         if (combinationWeights.length > 0) {
-          await Promise.all(
-            combinationWeights.map((w) =>
-              this.weightGroupService.findOrCreateWeightGroup(
-                id,
-                w.combination!,
-                {
-                  weight: w.weight,
-                  length: w.length,
-                  width: w.width,
-                  height: w.height,
-                },
-              ),
-            ),
-          );
+          const runBatchWeights = async () => {
+             const weightRepo = this.dataSource.getRepository(ProductWeightGroup);
+             const weightValueRepo = this.dataSource.getRepository(ProductWeightGroupValue);
+
+             const groupsToSave = combinationWeights.map(w => 
+               weightRepo.create({
+                 product_id: id,
+                 weight: w.weight,
+                 length: w.length,
+                 width: w.width,
+                 height: w.height
+               })
+             );
+
+             const savedGroups = await weightRepo.save(groupsToSave);
+
+             const valuesToSave: any[] = [];
+             combinationWeights.forEach((w, index) => {
+               const groupId = savedGroups[index].id;
+               Object.entries(w.combination!).forEach(([attrId, valId]) => {
+                 valuesToSave.push(weightValueRepo.create({
+                   weight_group_id: groupId,
+                   attribute_id: Number(attrId),
+                   attribute_value_id: valId
+                 }));
+               });
+             });
+
+             await weightValueRepo.save(valuesToSave);
+          };
+          creationTasks.push(runBatchWeights());
         }
       }
 
-      // 6. Handle stocks - REPLACE all existing with new ones
-      await this.variantsService.deleteAllStocksForProduct(id);
-
+      // 4. Rebuild Stocks (Use Pre-created Variants)
       if (dto.stocks && dto.stocks.length > 0) {
         const simpleStocks = dto.stocks.filter(
           (s) => !s.combination || Object.keys(s.combination).length === 0,
@@ -782,25 +1150,45 @@ export class ProductsService {
         );
 
         if (simpleStocks.length > 0) {
-          await Promise.all(
-            simpleStocks.map((s) =>
-              this.variantsService.setSimpleStock(id, s.quantity),
-            ),
+          creationTasks.push(
+            this.variantsService.setSimpleStock(id, simpleStocks[0].quantity)
           );
         }
 
         if (combinationStocks.length > 0) {
-          await Promise.all(
-            combinationStocks.map((s) =>
-              this.variantsService.setStockByCombination(
-                id,
-                s.combination!,
-                s.quantity,
-              ),
-            ),
-          );
+          const runBatchStocks = async () => {
+            const stockRepo = this.dataSource.getRepository(ProductStock);
+            const stocksToSave: any[] = [];
+            
+            for (const s of combinationStocks) {
+               const key = Object.entries(s.combination!)
+                .sort(([a], [b]) => Number(a) - Number(b))
+                .map(([k, v]) => `${k}:${v}`)
+                .join('|');
+              
+              const variantId = variantMap.get(key);
+              if (variantId) {
+                stocksToSave.push(stockRepo.create({
+                  product_id: id,
+                  variant_id: variantId,
+                  quantity: s.quantity
+                }));
+              } else {
+                // Fallback (Should not happen if logic is correct): Create variant on fly
+                 await this.variantsService.setStockByCombination(id, s.combination!, s.quantity);
+              }
+            }
+            
+            if (stocksToSave.length > 0) {
+              await stockRepo.save(stocksToSave);
+            }
+          };
+          creationTasks.push(runBatchStocks());
         }
       }
+
+      // Execute all creation tasks in parallel
+      await Promise.all(creationTasks);
 
       // Return updated product
       const updatedProduct = await this.findOne(id);

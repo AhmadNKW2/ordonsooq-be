@@ -49,7 +49,7 @@ export class OrdersService {
       const orderItemsToCreate: any[] = [];
       
       for (const itemDto of createOrderDto.items) {
-        const product = await this.productsRepository.findOne({
+        const product = await queryRunner.manager.findOne(Product, {
           where: { id: itemDto.productId },
         });
 
@@ -64,7 +64,7 @@ export class OrdersService {
 
         let variant: ProductVariant | null = null;
         if (itemDto.variantId) {
-          variant = await this.variantsRepository.findOne({
+          variant = await queryRunner.manager.findOne(ProductVariant, {
             where: { id: itemDto.variantId, product_id: product.id },
           });
           if (!variant) { 
@@ -75,12 +75,13 @@ export class OrdersService {
           }
         }
 
-        // Check Stock
-        const stock = await this.stockRepository.findOne({
+        // Check Stock with Lock
+        const stock = await queryRunner.manager.findOne(ProductStock, {
             where: { 
                 product_id: product.id, 
                 variant_id: itemDto.variantId || IsNull() 
-            }
+            },
+            lock: { mode: 'pessimistic_write' }
         });
 
         if (!stock || stock.quantity < itemDto.quantity) {
@@ -152,7 +153,14 @@ export class OrdersService {
       
       if (createOrderDto.paymentMethod === PaymentMethod.WALLET) {
           // Check/Deduct wallet
-          await this.walletService.deductFunds(user.id, totalAmount, TransactionSource.PURCHASE, 'Order Payment');
+          await this.walletService.deductFunds(
+            user.id, 
+            totalAmount, 
+            TransactionSource.PURCHASE, 
+            'Order Payment',
+            undefined, 
+            queryRunner.manager
+          );
           paymentStatus = PaymentStatus.PAID;
       }
       
@@ -192,7 +200,7 @@ export class OrdersService {
       
       // 7. Record Coupon Usage
       if (couponId) {
-          await this.couponsService.applyCoupon(user.id, couponId, String(savedOrder.id), discountAmount);
+          await this.couponsService.applyCoupon(user.id, couponId, String(savedOrder.id), discountAmount, queryRunner.manager);
       }
 
       await queryRunner.commitTransaction();
@@ -229,5 +237,63 @@ export class OrdersService {
           order: { createdAt: 'DESC' },
           relations: ['items', 'items.product']
       });
+  }
+
+  async cancel(id: number, userId: number) {
+      const order = await this.findOne(id);
+      if (order.userId !== userId) {
+          throw new NotFoundException('Order not found');
+      }
+      if (order.status !== OrderStatus.PENDING) {
+          throw new BadRequestException('Only pending orders can be cancelled');
+      }
+
+      const queryRunner = this.dataSource.createQueryRunner();
+      await queryRunner.connect();
+      await queryRunner.startTransaction();
+
+      try {
+          // Restore Stock
+          for (const item of order.items) {
+              const stock = await queryRunner.manager.findOne(ProductStock, {
+                  where: { 
+                      product_id: item.productId, 
+                      variant_id: item.variantId || IsNull() 
+                  },
+                  lock: { mode: 'pessimistic_write' }
+              });
+
+              if (stock) {
+                  stock.quantity += item.quantity;
+                  await queryRunner.manager.save(stock);
+              }
+          }
+
+          // Refund Wallet
+          if (order.paymentMethod === PaymentMethod.WALLET && order.paymentStatus === PaymentStatus.PAID) {
+              await this.walletService.addFunds(order.userId, {
+                  amount: order.totalAmount,
+                  source: TransactionSource.REFUND,
+                  description: `Refund for Order #${order.id}`,
+              }, queryRunner.manager);
+          }
+
+          order.status = OrderStatus.CANCELLED;
+          await queryRunner.manager.save(order);
+
+          await queryRunner.commitTransaction();
+          return this.findOne(id);
+      } catch (error) {
+          await queryRunner.rollbackTransaction();
+          throw error;
+      } finally {
+          await queryRunner.release();
+      }
+  }
+
+  async updateStatus(id: number, status: OrderStatus) {
+      const order = await this.findOne(id);
+      order.status = status;
+      return this.ordersRepository.save(order);
   }
 }

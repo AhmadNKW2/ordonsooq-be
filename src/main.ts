@@ -41,7 +41,9 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter());
 
   // Global interceptor for standardized success responses
-  app.useGlobalInterceptors(new ResponseInterceptor());
+  app.useGlobalInterceptors(
+    new ResponseInterceptor()
+  );
 
   // Enable validation globally
   app.useGlobalPipes(

@@ -1,9 +1,10 @@
-import { Controller, Get, Post, Body, Param, UseGuards, Request, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, UseGuards, Request, ForbiddenException, Patch } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
-import { UserRole } from '../common/decorators/roles.decorator';
+import { UserRole, Roles } from '../common/decorators/roles.decorator';
+import { OrderStatus } from './entities/order.entity';
 
 @Controller('orders')
 @UseGuards(JwtAuthGuard)
@@ -23,5 +24,17 @@ export class OrdersController {
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.ordersService.findOne(+id);
+  }
+
+  @Post(':id/cancel')
+  cancel(@Request() req, @Param('id') id: string) {
+    return this.ordersService.cancel(+id, req.user.id);
+  }
+
+  @Patch(':id/status')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  updateStatus(@Param('id') id: string, @Body('status') status: OrderStatus) {
+      return this.ordersService.updateStatus(+id, status);
   }
 }
