@@ -8,6 +8,7 @@ import {
   UseGuards,
   Request,
   ForbiddenException,
+  Query,
 } from '@nestjs/common';
 import { WishlistService } from './wishlist.service';
 import { AddToWishlistDto } from './dto/add-to-wishlist.dto';
@@ -30,8 +31,16 @@ export class WishlistController {
   }
 
   @Delete(':product_id')
-  removeItem(@Request() req, @Param('product_id') product_id: string) {
-    return this.wishlistService.removeItem(req.user.id, +product_id);
+  removeItem(
+    @Request() req,
+    @Param('product_id') product_id: string,
+    @Query('variant_id') variant_id?: string,
+  ) {
+    return this.wishlistService.removeItem(
+      req.user.id,
+      +product_id,
+      variant_id ? +variant_id : undefined,
+    );
   }
 
   @Delete()

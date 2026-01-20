@@ -552,6 +552,25 @@ export class ProductsService {
               }
             : null;
 
+          // Find matching weight/dimensions - Prioritize more specific matches
+          let matchingWeightGroup: any = null;
+          if (weightGroups) {
+            const matches = weightGroups.filter((wg: any) => isMatch(wg.groupValues));
+            matches.sort(
+              (a: any, b: any) => (b.groupValues?.length || 0) - (a.groupValues?.length || 0),
+            );
+            matchingWeightGroup = matches[0];
+          }
+
+          const weight = matchingWeightGroup ? matchingWeightGroup.weight : null;
+          const dimensions = matchingWeightGroup
+            ? {
+                length: matchingWeightGroup.length ?? null,
+                width: matchingWeightGroup.width ?? null,
+                height: matchingWeightGroup.height ?? null,
+              }
+            : null;
+
           // Find matching media - Prioritize more specific matches
           let matchingMedia: any = null;
           if (media) {
@@ -608,6 +627,8 @@ export class ProductsService {
               })) || [],
             price: priceInfo,
             media: matchingMedia,
+            weight,
+            dimensions,
           };
         })
         .filter(Boolean); // Filter out nulls (out of stock)
@@ -617,6 +638,9 @@ export class ProductsService {
     let priceData: any[] = [];
     let mediaData: any[] = [];
     const isSimpleProduct = !variants || variants.length === 0;
+
+    let simpleWeight: any = null;
+    let simpleDimensions: any = null;
 
     if (isSimpleProduct) {
       // Simple Price
@@ -649,6 +673,20 @@ export class ProductsService {
           });
         }
       }
+
+      // Simple Weight / Dimensions
+      const simpleWeightGroup =
+        weightGroups?.find(
+          (wg: any) => !wg.groupValues || wg.groupValues.length === 0,
+        ) || weightGroups?.[0];
+      if (simpleWeightGroup) {
+        simpleWeight = simpleWeightGroup.weight;
+        simpleDimensions = {
+          length: simpleWeightGroup.length ?? null,
+          width: simpleWeightGroup.width ?? null,
+          height: simpleWeightGroup.height ?? null,
+        };
+      }
     }
 
     // Clean rest
@@ -677,6 +715,8 @@ export class ProductsService {
     if (isSimpleProduct) {
       response.price = priceData;
       response.media = mediaData;
+      response.weight = simpleWeight;
+      response.dimensions = simpleDimensions;
     }
 
     return response;
@@ -742,7 +782,9 @@ export class ProductsService {
     productBase.variants = variants;
     productBase.attributes = attributes;
 
-    return this.transformProductResponse(productBase);
+    // Return the same response structure used in list items, but for a single product.
+    // This also filters out out-of-stock variants.
+    return this.transformProductListItem(productBase);
   }
 
   /**

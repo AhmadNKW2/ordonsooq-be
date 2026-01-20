@@ -5,9 +5,10 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, IsNull } from 'typeorm';
 import { Wishlist } from './entities/wishlist.entity';
 import { Product, ProductStatus } from '../products/entities/product.entity';
+import { ProductVariant } from '../products/entities/product-variant.entity';
 import { AddToWishlistDto } from './dto/add-to-wishlist.dto';
 
 @Injectable()
@@ -17,6 +18,8 @@ export class WishlistService {
     private wishlistRepository: Repository<Wishlist>,
     @InjectRepository(Product)
     private productRepository: Repository<Product>,
+    @InjectRepository(ProductVariant)
+    private productVariantRepository: Repository<ProductVariant>,
   ) {}
 
   /**
@@ -36,56 +39,107 @@ export class WishlistService {
       throw new BadRequestException('Cannot add archived product to wishlist');
     }
 
+    const productHasVariants =
+      (await this.productVariantRepository.count({
+        where: { product_id: product.id },
+      })) > 0;
+
+    if (productHasVariants && !addToWishlistDto.variant_id) {
+      throw new BadRequestException(
+        'variant_id is required when adding a variant product to wishlist',
+      );
+    }
+
+    // Validate variant if provided
+    if (addToWishlistDto.variant_id) {
+      const variant = await this.productVariantRepository.findOne({
+        where: { id: addToWishlistDto.variant_id },
+      });
+
+      if (!variant) {
+        throw new NotFoundException('Product variant not found');
+      }
+
+      if (variant.product_id !== product.id) {
+        throw new BadRequestException('Variant does not belong to this product');
+      }
+
+      if (!variant.is_active) {
+        throw new BadRequestException('Cannot add inactive variant to wishlist');
+      }
+    }
+
     // Check if already in wishlist
+    // - For variant products: dedupe by variant_id (allows multiple variants for same product)
+    // - For simple products: dedupe by (product_id, variant_id IS NULL)
     const existingItem = await this.wishlistRepository.findOne({
-      where: {
-        user_id: userId,
-        product_id: addToWishlistDto.product_id,
-      },
+      where: addToWishlistDto.variant_id
+        ? {
+            user_id: userId,
+            variant_id: addToWishlistDto.variant_id,
+          }
+        : {
+            user_id: userId,
+            product_id: addToWishlistDto.product_id,
+            variant_id: IsNull(),
+          },
     });
 
     if (existingItem) {
-      throw new ConflictException('Product already in wishlist');
+      throw new ConflictException(
+        addToWishlistDto.variant_id
+          ? 'Variant already in wishlist'
+          : 'Product already in wishlist',
+      );
     }
 
     // Create new wishlist item
     const wishlistItem = this.wishlistRepository.create({
       user_id: userId,
       product_id: addToWishlistDto.product_id,
+      variant_id: addToWishlistDto.variant_id || null,
     });
 
     await this.wishlistRepository.save(wishlistItem);
 
-    const items = await this.getWishlist(userId);
-
     return {
       message: 'Product added to wishlist successfully',
-      items,
     };
   }
 
   /**
    * Remove a product from user's wishlist
    */
-  async removeItem(userId: number, productId: number) {
-    const wishlistItem = await this.wishlistRepository.findOne({
-      where: {
+  async removeItem(userId: number, productId: number, variantId?: number) {
+    if (variantId) {
+      const wishlistItem = await this.wishlistRepository.findOne({
+        where: {
+          user_id: userId,
+          product_id: productId,
+          variant_id: variantId,
+        },
+      });
+
+      if (!wishlistItem) {
+        throw new NotFoundException('Product not found in wishlist');
+      }
+
+      await this.wishlistRepository.remove(wishlistItem);
+    } else {
+      // Backwards compatible: remove all wishlist entries for this product
+      // (covers simple products + "remove all variants of this product")
+      const result = await this.wishlistRepository.delete({
         user_id: userId,
         product_id: productId,
-      },
-    });
+      });
 
-    if (!wishlistItem) {
-      throw new NotFoundException('Product not found in wishlist');
+      if (!result.affected) {
+        throw new NotFoundException('Product not found in wishlist');
+      }
     }
-
-    await this.wishlistRepository.remove(wishlistItem);
-
-    const items = await this.getWishlist(userId);
 
     return {
       message: 'Product removed from wishlist',
-      items,
     };
   }
 
@@ -102,6 +156,7 @@ export class WishlistService {
         'product.category',
         'product.brand',
         'product.priceGroups',
+        'variant',
       ],
       order: { created_at: 'DESC' },
     });
@@ -118,7 +173,7 @@ export class WishlistService {
       // If simple product, there should be one price group.
       // If variant product, there might be multiple. We'll show the minimum price or the first one found.
       let price = 0;
-        let sale_price: number | null = null;
+      let sale_price: number | null = null;
       if (item.product.priceGroups && item.product.priceGroups.length > 0) {
         // Find the lowest price to display "From ..."
         const prices = item.product.priceGroups.map((pg) => ({
@@ -132,7 +187,7 @@ export class WishlistService {
 
         // Sort by effective price
         prices.sort((a, b) => a.effective_price - b.effective_price);
-        
+
         const bestPrice = prices[0];
         price = bestPrice.price;
         sale_price = bestPrice.sale_price;
@@ -141,6 +196,7 @@ export class WishlistService {
       return {
         id: item.id,
         product_id: item.product_id,
+        variant_id: item.variant_id,
         created_at: item.created_at,
         product: {
           id: item.product.id,
@@ -202,9 +258,12 @@ export class WishlistService {
   async isProductInWishlist(
     userId: number,
     productId: number,
+    variantId?: number,
   ): Promise<boolean> {
     const item = await this.wishlistRepository.findOne({
-      where: { user_id: userId, product_id: productId },
+      where: variantId
+        ? { user_id: userId, variant_id: variantId }
+        : { user_id: userId, product_id: productId, variant_id: IsNull() },
     });
     return !!item;
   }
