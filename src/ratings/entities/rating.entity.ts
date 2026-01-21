@@ -11,6 +11,7 @@ import {
 } from 'typeorm';
 import { Product } from '../../products/entities/product.entity';
 import { User } from '../../users/entities/user.entity';
+import { Vendor } from '../../vendors/entities/vendor.entity';
 
 export enum RatingStatus {
   PENDING = 'pending',
@@ -61,6 +62,16 @@ export class Rating {
 
   @Column()
   product_id: number;
+
+  @ManyToOne(() => Vendor, (vendor) => vendor.comments, {
+    onDelete: 'CASCADE',
+    nullable: true,
+  })
+  @JoinColumn({ name: 'vendor_id' })
+  vendor: Vendor;
+
+  @Column({ nullable: true })
+  vendor_id: number;
 
   @CreateDateColumn()
   createdAt: Date;

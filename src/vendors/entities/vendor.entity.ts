@@ -8,6 +8,7 @@ import {
   Index,
   OneToMany,
 } from 'typeorm';
+import { Rating } from '../../ratings/entities/rating.entity';
 
 export enum VendorStatus {
   ACTIVE = 'active',
@@ -58,6 +59,12 @@ export class Vendor {
   @Column({ default: true })
   visible: boolean;
 
+  @Column({ type: 'decimal', precision: 3, scale: 2, default: 0 })
+  rating: number;
+
+  @Column({ type: 'int', default: 0 })
+  rating_count: number;
+
   @Column({ default: 0 })
   sort_order: number;
 
@@ -70,6 +77,9 @@ export class Vendor {
   // Products relationship
   @OneToMany('Product', 'vendor')
   products: any[];
+
+  @OneToMany(() => Rating, (rating) => rating.vendor)
+  comments: Rating[];
 
   @CreateDateColumn()
   created_at: Date;
