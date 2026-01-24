@@ -25,18 +25,17 @@ export class CartService {
   ) {}
 
   async getCart(userId: number) {
-    let cart = await this.cartRepository.findOne({
-      where: { user_id: userId },
-      relations: [
-        'items',
-        'items.product',
-        'items.product.media',
-        'items.variant',
-        'items.variant.combinations',
-        'items.variant.combinations.attribute_value',
-        'items.variant.combinations.attribute_value.attribute',
-      ],
-    });
+    let cart = await this.cartRepository.createQueryBuilder('cart')
+      .leftJoinAndSelect('cart.items', 'items')
+      .leftJoinAndSelect('items.product', 'product')
+      .leftJoinAndSelect('product.media', 'media')
+      .leftJoinAndSelect('items.variant', 'variant')
+      .leftJoinAndSelect('variant.combinations', 'combinations')
+      .leftJoinAndSelect('combinations.attribute_value', 'attribute_value')
+      .leftJoinAndSelect('attribute_value.attribute', 'attribute')
+      .where('cart.user_id = :userId', { userId })
+      .orderBy('items.id', 'ASC')
+      .getOne();
 
     if (!cart) {
       cart = this.cartRepository.create({
@@ -106,42 +105,30 @@ export class CartService {
   }
 
   async updateItem(userId: number, itemId: number, dto: UpdateCartItemDto) {
-    const cart = await this.cartRepository.findOne({
-      where: { user_id: userId },
-    });
-
-    if (!cart) {
-      throw new NotFoundException('Cart not found');
-    }
-
     const item = await this.cartItemRepository.findOne({
-      where: { id: itemId, cart_id: cart.id },
+      where: { id: itemId },
+      relations: ['cart'],
     });
 
-    if (!item) {
+    if (!item || item.cart.user_id !== userId) {
       throw new NotFoundException('Cart item not found');
     }
 
-    item.quantity = dto.quantity;
-    await this.cartItemRepository.save(item);
+    if (item.quantity !== dto.quantity) {
+      item.quantity = dto.quantity;
+      await this.cartItemRepository.save(item);
+    }
 
     return this.getCart(userId);
   }
 
   async removeItem(userId: number, itemId: number) {
-    const cart = await this.cartRepository.findOne({
-      where: { user_id: userId },
-    });
-
-    if (!cart) {
-      throw new NotFoundException('Cart not found');
-    }
-
     const item = await this.cartItemRepository.findOne({
-      where: { id: itemId, cart_id: cart.id },
+      where: { id: itemId },
+      relations: ['cart'],
     });
 
-    if (!item) {
+    if (!item || item.cart.user_id !== userId) {
       throw new NotFoundException('Cart item not found');
     }
 
@@ -163,14 +150,23 @@ export class CartService {
 
   private async formatCartResponse(cart: Cart) {
     // Helper to format the cart response consistent with frontend expectations
-    // Calculate total price?
-    const items = await Promise.all(cart.items.map(async (item) => {
+    
+    // Optimized: Fetch all prices in one go
+    const priceGroups = await this.priceGroupService.getPricesForCartItems(
+      cart.items.map((item) => ({
+        productId: item.product.id,
+        variantId: item.variant_id ?? null,
+        variant: item.variant,
+      }))
+    );
+
+    const items = cart.items.map((item, index) => {
         const primaryMedia = item.product?.media?.find((m) => m.is_primary);
         const firstMedia = item.product?.media?.[0];
         const image = primaryMedia?.url || firstMedia?.url || null;
 
-        // Get Price
-        const priceGroup = await this.priceGroupService.getPriceForVariant(item.product.id, item.variant_id);
+        // Get Price (using pre-fetched array, index matches)
+        const priceGroup = priceGroups[index];
         
         const regularPrice = priceGroup ? Number(priceGroup.price) : 0;
         const salePrice = priceGroup && priceGroup.sale_price !== null ? Number(priceGroup.sale_price) : null;
@@ -209,7 +205,7 @@ export class CartService {
             },
             variant: variantDetails,
         };
-    }));
+    });
 
     // Calculate total amount
     const totalAmount = items.reduce((sum, item) => {

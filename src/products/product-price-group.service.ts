@@ -1,6 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { ProductPriceGroup } from './entities/product-price-group.entity';
 import { ProductPriceGroupValue } from './entities/product-price-group-value.entity';
 import { ProductAttribute } from './entities/product-attribute.entity';
@@ -118,6 +118,116 @@ export class ProductPriceGroupService {
     }
 
     return this.findGroupByCombination(productId, combination);
+  }
+
+  /**
+   * Optimized method to get prices for multiple items at once
+   */
+  async getPricesForCartItems(
+    items: {
+      productId: number;
+      variantId: number | null;
+      variant?: ProductVariant;
+    }[],
+  ): Promise<(ProductPriceGroup | null)[]> {
+    if (items.length === 0) return [];
+
+    const productIds = [...new Set(items.map((i) => i.productId))];
+
+    // 1. Fetch pricing attributes for all products
+    const pricingAttributes = await this.productAttributeRepository.find({
+      where: {
+        product_id: In(productIds),
+        controls_pricing: true,
+      },
+    });
+
+    const pricingAttrsByProduct = new Map<number, Set<number>>();
+    for (const pa of pricingAttributes) {
+      if (!pricingAttrsByProduct.has(pa.product_id)) {
+        pricingAttrsByProduct.set(pa.product_id, new Set());
+      }
+      pricingAttrsByProduct.get(pa.product_id)!.add(pa.attribute_id);
+    }
+
+    // 2. Fetch price groups for all products
+    const priceGroups = await this.priceGroupRepository.find({
+      where: { product_id: In(productIds) },
+      relations: ['groupValues'],
+    });
+
+    const priceGroupsByProduct = new Map<number, ProductPriceGroup[]>();
+    for (const pg of priceGroups) {
+      if (!priceGroupsByProduct.has(pg.product_id)) {
+        priceGroupsByProduct.set(pg.product_id, []);
+      }
+      priceGroupsByProduct.get(pg.product_id)!.push(pg);
+    }
+
+    // 3. Match prices
+    const results: (ProductPriceGroup | null)[] = [];
+
+    for (const item of items) {
+      const groups = priceGroupsByProduct.get(item.productId) || [];
+
+      if (!item.variantId) {
+        // Simple product / No variant - find group with no values
+        const simpleGroup = groups.find((g) => g.groupValues.length === 0);
+        results.push(simpleGroup || null);
+        continue;
+      }
+
+      const variant = item.variant;
+      // If variant is not provided or incomplete, return null to avoid N+1 fallback here
+      if (!variant || !variant.combinations) {
+        results.push(null);
+        continue;
+      }
+
+      const productPricingAttrs = pricingAttrsByProduct.get(item.productId);
+
+      // Build combination map
+      const combination: Record<string, number> = {};
+
+      if (productPricingAttrs) {
+        for (const combo of variant.combinations) {
+          // Check if attribute_value is present
+          const attrId = combo.attribute_value?.attribute_id;
+          if (attrId && productPricingAttrs.has(attrId)) {
+            combination[attrId.toString()] = combo.attribute_value_id;
+          }
+        }
+      }
+
+      // Find group with exact matching values
+      const combinationSize = Object.keys(combination).length;
+      let foundGroup: ProductPriceGroup | null = null;
+
+      for (const group of groups) {
+        if (group.groupValues.length !== combinationSize) continue;
+
+        let allMatch = true;
+        for (const [attrId, valueId] of Object.entries(combination)) {
+          const matching = group.groupValues.find(
+            (gv) =>
+              gv.attribute_id === parseInt(attrId) &&
+              gv.attribute_value_id === valueId,
+          );
+          if (!matching) {
+            allMatch = false;
+            break;
+          }
+        }
+
+        if (allMatch) {
+          foundGroup = group;
+          break;
+        }
+      }
+      results.push(foundGroup);
+    }
+
+    return results;
   }
 
   /**
