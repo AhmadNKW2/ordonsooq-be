@@ -24,6 +24,9 @@ export class Brand {
   @PrimaryGeneratedColumn('increment')
   id: number;
 
+  @Column({ unique: true, nullable: true })
+  slug: string;
+
   @Column({ unique: true })
   name_en: string;
 

@@ -24,35 +24,35 @@ import { Roles, UserRole } from '../common/decorators/roles.decorator';
 @UseGuards(JwtAuthGuard)
 export class WalletController {
   constructor(private readonly walletService: WalletService) {}
-  
+
   // --- Cashback Rules ---
-  
+
   @Post('cashback-rules')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   createRule(@Body() dto: CreateCashbackRuleDto) {
-      return this.walletService.createCashbackRule(dto);
+    return this.walletService.createCashbackRule(dto);
   }
 
   @Get('cashback-rules')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   listRules() {
-      return this.walletService.findAllCashbackRules();
+    return this.walletService.findAllCashbackRules();
   }
 
   @Patch('cashback-rules/:id')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   updateRule(@Param('id') id: string, @Body() dto: UpdateCashbackRuleDto) {
-      return this.walletService.updateCashbackRule(+id, dto);
+    return this.walletService.updateCashbackRule(+id, dto);
   }
 
   @Delete('cashback-rules/:id')
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   deleteRule(@Param('id') id: string) {
-      return this.walletService.deleteCashbackRule(+id);
+    return this.walletService.deleteCashbackRule(+id);
   }
 
   // --- Wallet & Transactions ---

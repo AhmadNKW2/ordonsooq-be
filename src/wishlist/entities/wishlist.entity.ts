@@ -13,7 +13,11 @@ import { Product } from '../../products/entities/product.entity';
 import { ProductVariant } from '../../products/entities/product-variant.entity';
 
 @Entity('wishlists')
-@Unique('uq_wishlists_user_product_variant', ['user_id', 'product_id', 'variant_id'])
+@Unique('uq_wishlists_user_product_variant', [
+  'user_id',
+  'product_id',
+  'variant_id',
+])
 @Index('idx_wishlists_user_id', ['user_id'])
 @Index('idx_wishlists_product_id', ['product_id'])
 export class Wishlist {

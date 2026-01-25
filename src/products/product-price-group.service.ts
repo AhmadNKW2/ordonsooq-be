@@ -113,7 +113,8 @@ export class ProductPriceGroupService {
     const combination: Record<string, number> = {};
     for (const combo of variant.combinations) {
       if (pricingAttributeIds.has(combo.attribute_value.attribute_id)) {
-        combination[combo.attribute_value.attribute_id] = combo.attribute_value_id;
+        combination[combo.attribute_value.attribute_id] =
+          combo.attribute_value_id;
       }
     }
 

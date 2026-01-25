@@ -174,7 +174,9 @@ export class HomeService {
   private buildVariantCard(product: any, variant: any) {
     const variantValueIds = new Set<number>(
       (variant?.combinations || [])
-        .map((c: any) => Number(c?.attribute_value?.id ?? c?.attribute_value_id))
+        .map((c: any) =>
+          Number(c?.attribute_value?.id ?? c?.attribute_value_id),
+        )
         .filter((id: any) => Number.isFinite(id)),
     );
 
@@ -283,7 +285,9 @@ export class HomeService {
           ? group.group_values
           : [];
       const requiredValueIds = values
-        .map((gv: any) => Number(gv?.attribute_value_id ?? gv?.attributeValueId))
+        .map((gv: any) =>
+          Number(gv?.attribute_value_id ?? gv?.attributeValueId),
+        )
         .filter((id: any) => Number.isFinite(id));
 
       const isMatch = requiredValueIds.every((id: number) =>

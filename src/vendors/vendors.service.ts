@@ -6,7 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, Like } from 'typeorm';
 import { Vendor, VendorStatus } from './entities/vendor.entity';
 import { CreateVendorDto } from './dto/create-vendor.dto';
 import { UpdateVendorDto } from './dto/update-vendor.dto';
@@ -30,6 +30,48 @@ export class VendorsService {
     private r2StorageService: R2StorageService,
   ) {}
 
+  private slugify(text: string): string {
+    return text
+      .toString()
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, '-')
+      .replace(/[^\w\-]+/g, '')
+      .replace(/\-\-+/g, '-')
+      .replace(/^-+/, '')
+      .replace(/-+$/, '');
+  }
+
+  private async generateUniqueSlug(
+    name: string,
+    currentId?: number,
+  ): Promise<string> {
+    const baseSlug = this.slugify(name);
+    let finalSlug = baseSlug;
+    let counter = 1;
+
+    const existing = await this.vendorRepository.find({
+      select: ['slug', 'id'],
+      where: {
+        slug: Like(`${baseSlug}%`),
+      },
+    });
+
+    const isAvailable = (slug: string) => {
+      const match = existing.find((v) => v.slug === slug);
+      if (!match) return true;
+      if (currentId && match.id === currentId) return true;
+      return false;
+    };
+
+    while (!isAvailable(finalSlug)) {
+      counter++;
+      finalSlug = `${baseSlug}-${counter}`;
+    }
+
+    return finalSlug;
+  }
+
   async create(
     createVendorDto: CreateVendorDto,
     logoUrl?: string,
@@ -51,9 +93,11 @@ export class VendorsService {
     const nextSortOrder = (maxSortOrder?.max ?? -1) + 1;
 
     const { product_ids, ...vendorData } = createVendorDto;
+    const slug = await this.generateUniqueSlug(vendorData.name_en);
 
     const vendor = this.vendorRepository.create({
       ...vendorData,
+      slug,
       logo: logoUrl,
       sort_order: nextSortOrder,
     });

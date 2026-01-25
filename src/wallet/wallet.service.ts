@@ -55,7 +55,11 @@ export class WalletService {
     };
   }
 
-  async addFunds(userId: number, addFundsDto: AddFundsDto, manager?: EntityManager) {
+  async addFunds(
+    userId: number,
+    addFundsDto: AddFundsDto,
+    manager?: EntityManager,
+  ) {
     let queryRunner: QueryRunner | null = null;
     let transactionalManager: EntityManager;
 
@@ -99,7 +103,7 @@ export class WalletService {
       });
 
       await transactionalManager.save(transaction);
-      
+
       if (queryRunner) {
         await queryRunner.commitTransaction();
       }
@@ -110,12 +114,12 @@ export class WalletService {
       };
     } catch (error) {
       if (queryRunner) {
-         await queryRunner.rollbackTransaction();
+        await queryRunner.rollbackTransaction();
       }
       throw error;
     } finally {
       if (queryRunner) {
-         await queryRunner.release();
+        await queryRunner.release();
       }
     }
   }
@@ -169,9 +173,9 @@ export class WalletService {
       });
 
       await transactionalManager.save(transaction);
-      
+
       if (queryRunner) {
-          await queryRunner.commitTransaction();
+        await queryRunner.commitTransaction();
       }
 
       return {
@@ -180,12 +184,12 @@ export class WalletService {
       };
     } catch (error) {
       if (queryRunner) {
-          await queryRunner.rollbackTransaction();
+        await queryRunner.rollbackTransaction();
       }
       throw error;
     } finally {
       if (queryRunner) {
-          await queryRunner.release();
+        await queryRunner.release();
       }
     }
   }
@@ -243,8 +247,6 @@ export class WalletService {
     };
   }
 
-
-
   // --- Cashback Rules Management ---
 
   async createCashbackRule(dto: CreateCashbackRuleDto) {
@@ -283,28 +285,31 @@ export class WalletService {
     let bestCashback = 0;
 
     for (const rule of activeRules) {
-        // Check minimum order amount
-        if (rule.minOrderAmount > 0 && orderAmount < rule.minOrderAmount) {
-            continue;
-        }
+      // Check minimum order amount
+      if (rule.minOrderAmount > 0 && orderAmount < rule.minOrderAmount) {
+        continue;
+      }
 
-        let currentCashback = 0;
+      let currentCashback = 0;
 
-        if (rule.type === CashbackType.FIXED) {
-            currentCashback = Number(rule.value);
-        } else if (rule.type === CashbackType.PERCENTAGE) {
-            currentCashback = (orderAmount * Number(rule.value)) / 100;
-        }
+      if (rule.type === CashbackType.FIXED) {
+        currentCashback = Number(rule.value);
+      } else if (rule.type === CashbackType.PERCENTAGE) {
+        currentCashback = (orderAmount * Number(rule.value)) / 100;
+      }
 
-        // Apply Max Cap
-        if (rule.maxCashbackAmount !== null && currentCashback > rule.maxCashbackAmount) {
-            currentCashback = Number(rule.maxCashbackAmount);
-        }
+      // Apply Max Cap
+      if (
+        rule.maxCashbackAmount !== null &&
+        currentCashback > rule.maxCashbackAmount
+      ) {
+        currentCashback = Number(rule.maxCashbackAmount);
+      }
 
-        // Keep the best offer for the customer
-        if (currentCashback > bestCashback) {
-            bestCashback = currentCashback;
-        }
+      // Keep the best offer for the customer
+      if (currentCashback > bestCashback) {
+        bestCashback = currentCashback;
+      }
     }
 
     return bestCashback;
@@ -312,9 +317,9 @@ export class WalletService {
 
   async applyCashback(userId: number, orderAmount: number, orderId: string) {
     const cashbackAmount = await this.calculateCashback(orderAmount);
-    
+
     if (cashbackAmount <= 0) {
-        return { message: 'No cashback applicable' };
+      return { message: 'No cashback applicable' };
     }
 
     return await this.addFunds(userId, {

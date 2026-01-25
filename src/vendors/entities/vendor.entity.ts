@@ -25,6 +25,9 @@ export class Vendor {
   @PrimaryGeneratedColumn()
   id: number;
 
+  @Column({ unique: true, nullable: true })
+  slug: string;
+
   @Column({ unique: true, default: '' })
   name_en: string;
 

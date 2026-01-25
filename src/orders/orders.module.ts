@@ -15,11 +15,11 @@ import { CartModule } from '../cart/cart.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      Order, 
-      OrderItem, 
+      Order,
+      OrderItem,
       Product,
       ProductVariant,
-      ProductStock
+      ProductStock,
     ]),
     CouponsModule,
     WalletModule,

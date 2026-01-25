@@ -51,7 +51,7 @@ export class OrderItem {
 
   @Column('decimal', { precision: 10, scale: 2 })
   totalPrice: number; // price * quantity
-  
+
   @Column('jsonb', { nullable: true })
   productSnapshot: any; // Store product name, image, etc, at time of purchase
 }

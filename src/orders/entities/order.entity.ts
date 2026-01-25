@@ -104,7 +104,7 @@ export class Order {
 
   @Column({ nullable: true })
   notes: string;
-  
+
   @Column({ nullable: true })
   trackingNumber: string;
 

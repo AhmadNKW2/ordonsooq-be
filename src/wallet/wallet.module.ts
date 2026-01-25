@@ -7,7 +7,9 @@ import { WalletTransaction } from './entities/wallet-transaction.entity';
 import { CashbackRule } from './entities/cashback-rule.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Wallet, WalletTransaction, CashbackRule])],
+  imports: [
+    TypeOrmModule.forFeature([Wallet, WalletTransaction, CashbackRule]),
+  ],
   controllers: [WalletController],
   providers: [WalletService],
   exports: [WalletService],

@@ -230,7 +230,7 @@ export class CouponsService {
     couponId: number,
     orderId: string,
     discountAmount: number,
-    manager?: EntityManager
+    manager?: EntityManager,
   ) {
     const coupon = await this.findOne(couponId);
     const transactionalManager = manager || this.couponRepository.manager;

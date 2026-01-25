@@ -32,6 +32,8 @@ import { ProductVariantCombination } from './entities/product-variant-combinatio
 import { ProductPriceGroupValue } from './entities/product-price-group-value.entity';
 import { ProductWeightGroupValue } from './entities/product-weight-group-value.entity';
 
+import { Like, Not } from 'typeorm';
+
 @Injectable()
 export class ProductsService {
   constructor(
@@ -49,6 +51,50 @@ export class ProductsService {
     private weightGroupService: ProductWeightGroupService,
     private dataSource: DataSource,
   ) {}
+
+  private slugify(text: string): string {
+    return text
+      .toString()
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, '-') // Replace spaces with -
+      .replace(/[^\w\-]+/g, '') // Remove all non-word chars
+      .replace(/\-\-+/g, '-') // Replace multiple - with single -
+      .replace(/^-+/, '') // Trim - from start of text
+      .replace(/-+$/, ''); // Trim - from end of text
+  }
+
+  private async generateUniqueSlug(
+    name: string,
+    currentId?: number,
+  ): Promise<string> {
+    const baseSlug = this.slugify(name);
+    let finalSlug = baseSlug;
+    let counter = 1;
+
+    // Find all slugs that start with the baseSlug
+    const existingProducts = await this.productsRepository.find({
+      select: ['slug', 'id'],
+      where: {
+        slug: Like(`${baseSlug}%`),
+      },
+    });
+
+    // Check availability
+    const isAvailable = (slug: string) => {
+      const match = existingProducts.find((p) => p.slug === slug);
+      if (!match) return true; // No product has this slug
+      if (currentId && match.id === currentId) return true; // It's the current product's slug
+      return false; // Taken by someone else
+    };
+
+    while (!isAvailable(finalSlug)) {
+      counter++;
+      finalSlug = `${baseSlug}-${counter}`;
+    }
+
+    return finalSlug;
+  }
 
   async create(dto: CreateProductDto): Promise<any> {
     try {
@@ -74,10 +120,13 @@ export class ProductsService {
         }
       }
 
+      const slug = await this.generateUniqueSlug(dto.name_en);
+
       // 1. Create basic product (primary category is first in the list)
       const product = this.productsRepository.create({
         name_en: dto.name_en,
         name_ar: dto.name_ar,
+        slug: slug,
         sku: dto.sku,
         short_description_en: dto.short_description_en,
         short_description_ar: dto.short_description_ar,
@@ -124,9 +173,9 @@ export class ProductsService {
 
       // Handle Media
       if (dto.media && dto.media.length > 0) {
-         creationTasks.push(
-            this.mediaGroupService.syncProductMedia(id, dto.media)
-         );
+        creationTasks.push(
+          this.mediaGroupService.syncProductMedia(id, dto.media),
+        );
       }
 
       // Handle Prices (Batch Insert)
@@ -144,39 +193,43 @@ export class ProductsService {
               cost: simplePrices[0].cost,
               price: simplePrices[0].price,
               sale_price: simplePrices[0].sale_price,
-            })
+            }),
           );
         }
 
         if (combinationPrices.length > 0) {
           const runBatchPrices = async () => {
-             const priceRepo = this.dataSource.getRepository(ProductPriceGroup);
-             const priceValueRepo = this.dataSource.getRepository(ProductPriceGroupValue);
+            const priceRepo = this.dataSource.getRepository(ProductPriceGroup);
+            const priceValueRepo = this.dataSource.getRepository(
+              ProductPriceGroupValue,
+            );
 
-             const groupsToSave = combinationPrices.map(p =>
-               priceRepo.create({
-                 product_id: id,
-                 cost: p.cost,
-                 price: p.price,
-                 sale_price: p.sale_price
-               })
-             );
+            const groupsToSave = combinationPrices.map((p) =>
+              priceRepo.create({
+                product_id: id,
+                cost: p.cost,
+                price: p.price,
+                sale_price: p.sale_price,
+              }),
+            );
 
-             const savedGroups = await priceRepo.save(groupsToSave);
+            const savedGroups = await priceRepo.save(groupsToSave);
 
-             const valuesToSave: any[] = [];
-             combinationPrices.forEach((p, index) => {
-               const groupId = savedGroups[index].id;
-               Object.entries(p.combination!).forEach(([attrId, valId]) => {
-                 valuesToSave.push(priceValueRepo.create({
-                   price_group_id: groupId,
-                   attribute_id: Number(attrId),
-                   attribute_value_id: valId
-                 }));
-               });
-             });
+            const valuesToSave: any[] = [];
+            combinationPrices.forEach((p, index) => {
+              const groupId = savedGroups[index].id;
+              Object.entries(p.combination!).forEach(([attrId, valId]) => {
+                valuesToSave.push(
+                  priceValueRepo.create({
+                    price_group_id: groupId,
+                    attribute_id: Number(attrId),
+                    attribute_value_id: valId,
+                  }),
+                );
+              });
+            });
 
-             await priceValueRepo.save(valuesToSave);
+            await priceValueRepo.save(valuesToSave);
           };
           creationTasks.push(runBatchPrices());
         }
@@ -191,47 +244,52 @@ export class ProductsService {
           (w) => w.combination && Object.keys(w.combination).length > 0,
         );
 
-         if (simpleWeights.length > 0) {
+        if (simpleWeights.length > 0) {
           creationTasks.push(
             this.weightGroupService.createSimpleWeightGroup(id, {
               weight: simpleWeights[0].weight,
               length: simpleWeights[0].length,
               width: simpleWeights[0].width,
               height: simpleWeights[0].height,
-            })
+            }),
           );
         }
 
         if (combinationWeights.length > 0) {
           const runBatchWeights = async () => {
-             const weightRepo = this.dataSource.getRepository(ProductWeightGroup);
-             const weightValueRepo = this.dataSource.getRepository(ProductWeightGroupValue);
+            const weightRepo =
+              this.dataSource.getRepository(ProductWeightGroup);
+            const weightValueRepo = this.dataSource.getRepository(
+              ProductWeightGroupValue,
+            );
 
-             const groupsToSave = combinationWeights.map(w =>
-               weightRepo.create({
-                 product_id: id,
-                 weight: w.weight,
-                 length: w.length,
-                 width: w.width,
-                 height: w.height
-               })
-             );
+            const groupsToSave = combinationWeights.map((w) =>
+              weightRepo.create({
+                product_id: id,
+                weight: w.weight,
+                length: w.length,
+                width: w.width,
+                height: w.height,
+              }),
+            );
 
-             const savedGroups = await weightRepo.save(groupsToSave);
+            const savedGroups = await weightRepo.save(groupsToSave);
 
-             const valuesToSave: any[] = [];
-             combinationWeights.forEach((w, index) => {
-               const groupId = savedGroups[index].id;
-               Object.entries(w.combination!).forEach(([attrId, valId]) => {
-                 valuesToSave.push(weightValueRepo.create({
-                   weight_group_id: groupId,
-                   attribute_id: Number(attrId),
-                   attribute_value_id: valId
-                 }));
-               });
-             });
+            const valuesToSave: any[] = [];
+            combinationWeights.forEach((w, index) => {
+              const groupId = savedGroups[index].id;
+              Object.entries(w.combination!).forEach(([attrId, valId]) => {
+                valuesToSave.push(
+                  weightValueRepo.create({
+                    weight_group_id: groupId,
+                    attribute_id: Number(attrId),
+                    attribute_value_id: valId,
+                  }),
+                );
+              });
+            });
 
-             await weightValueRepo.save(valuesToSave);
+            await weightValueRepo.save(valuesToSave);
           };
           creationTasks.push(runBatchWeights());
         }
@@ -248,67 +306,74 @@ export class ProductsService {
 
         if (simpleStocks.length > 0) {
           creationTasks.push(
-            this.variantsService.setSimpleStock(id, simpleStocks[0].quantity)
+            this.variantsService.setSimpleStock(id, simpleStocks[0].quantity),
           );
         }
 
         if (combinationStocks.length > 0) {
           const runBatchStocks = async () => {
-             // 1. Create Variants
-             const variantRepo = this.dataSource.getRepository(ProductVariant);
-             const variantComboRepo = this.dataSource.getRepository(ProductVariantCombination);
-             const stockRepo = this.dataSource.getRepository(ProductStock);
-             const variantMap = new Map<string, number>();
+            // 1. Create Variants
+            const variantRepo = this.dataSource.getRepository(ProductVariant);
+            const variantComboRepo = this.dataSource.getRepository(
+              ProductVariantCombination,
+            );
+            const stockRepo = this.dataSource.getRepository(ProductStock);
+            const variantMap = new Map<string, number>();
 
-             // Deduplicate combinations
-             const uniqueCombinations = new Map<string, Record<string, number>>();
-             combinationStocks.forEach((s) => {
-               const key = Object.entries(s.combination!)
-                 .sort(([a], [b]) => Number(a) - Number(b))
-                 .map(([k, v]) => `${k}:${v}`)
-                 .join('|');
-               if (!uniqueCombinations.has(key)) {
-                 uniqueCombinations.set(key, s.combination!);
-               }
-             });
-
-             const variantsToCreate = Array.from(uniqueCombinations.keys()).map(() =>
-               variantRepo.create({ product_id: id, is_active: true })
-             );
-             
-             const savedVariants = await variantRepo.save(variantsToCreate);
-
-             const combosToSave: any[] = [];
-             let i = 0;
-             for (const [key, combination] of uniqueCombinations) {
-               const variant = savedVariants[i];
-               variantMap.set(key, variant.id);
-               
-               Object.values(combination).forEach(valId => {
-                 combosToSave.push(variantComboRepo.create({
-                   variant_id: variant.id,
-                   attribute_value_id: valId
-                 }));
-               });
-               i++;
-             }
-             
-             await variantComboRepo.save(combosToSave);
-
-             // 2. Create Stocks
-             const stocksToSave = combinationStocks.map(s => {
-               const key = Object.entries(s.combination!)
+            // Deduplicate combinations
+            const uniqueCombinations = new Map<
+              string,
+              Record<string, number>
+            >();
+            combinationStocks.forEach((s) => {
+              const key = Object.entries(s.combination!)
                 .sort(([a], [b]) => Number(a) - Number(b))
                 .map(([k, v]) => `${k}:${v}`)
                 .join('|');
-               return stockRepo.create({
-                  product_id: id,
-                  variant_id: variantMap.get(key),
-                  quantity: s.quantity
-               });
-             });
-             
-             await stockRepo.save(stocksToSave);
+              if (!uniqueCombinations.has(key)) {
+                uniqueCombinations.set(key, s.combination!);
+              }
+            });
+
+            const variantsToCreate = Array.from(uniqueCombinations.keys()).map(
+              () => variantRepo.create({ product_id: id, is_active: true }),
+            );
+
+            const savedVariants = await variantRepo.save(variantsToCreate);
+
+            const combosToSave: any[] = [];
+            let i = 0;
+            for (const [key, combination] of uniqueCombinations) {
+              const variant = savedVariants[i];
+              variantMap.set(key, variant.id);
+
+              Object.values(combination).forEach((valId) => {
+                combosToSave.push(
+                  variantComboRepo.create({
+                    variant_id: variant.id,
+                    attribute_value_id: valId,
+                  }),
+                );
+              });
+              i++;
+            }
+
+            await variantComboRepo.save(combosToSave);
+
+            // 2. Create Stocks
+            const stocksToSave = combinationStocks.map((s) => {
+              const key = Object.entries(s.combination!)
+                .sort(([a], [b]) => Number(a) - Number(b))
+                .map(([k, v]) => `${k}:${v}`)
+                .join('|');
+              return stockRepo.create({
+                product_id: id,
+                variant_id: variantMap.get(key),
+                quantity: s.quantity,
+              });
+            });
+
+            await stockRepo.save(stocksToSave);
           };
           creationTasks.push(runBatchStocks());
         }
@@ -419,7 +484,9 @@ export class ProductsService {
       .take(limit)
       .getRawMany<{ id: number }>();
 
-    const ids = idRows.map((r) => Number(r.id)).filter((id) => !Number.isNaN(id));
+    const ids = idRows
+      .map((r) => Number(r.id))
+      .filter((id) => !Number.isNaN(id));
 
     if (ids.length === 0) {
       return {
@@ -434,31 +501,85 @@ export class ProductsService {
     }
 
     // Load full relations only for products in this page
-    const data = await this.productsRepository
-      .createQueryBuilder('product')
-      .leftJoinAndSelect('product.brand', 'brand')
-      .leftJoinAndSelect('product.productCategories', 'productCategories')
-      .leftJoinAndSelect('productCategories.category', 'categories')
-      .leftJoinAndSelect('product.vendor', 'vendor')
-      .leftJoinAndSelect('product.media', 'media')
-      .leftJoinAndSelect('media.mediaGroup', 'mediaGroup')
-      .leftJoinAndSelect('mediaGroup.groupValues', 'mediaGroupValues')
-      .leftJoinAndSelect('product.stock', 'stock')
-      // --- New: Load variants for the explicit variants list ---
-      .leftJoinAndSelect('product.variants', 'variants')
-      .leftJoinAndSelect('variants.combinations', 'variantCombinations')
-      .leftJoinAndSelect('variantCombinations.attribute_value', 'comboValue')
-      .leftJoinAndSelect('comboValue.attribute', 'comboAttribute')
-      .leftJoinAndSelect('product.priceGroups', 'priceGroups')
-      .leftJoinAndSelect('priceGroups.groupValues', 'priceGroupValues')
-      .where('product.id IN (:...ids)', { ids })
-      // Keep list ordering consistent with the requested sort
-      .orderBy(`product.${sortBy}`, sortOrder)
-      .getMany();
+    // OPTIMIZATION: Fetch relations in parallel to avoid Cartesian product explosion
+    const [
+      data,
+      productCategories,
+      medias,
+      stocks,
+      variants,
+      priceGroups,
+      weightGroups,
+      attributes,
+    ] = await Promise.all([
+      this.productsRepository
+        .createQueryBuilder('product')
+        .leftJoinAndSelect('product.brand', 'brand')
+        .leftJoinAndSelect('product.vendor', 'vendor')
+        .where('product.id IN (:...ids)', { ids })
+        .orderBy(`product.${sortBy}`, sortOrder)
+        .getMany(),
+      this.productCategoriesRepository.find({
+        where: { product_id: In(ids) },
+        relations: ['category'],
+      }),
+      this.dataSource.getRepository(Media).find({
+        where: { product_id: In(ids) },
+        relations: ['mediaGroup', 'mediaGroup.groupValues'],
+      }),
+      this.dataSource.getRepository(ProductStock).find({
+        where: { product_id: In(ids) },
+      }),
+      this.dataSource.getRepository(ProductVariant).find({
+        where: { product_id: In(ids) },
+        relations: [
+          'combinations',
+          'combinations.attribute_value',
+          'combinations.attribute_value.attribute',
+        ],
+      }),
+      this.dataSource.getRepository(ProductPriceGroup).find({
+        where: { product_id: In(ids) },
+        relations: ['groupValues'],
+      }),
+      this.dataSource.getRepository(ProductWeightGroup).find({
+        where: { product_id: In(ids) },
+        relations: ['groupValues'],
+      }),
+      this.dataSource.getRepository(ProductAttribute).find({
+        where: { product_id: In(ids) },
+        relations: ['attribute'],
+      }),
+    ]);
 
-    // Transform each product to include primary_image and simplified structure
+    // Attach relations to products
+    data.forEach((product) => {
+      (product as any).productCategories = productCategories.filter(
+        (pc) => pc.product_id === product.id,
+      );
+      (product as any).media = medias.filter(
+        (m) => m.product_id === product.id,
+      );
+      (product as any).stock = stocks.filter(
+        (s) => s.product_id === product.id,
+      );
+      (product as any).variants = variants.filter(
+        (v) => v.product_id === product.id,
+      );
+      (product as any).priceGroups = priceGroups.filter(
+        (pg) => pg.product_id === product.id,
+      );
+      (product as any).weightGroups = weightGroups.filter(
+        (wg) => wg.product_id === product.id,
+      );
+      (product as any).attributes = attributes.filter(
+        (a) => a.product_id === product.id,
+      );
+    });
+
+    // Transform each product using the detailed view structure
     const transformedData = data.map((product) =>
-      this.transformProductListItem(product),
+      this.transformProductDetail(product),
     );
 
     return {
@@ -469,6 +590,227 @@ export class ProductsService {
         limit,
         totalPages: Math.ceil(total / limit),
       },
+    };
+  }
+
+  /**
+   * Transform product for detailed view (GET /products/:id)
+   */
+  private transformProductDetail(product: Product): any {
+    const {
+      media,
+      priceGroups,
+      weightGroups,
+      stock,
+      brand,
+      variants,
+      productCategories,
+      attributes: productAttributes,
+      ...rest
+    } = product as any;
+
+    const brandInfo = brand
+      ? {
+          id: brand.id,
+          name_en: brand.name_en,
+          name_ar: brand.name_ar,
+          logo: brand.logo,
+          status: brand.status,
+        }
+      : null;
+
+    const categories =
+      productCategories?.map((pc: any) => pc.category).filter(Boolean) || [];
+
+    // --- Attributes Map ---
+    const attributesMap: Record<string, any> = {};
+
+    const addAttributeValue = (attr: any, val: any) => {
+      if (!attr || !val) return;
+      const attrId = String(attr.id);
+
+      if (!attributesMap[attrId]) {
+        attributesMap[attrId] = {
+          name_en: attr.name_en,
+          name_ar: attr.name_ar,
+          values: {},
+        };
+      }
+
+      const valId = String(val.id);
+      if (!attributesMap[attrId].values[valId]) {
+        attributesMap[attrId].values[valId] = {
+          name_en: val.value_en || val.value,
+          name_ar: val.value_ar,
+          color_code: val.color_code,
+        };
+      }
+    };
+
+    variants?.forEach((v: any) => {
+      v.combinations?.forEach((c: any) => {
+        if (c.attribute_value?.attribute) {
+          addAttributeValue(c.attribute_value.attribute, c.attribute_value);
+        }
+      });
+    });
+
+    productAttributes?.forEach((pa: any) => {
+      if (pa.attribute) {
+        const attrId = String(pa.attribute.id);
+        if (!attributesMap[attrId]) {
+          attributesMap[attrId] = {
+            name_en: pa.attribute.name_en,
+            name_ar: pa.attribute.name_ar,
+            values: {},
+          };
+        }
+      }
+    });
+
+    // Groups Maps
+    const priceGroupsMap: Record<string, any> = {};
+    const weightGroupsMap: Record<string, any> = {};
+    const mediaGroupsMap: Record<string, any> = {};
+
+    priceGroups?.forEach((pg: any) => {
+      priceGroupsMap[String(pg.id)] = {
+        price: pg.price,
+        sale_price: pg.sale_price,
+      };
+    });
+
+    weightGroups?.forEach((wg: any) => {
+      weightGroupsMap[String(wg.id)] = {
+        weight: wg.weight,
+        dimensions: {
+          length: wg.length,
+          width: wg.width,
+          height: wg.height,
+        },
+      };
+    });
+
+    // Media Groups
+    const groupedMedia = new Map<number, any[]>();
+    media?.forEach((m: any) => {
+      if (m.mediaGroup) {
+        if (!groupedMedia.has(m.mediaGroup.id))
+          groupedMedia.set(m.mediaGroup.id, []);
+        groupedMedia.get(m.mediaGroup.id)!.push(m);
+      }
+    });
+
+    groupedMedia.forEach((mediaList, groupId) => {
+      const primaryProductImage = mediaList.find((m: any) => m.is_primary);
+      const groupPrimaryImage = mediaList.find((m: any) => m.is_group_primary);
+
+      // Fallback for sorting: prioritize product primary, then group primary, then first
+      const mainDisplay =
+        primaryProductImage || groupPrimaryImage || mediaList[0];
+
+      const formatImage = (m: any) => ({
+        id: m.id,
+        url: m.url,
+        type: m.type,
+        alt_text: m.alt_text,
+        is_primary: m.is_primary,
+        is_group_primary: m.is_group_primary,
+      });
+
+      mediaGroupsMap[String(groupId)] = {
+        media: mediaList
+          .sort((a: any, b: any) => {
+            if (a.id === mainDisplay.id) return -1;
+            if (b.id === mainDisplay.id) return 1;
+            return 0;
+          })
+          .map((m: any) => formatImage(m)),
+      };
+    });
+
+    // Variants Mapping
+    const variantsList =
+      variants
+        ?.map((v: any) => {
+          const stockItem = stock?.find((s: any) => s.variant_id === v.id);
+          const quantity = stockItem ? stockItem.quantity : 0;
+
+          if (quantity <= 0) return null;
+
+          const attributeValues: Record<string, number> = {};
+          const variantValueIds = new Set<number>();
+          v.combinations?.forEach((c: any) => {
+            attributeValues[String(c.attribute_value?.attribute_id)] =
+              c.attribute_value_id;
+            variantValueIds.add(c.attribute_value_id);
+          });
+
+          const getGroupId = (groups: any[]) => {
+            const matches =
+              groups?.filter((g: any) => {
+                if (!g.groupValues || g.groupValues.length === 0) return true;
+                return g.groupValues.every((gv: any) =>
+                  variantValueIds.has(gv.attribute_value_id),
+                );
+              }) || [];
+            matches.sort(
+              (a: any, b: any) =>
+                (b.groupValues?.length || 0) - (a.groupValues?.length || 0),
+            );
+            return matches.length > 0 ? String(matches[0].id) : null;
+          };
+
+          const distinctMediaGroups = new Map();
+          media?.forEach((m: any) => {
+            if (m.mediaGroup)
+              distinctMediaGroups.set(m.mediaGroup.id, m.mediaGroup);
+          });
+          const mediaGroupsList = Array.from(distinctMediaGroups.values());
+
+          return {
+            id: v.id,
+            is_active: v.is_active,
+            quantity: quantity,
+            attribute_values: attributeValues,
+            price_group_id: getGroupId(priceGroups),
+            media_group_id: getGroupId(mediaGroupsList),
+            weight_group_id: getGroupId(weightGroups),
+          };
+        })
+        .filter(Boolean) || [];
+
+    const {
+      category_id,
+      vendor_id,
+      brand_id,
+      category,
+      archived_at,
+      archived_by,
+      deleted_at,
+      ...cleanRest
+    } = rest;
+
+    // Determine quantity for simple products
+    let simpleProductQuantity = undefined;
+    if (variantsList.length === 0) {
+      // If no variants, check for stock record associated directly with the product (where variant_id is null)
+      const simpleStock = stock?.find((s: any) => !s.variant_id);
+      if (simpleStock) {
+        simpleProductQuantity = simpleStock.quantity;
+      }
+    }
+
+    return {
+      ...cleanRest,
+      brand: brandInfo,
+      categories,
+      attributes: attributesMap,
+      media_groups: mediaGroupsMap,
+      price_groups: priceGroupsMap,
+      weight_groups: weightGroupsMap,
+      variants: variantsList,
+      quantity: simpleProductQuantity, // Will be undefined for variant products, and number for simple products
     };
   }
 
@@ -526,11 +868,11 @@ export class ProductsService {
           const isMatch = (groupValues: any[]) => {
             // If group has no attributes, it is a generic match (lowest priority)
             if (!groupValues || groupValues.length === 0) return true;
-            
+
             const groupValueIds = groupValues.map(
               (gv: any) => gv.attribute_value_id,
             );
-            
+
             // The group matches if all its attributes are present in the variant
             // (i.e. group is a subset of variant)
             return groupValueIds.every((id: any) => variantValueIds.has(id));
@@ -539,10 +881,15 @@ export class ProductsService {
           // Find matching price - Prioritize more specific matches (more attributes)
           let matchingPriceGroup: any = null;
           if (priceGroups) {
-             const matches = priceGroups.filter((pg: any) => isMatch(pg.groupValues));
-             // Sort by number of attributes descending
-             matches.sort((a: any, b: any) => (b.groupValues?.length || 0) - (a.groupValues?.length || 0));
-             matchingPriceGroup = matches[0];
+            const matches = priceGroups.filter((pg: any) =>
+              isMatch(pg.groupValues),
+            );
+            // Sort by number of attributes descending
+            matches.sort(
+              (a: any, b: any) =>
+                (b.groupValues?.length || 0) - (a.groupValues?.length || 0),
+            );
+            matchingPriceGroup = matches[0];
           }
 
           const priceInfo = matchingPriceGroup
@@ -555,14 +902,19 @@ export class ProductsService {
           // Find matching weight/dimensions - Prioritize more specific matches
           let matchingWeightGroup: any = null;
           if (weightGroups) {
-            const matches = weightGroups.filter((wg: any) => isMatch(wg.groupValues));
+            const matches = weightGroups.filter((wg: any) =>
+              isMatch(wg.groupValues),
+            );
             matches.sort(
-              (a: any, b: any) => (b.groupValues?.length || 0) - (a.groupValues?.length || 0),
+              (a: any, b: any) =>
+                (b.groupValues?.length || 0) - (a.groupValues?.length || 0),
             );
             matchingWeightGroup = matches[0];
           }
 
-          const weight = matchingWeightGroup ? matchingWeightGroup.weight : null;
+          const weight = matchingWeightGroup
+            ? matchingWeightGroup.weight
+            : null;
           const dimensions = matchingWeightGroup
             ? {
                 length: matchingWeightGroup.length ?? null,
@@ -573,6 +925,7 @@ export class ProductsService {
 
           // Find matching media - Prioritize more specific matches
           let matchingMedia: any = null;
+          let allImages: any[] = [];
           if (media) {
             const groups = new Map();
             media.forEach((m: any) => {
@@ -589,24 +942,42 @@ export class ProductsService {
             }
 
             // Sort by number of attributes descending
-            matchingGroups.sort((a: any, b: any) => (b.groupValues?.length || 0) - (a.groupValues?.length || 0));
-            
+            matchingGroups.sort(
+              (a: any, b: any) =>
+                (b.groupValues?.length || 0) - (a.groupValues?.length || 0),
+            );
+
             const bestGroup = matchingGroups[0];
 
             if (bestGroup) {
-                const groupMedia = media.filter(
-                  (m: any) => m.mediaGroup?.id === bestGroup.id,
-                );
-                const primary =
-                  groupMedia.find((m: any) => m.is_primary) || groupMedia[0];
-                if (primary) {
-                  matchingMedia = {
-                    id: primary.id,
-                    url: primary.url,
-                    type: primary.type,
-                    alt_text: primary.alt_text,
-                  };
-                }
+              const groupMedia = media.filter(
+                (m: any) => m.mediaGroup?.id === bestGroup.id,
+              );
+              const primary =
+                groupMedia.find((m: any) => m.is_primary) || groupMedia[0];
+              if (primary) {
+                matchingMedia = {
+                  id: primary.id,
+                  url: primary.url,
+                  type: primary.type,
+                  alt_text: primary.alt_text,
+                };
+              }
+
+              allImages = groupMedia
+                .sort((a: any, b: any) => {
+                  // primary first
+                  if (a.id === primary?.id) return -1;
+                  if (b.id === primary?.id) return 1;
+                  return 0;
+                })
+                .map((m: any) => ({
+                  id: m.id,
+                  url: m.url,
+                  type: m.type,
+                  alt_text: m.alt_text,
+                  is_primary: m.id === primary?.id,
+                }));
             }
           }
 
@@ -626,7 +997,8 @@ export class ProductsService {
                 color_code: c.attribute_value?.color_code,
               })) || [],
             price: priceInfo,
-            media: matchingMedia,
+            primary_group_media: matchingMedia,
+            images: allImages,
             weight,
             dimensions,
           };
@@ -635,8 +1007,8 @@ export class ProductsService {
     }
 
     // Fallback for simple products (no variants)
-    let priceData: any[] = [];
-    let mediaData: any[] = [];
+    const priceData: any[] = [];
+    const mediaData: any[] = [];
     const isSimpleProduct = !variants || variants.length === 0;
 
     let simpleWeight: any = null;
@@ -723,16 +1095,8 @@ export class ProductsService {
   }
 
   async findOne(id: number): Promise<any> {
-    const productBase = await this.productsRepository.findOne({
-      where: { id },
-      relations: ['category', 'vendor', 'brand'],
-    });
-
-    if (!productBase) {
-      throw new NotFoundException('Product not found');
-    }
-
     const [
+      productBase,
       productCategories,
       media,
       priceGroups,
@@ -741,6 +1105,10 @@ export class ProductsService {
       variants,
       attributes,
     ] = await Promise.all([
+      this.productsRepository.findOne({
+        where: { id },
+        relations: ['category', 'vendor', 'brand'],
+      }),
       this.dataSource.getRepository(ProductCategory).find({
         where: { product_id: id },
         relations: ['category'],
@@ -774,6 +1142,10 @@ export class ProductsService {
       }),
     ]);
 
+    if (!productBase) {
+      throw new NotFoundException('Product not found');
+    }
+
     productBase.productCategories = productCategories;
     productBase.media = media;
     productBase.priceGroups = priceGroups;
@@ -782,9 +1154,8 @@ export class ProductsService {
     productBase.variants = variants;
     productBase.attributes = attributes;
 
-    // Return the same response structure used in list items, but for a single product.
-    // This also filters out out-of-stock variants.
-    return this.transformProductListItem(productBase);
+    // Return detailed product structure
+    return this.transformProductDetail(productBase);
   }
 
   /**
@@ -838,18 +1209,20 @@ export class ProductsService {
         }
       : null;
 
-    const variantsList = variants?.map((v: any) => ({
-      id: v.id,
-      combinations: v.combinations?.map((c: any) => ({
-          attribute_id: c.attribute_value?.attribute_id,
-          attribute_name: c.attribute_value?.attribute?.name_en || null,
-          attribute_name_ar: c.attribute_value?.attribute?.name_ar || null,
-          value_id: c.attribute_value_id,
-          value_name: c.attribute_value?.value || null,
-          value_name_ar: c.attribute_value?.value_ar || null,
-          color_code: c.attribute_value?.color_code || null,
-      })) || []
-    })) || [];
+    const variantsList =
+      variants?.map((v: any) => ({
+        id: v.id,
+        combinations:
+          v.combinations?.map((c: any) => ({
+            attribute_id: c.attribute_value?.attribute_id,
+            attribute_name: c.attribute_value?.attribute?.name_en || null,
+            attribute_name_ar: c.attribute_value?.attribute?.name_ar || null,
+            value_id: c.attribute_value_id,
+            value_name: c.attribute_value?.value || null,
+            value_name_ar: c.attribute_value?.value_ar || null,
+            color_code: c.attribute_value?.color_code || null,
+          })) || [],
+      })) || [];
 
     return {
       ...rest,
@@ -938,6 +1311,11 @@ export class ProductsService {
       ];
       const basicInfoChanges: any = {};
 
+      // Auto-update slug if name changes
+      if (dto.name_en) {
+        basicInfoChanges.slug = await this.generateUniqueSlug(dto.name_en, id);
+      }
+
       basicInfoFields.forEach((field) => {
         if (dto[field] !== undefined) {
           basicInfoChanges[field] = dto[field];
@@ -988,7 +1366,9 @@ export class ProductsService {
       // But currently the logic requires full rebuild.
       const variantCleanupTask = async () => {
         // Delete related cart items to avoid Foreign Key constraint violations
-        await this.dataSource.getRepository(CartItem).delete({ product_id: id });
+        await this.dataSource
+          .getRepository(CartItem)
+          .delete({ product_id: id });
 
         // Delete all existing variants
         await this.variantsService.deleteAllVariantsForProduct(id);
@@ -1012,7 +1392,7 @@ export class ProductsService {
       // =================================================================
       // PHASE 3: REBUILD DATA (Optimized Batch Creation)
       // =================================================================
-      
+
       // 1. Create Variants for Stocks (Needed for mapping)
       // We only strictly need variants for stocks. Prices/Weights use their own groups.
       const variantMap = new Map<string, number>(); // combinationKey -> variantId
@@ -1031,7 +1411,7 @@ export class ProductsService {
               .sort(([a], [b]) => Number(a) - Number(b))
               .map(([k, v]) => `${k}:${v}`)
               .join('|');
-            
+
             if (!uniqueCombinations.has(key)) {
               uniqueCombinations.set(key, s.combination!);
             }
@@ -1040,31 +1420,35 @@ export class ProductsService {
           // Create variants in bulk
           if (uniqueCombinations.size > 0) {
             const variantRepo = this.dataSource.getRepository(ProductVariant);
-            const variantComboRepo = this.dataSource.getRepository(ProductVariantCombination);
-            
-            const variantsToCreate = Array.from(uniqueCombinations.keys()).map(() => 
-              variantRepo.create({ product_id: id, is_active: true })
+            const variantComboRepo = this.dataSource.getRepository(
+              ProductVariantCombination,
             );
-            
+
+            const variantsToCreate = Array.from(uniqueCombinations.keys()).map(
+              () => variantRepo.create({ product_id: id, is_active: true }),
+            );
+
             const savedVariants = await variantRepo.save(variantsToCreate);
-            
+
             // Prepare combinations data
             const combosToSave: any[] = [];
             let i = 0;
             for (const [key, combination] of uniqueCombinations) {
               const variant = savedVariants[i];
               variantMap.set(key, variant.id);
-              
+
               const attributeValues = Object.values(combination);
-              attributeValues.forEach(valId => {
-                combosToSave.push(variantComboRepo.create({
-                  variant_id: variant.id,
-                  attribute_value_id: valId
-                }));
+              attributeValues.forEach((valId) => {
+                combosToSave.push(
+                  variantComboRepo.create({
+                    variant_id: variant.id,
+                    attribute_value_id: valId,
+                  }),
+                );
               });
               i++;
             }
-            
+
             await variantComboRepo.save(combosToSave);
           }
         }
@@ -1088,7 +1472,7 @@ export class ProductsService {
               cost: simplePrices[0].cost, // Take first valid simple price
               price: simplePrices[0].price,
               sale_price: simplePrices[0].sale_price,
-            })
+            }),
           );
         }
 
@@ -1096,31 +1480,35 @@ export class ProductsService {
         if (combinationPrices.length > 0) {
           const runBatchPrices = async () => {
             const priceRepo = this.dataSource.getRepository(ProductPriceGroup);
-            const priceValueRepo = this.dataSource.getRepository(ProductPriceGroupValue);
-            
-            const groupsToSave = combinationPrices.map(p => 
+            const priceValueRepo = this.dataSource.getRepository(
+              ProductPriceGroupValue,
+            );
+
+            const groupsToSave = combinationPrices.map((p) =>
               priceRepo.create({
                 product_id: id,
                 cost: p.cost,
                 price: p.price,
-                sale_price: p.sale_price
-              })
+                sale_price: p.sale_price,
+              }),
             );
-            
+
             const savedGroups = await priceRepo.save(groupsToSave);
-            
+
             const valuesToSave: any[] = [];
             combinationPrices.forEach((p, index) => {
               const groupId = savedGroups[index].id;
               Object.entries(p.combination!).forEach(([attrId, valId]) => {
-                valuesToSave.push(priceValueRepo.create({
-                  price_group_id: groupId,
-                  attribute_id: Number(attrId),
-                  attribute_value_id: valId
-                }));
+                valuesToSave.push(
+                  priceValueRepo.create({
+                    price_group_id: groupId,
+                    attribute_id: Number(attrId),
+                    attribute_value_id: valId,
+                  }),
+                );
               });
             });
-            
+
             await priceValueRepo.save(valuesToSave);
           };
           creationTasks.push(runBatchPrices());
@@ -1143,40 +1531,45 @@ export class ProductsService {
               length: simpleWeights[0].length,
               width: simpleWeights[0].width,
               height: simpleWeights[0].height,
-            })
+            }),
           );
         }
 
         if (combinationWeights.length > 0) {
           const runBatchWeights = async () => {
-             const weightRepo = this.dataSource.getRepository(ProductWeightGroup);
-             const weightValueRepo = this.dataSource.getRepository(ProductWeightGroupValue);
+            const weightRepo =
+              this.dataSource.getRepository(ProductWeightGroup);
+            const weightValueRepo = this.dataSource.getRepository(
+              ProductWeightGroupValue,
+            );
 
-             const groupsToSave = combinationWeights.map(w => 
-               weightRepo.create({
-                 product_id: id,
-                 weight: w.weight,
-                 length: w.length,
-                 width: w.width,
-                 height: w.height
-               })
-             );
+            const groupsToSave = combinationWeights.map((w) =>
+              weightRepo.create({
+                product_id: id,
+                weight: w.weight,
+                length: w.length,
+                width: w.width,
+                height: w.height,
+              }),
+            );
 
-             const savedGroups = await weightRepo.save(groupsToSave);
+            const savedGroups = await weightRepo.save(groupsToSave);
 
-             const valuesToSave: any[] = [];
-             combinationWeights.forEach((w, index) => {
-               const groupId = savedGroups[index].id;
-               Object.entries(w.combination!).forEach(([attrId, valId]) => {
-                 valuesToSave.push(weightValueRepo.create({
-                   weight_group_id: groupId,
-                   attribute_id: Number(attrId),
-                   attribute_value_id: valId
-                 }));
-               });
-             });
+            const valuesToSave: any[] = [];
+            combinationWeights.forEach((w, index) => {
+              const groupId = savedGroups[index].id;
+              Object.entries(w.combination!).forEach(([attrId, valId]) => {
+                valuesToSave.push(
+                  weightValueRepo.create({
+                    weight_group_id: groupId,
+                    attribute_id: Number(attrId),
+                    attribute_value_id: valId,
+                  }),
+                );
+              });
+            });
 
-             await weightValueRepo.save(valuesToSave);
+            await weightValueRepo.save(valuesToSave);
           };
           creationTasks.push(runBatchWeights());
         }
@@ -1193,7 +1586,7 @@ export class ProductsService {
 
         if (simpleStocks.length > 0) {
           creationTasks.push(
-            this.variantsService.setSimpleStock(id, simpleStocks[0].quantity)
+            this.variantsService.setSimpleStock(id, simpleStocks[0].quantity),
           );
         }
 
@@ -1201,26 +1594,32 @@ export class ProductsService {
           const runBatchStocks = async () => {
             const stockRepo = this.dataSource.getRepository(ProductStock);
             const stocksToSave: any[] = [];
-            
+
             for (const s of combinationStocks) {
-               const key = Object.entries(s.combination!)
+              const key = Object.entries(s.combination!)
                 .sort(([a], [b]) => Number(a) - Number(b))
                 .map(([k, v]) => `${k}:${v}`)
                 .join('|');
-              
+
               const variantId = variantMap.get(key);
               if (variantId) {
-                stocksToSave.push(stockRepo.create({
-                  product_id: id,
-                  variant_id: variantId,
-                  quantity: s.quantity
-                }));
+                stocksToSave.push(
+                  stockRepo.create({
+                    product_id: id,
+                    variant_id: variantId,
+                    quantity: s.quantity,
+                  }),
+                );
               } else {
                 // Fallback (Should not happen if logic is correct): Create variant on fly
-                 await this.variantsService.setStockByCombination(id, s.combination!, s.quantity);
+                await this.variantsService.setStockByCombination(
+                  id,
+                  s.combination!,
+                  s.quantity,
+                );
               }
             }
-            
+
             if (stocksToSave.length > 0) {
               await stockRepo.save(stocksToSave);
             }

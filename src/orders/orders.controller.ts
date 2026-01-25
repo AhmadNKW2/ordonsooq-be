@@ -1,4 +1,14 @@
-import { Controller, Get, Post, Body, Param, UseGuards, Request, ForbiddenException, Patch } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  UseGuards,
+  Request,
+  ForbiddenException,
+  Patch,
+} from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -18,7 +28,7 @@ export class OrdersController {
 
   @Get()
   findAll(@Request() req) {
-      return this.ordersService.findAll(req.user.id);
+    return this.ordersService.findAll(req.user.id);
   }
 
   @Get(':id')
@@ -35,6 +45,6 @@ export class OrdersController {
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   updateStatus(@Param('id') id: string, @Body('status') status: OrderStatus) {
-      return this.ordersService.updateStatus(+id, status);
+    return this.ordersService.updateStatus(+id, status);
   }
 }

@@ -12,7 +12,10 @@ export class AddressesService {
     private addressesRepository: Repository<Address>,
   ) {}
 
-  async create(userId: number, createAddressDto: CreateAddressDto): Promise<Address> {
+  async create(
+    userId: number,
+    createAddressDto: CreateAddressDto,
+  ): Promise<Address> {
     if (createAddressDto.isDefault) {
       await this.unsetDefaultForUser(userId);
     }
@@ -41,7 +44,11 @@ export class AddressesService {
     return address;
   }
 
-  async update(id: number, userId: number, updateAddressDto: UpdateAddressDto): Promise<Address> {
+  async update(
+    id: number,
+    userId: number,
+    updateAddressDto: UpdateAddressDto,
+  ): Promise<Address> {
     const address = await this.findOne(id, userId);
 
     if (updateAddressDto.isDefault) {
@@ -68,9 +75,9 @@ export class AddressesService {
 
   // Admin method
   async findAllByUserId(userId: number): Promise<Address[]> {
-      return this.addressesRepository.find({
-          where: { userId },
-          order: { isDefault: 'DESC', createdAt: 'DESC' }
-      });
+    return this.addressesRepository.find({
+      where: { userId },
+      order: { isDefault: 'DESC', createdAt: 'DESC' },
+    });
   }
 }

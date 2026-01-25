@@ -6,7 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, ILike, In } from 'typeorm';
+import { Repository, ILike, In, Like } from 'typeorm';
 import { Brand, BrandStatus } from './entities/brand.entity';
 import { CreateBrandDto } from './dto/create-brand.dto';
 import { UpdateBrandDto } from './dto/update-brand.dto';
@@ -30,6 +30,48 @@ export class BrandsService {
     private readonly r2StorageService: R2StorageService,
   ) {}
 
+  private slugify(text: string): string {
+    return text
+      .toString()
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, '-')
+      .replace(/[^\w\-]+/g, '')
+      .replace(/\-\-+/g, '-')
+      .replace(/^-+/, '')
+      .replace(/-+$/, '');
+  }
+
+  private async generateUniqueSlug(
+    name: string,
+    currentId?: number,
+  ): Promise<string> {
+    const baseSlug = this.slugify(name);
+    let finalSlug = baseSlug;
+    let counter = 1;
+
+    const existing = await this.brandsRepository.find({
+      select: ['slug', 'id'],
+      where: {
+        slug: Like(`${baseSlug}%`),
+      },
+    });
+
+    const isAvailable = (slug: string) => {
+      const match = existing.find((b) => b.slug === slug);
+      if (!match) return true;
+      if (currentId && match.id === currentId) return true;
+      return false;
+    };
+
+    while (!isAvailable(finalSlug)) {
+      counter++;
+      finalSlug = `${baseSlug}-${counter}`;
+    }
+
+    return finalSlug;
+  }
+
   async create(dto: CreateBrandDto, logoUrl?: string): Promise<Brand> {
     const existing = await this.brandsRepository.findOne({
       where: [{ name_en: dto.name_en }, { name_ar: dto.name_ar }],
@@ -39,9 +81,11 @@ export class BrandsService {
     }
 
     const { product_ids, ...rest } = dto;
+    const slug = await this.generateUniqueSlug(rest.name_en);
 
     const brand = this.brandsRepository.create({
       ...rest,
+      slug,
       logo: logoUrl ?? rest.logo,
       status: rest.status ?? BrandStatus.ACTIVE,
       visible: rest.visible ?? true,

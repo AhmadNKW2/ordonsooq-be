@@ -136,6 +136,11 @@ export class CreateProductDto {
 
   @IsString()
   @MaxLength(200)
+  @IsOptional()
+  slug?: string;
+
+  @IsString()
+  @MaxLength(200)
   name_ar: string;
 
   @IsString()

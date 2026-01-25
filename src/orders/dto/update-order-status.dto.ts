@@ -9,7 +9,7 @@ export class UpdateOrderStatusDto {
   @IsOptional()
   @IsEnum(PaymentStatus)
   paymentStatus?: PaymentStatus;
-  
+
   @IsOptional()
   @IsString()
   trackingNumber?: string;

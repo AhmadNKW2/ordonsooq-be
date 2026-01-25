@@ -19,18 +19,16 @@ export class LoggingInterceptor implements NestInterceptor {
     const { ip, method, path: url } = request;
     const now = Date.now();
 
-    return next
-      .handle()
-      .pipe(
-        tap(() => {
-          const response = ctx.getResponse();
-          const delay = Date.now() - now;
-          const statusCode = response.statusCode;
-          
-          this.logger.log(
-            `${method} ${url} ${statusCode} - ${delay}ms - ${userAgent} ${ip}`
-          );
-        }),
-      );
+    return next.handle().pipe(
+      tap(() => {
+        const response = ctx.getResponse();
+        const delay = Date.now() - now;
+        const statusCode = response.statusCode;
+
+        this.logger.log(
+          `${method} ${url} ${statusCode} - ${delay}ms - ${userAgent} ${ip}`,
+        );
+      }),
+    );
   }
 }
