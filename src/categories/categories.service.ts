@@ -19,6 +19,7 @@ import {
 } from './dto/archive-category.dto';
 import { Product, ProductStatus } from '../products/entities/product.entity';
 import { ProductCategory } from '../products/entities/product-category.entity';
+import { ProductsService } from '../products/products.service';
 import { VendorStatus } from '../vendors/entities/vendor.entity';
 import { R2StorageService } from '../common/services/r2-storage.service';
 
@@ -34,6 +35,7 @@ export class CategoriesService {
     @InjectRepository(ProductCategory)
     private productCategoriesRepository: Repository<ProductCategory>,
     private r2StorageService: R2StorageService,
+    private productsService: ProductsService,
   ) {}
 
   async create(createCategoryDto: CreateCategoryDto): Promise<Category> {
@@ -217,26 +219,19 @@ export class CategoriesService {
   async findOne(id: number): Promise<Category> {
     const category = await this.categoriesRepository.findOne({
       where: { id },
-      relations: [
-        'parent',
-        'children',
-        'productCategories',
-        'productCategories.product',
-      ],
+      relations: ['parent', 'children'],
     });
 
     if (!category) {
       throw new NotFoundException('Category not found');
     }
 
-    // Transform productCategories to products array for backward compatibility
-    if (category.productCategories) {
-      (category as any).products = category.productCategories
-        .map((pc) => pc.product)
-        .filter(Boolean);
-      // Remove productCategories from response
-      delete (category as any).productCategories;
-    }
+    // Get products using ProductsService to ensure consistent format
+    const productsResult = await this.productsService.findAll({
+      categoryId: id,
+      limit: 100,
+    });
+    (category as any).products = productsResult.data;
 
     return category;
   }
