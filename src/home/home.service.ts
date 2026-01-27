@@ -38,7 +38,7 @@ export class HomeService {
         visible: true,
       },
       order: { sortOrder: 'ASC' },
-      select: ['id', 'name_en', 'name_ar', 'image', 'level', 'sortOrder'],
+      relations: ['parent', 'children'],
     });
 
     // Get active vendors ordered by sort_order
@@ -47,8 +47,7 @@ export class HomeService {
         status: VendorStatus.ACTIVE,
         visible: true,
       },
-      order: { sort_order: 'ASC' },
-      select: ['id', 'name_en', 'name_ar', 'logo', 'sort_order'],
+      order: { sort_order: 'ASC', created_at: 'DESC' },
     });
 
     // Get active banners ordered by sort_order
@@ -67,7 +66,6 @@ export class HomeService {
         visible: true,
       },
       order: { sort_order: 'ASC' },
-      select: ['id', 'name_en', 'name_ar', 'logo', 'sort_order'],
     });
 
     return {

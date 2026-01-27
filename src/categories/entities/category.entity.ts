@@ -28,6 +28,9 @@ export class Category {
   @Column({ default: '' })
   name_en: string;
 
+  @Column({ nullable: true, unique: true })
+  slug: string;
+
   @Column({ default: '' })
   name_ar: string;
 

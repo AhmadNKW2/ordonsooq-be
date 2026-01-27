@@ -43,6 +43,11 @@ export class ProductsController {
     return this.productsService.findOne(+id);
   }
 
+  @Get('slug/:slug')
+  findOneBySlug(@Param('slug') slug: string) {
+    return this.productsService.findOneBySlug(slug);
+  }
+
   @Put(':id')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles(UserRole.ADMIN)

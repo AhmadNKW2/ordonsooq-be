@@ -156,6 +156,17 @@ export class BrandsService {
     return brand;
   }
 
+  async findOneBySlug(slug: string): Promise<Brand> {
+    const brand = await this.brandsRepository.findOne({
+      where: { slug },
+      relations: ['products'],
+    });
+    if (!brand) {
+      throw new NotFoundException(`Brand with slug ${slug} not found`);
+    }
+    return brand;
+  }
+
   async update(
     id: number,
     dto: UpdateBrandDto,
@@ -175,6 +186,11 @@ export class BrandsService {
       if (conflict && conflict.id !== id) {
         throw new BadRequestException('Brand with same name already exists');
       }
+    }
+
+    // Update slug if name_en changes
+    if (dto.name_en && dto.name_en !== brand.name_en) {
+      brand.slug = await this.generateUniqueSlug(dto.name_en, id);
     }
 
     // If setting status to archived, enforce archive flow via dedicated endpoint

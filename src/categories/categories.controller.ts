@@ -121,6 +121,11 @@ export class CategoriesController {
     return this.categoriesService.findOne(id);
   }
 
+  @Get('slug/:slug')
+  async findOneBySlug(@Param('slug') slug: string) {
+    return this.categoriesService.findOneBySlug(slug);
+  }
+
   // ========== LIFECYCLE MANAGEMENT ==========
 
   // Archive a category (soft delete)

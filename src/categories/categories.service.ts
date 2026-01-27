@@ -6,7 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, Like } from 'typeorm';
 import { Category, CategoryStatus } from './entities/category.entity';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
@@ -37,6 +37,48 @@ export class CategoriesService {
     private r2StorageService: R2StorageService,
     private productsService: ProductsService,
   ) {}
+
+  private slugify(text: string): string {
+    return text
+      .toString()
+      .toLowerCase()
+      .trim()
+      .replace(/\s+/g, '-')
+      .replace(/[^\w\-]+/g, '')
+      .replace(/\-\-+/g, '-')
+      .replace(/^-+/, '')
+      .replace(/-+$/, '');
+  }
+
+  private async generateUniqueSlug(
+    name: string,
+    currentId?: number,
+  ): Promise<string> {
+    const baseSlug = this.slugify(name);
+    let finalSlug = baseSlug;
+    let counter = 1;
+
+    const existing = await this.categoriesRepository.find({
+      select: ['slug', 'id'],
+      where: {
+        slug: Like(`${baseSlug}%`),
+      },
+    });
+
+    const isAvailable = (slug: string) => {
+      const match = existing.find((c) => c.slug === slug);
+      if (!match) return true;
+      if (currentId && match.id === currentId) return true;
+      return false;
+    };
+
+    while (!isAvailable(finalSlug)) {
+      counter++;
+      finalSlug = `${baseSlug}-${counter}`;
+    }
+
+    return finalSlug;
+  }
 
   async create(createCategoryDto: CreateCategoryDto): Promise<Category> {
     let level = 0;
@@ -71,8 +113,11 @@ export class CategoriesService {
 
     // Map parent_id from DTO to parent_id for entity
     const { parent_id, product_ids, ...rest } = createCategoryDto;
+    const slug = await this.generateUniqueSlug(rest.name_en);
+    
     const category = this.categoriesRepository.create({
       ...rest,
+      slug,
       parent_id: parent_id,
       level,
       sortOrder: nextSortOrder,
@@ -236,6 +281,26 @@ export class CategoriesService {
     return category;
   }
 
+  async findOneBySlug(slug: string): Promise<Category> {
+    const category = await this.categoriesRepository.findOne({
+      where: { slug },
+      relations: ['parent', 'children'],
+    });
+
+    if (!category) {
+      throw new NotFoundException(`Category with slug ${slug} not found`);
+    }
+
+    // Get products using ProductsService to ensure consistent format
+    const productsResult = await this.productsService.findAll({
+      categoryId: category.id,
+      limit: 100,
+    });
+    (category as any).products = productsResult.data;
+
+    return category;
+  }
+
   async update(
     id: number,
     updateCategoryDto: UpdateCategoryDto,
@@ -244,6 +309,10 @@ export class CategoriesService {
     const oldImageUrl = category.image;
 
     const { product_ids, ...updateData } = updateCategoryDto;
+
+    if (updateData.name_en && updateData.name_en !== category.name_en) {
+      category.slug = await this.generateUniqueSlug(updateData.name_en, id);
+    }
 
     Object.assign(category, updateData);
     await this.categoriesRepository.save(category);

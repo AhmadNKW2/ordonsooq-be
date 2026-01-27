@@ -154,6 +154,19 @@ export class VendorsService {
     return vendor;
   }
 
+  async findOneBySlug(slug: string): Promise<Vendor> {
+    const vendor = await this.vendorRepository.findOne({
+      where: { slug },
+      relations: ['products'],
+    });
+
+    if (!vendor) {
+      throw new NotFoundException(`Vendor with slug ${slug} not found`);
+    }
+
+    return vendor;
+  }
+
   async update(
     id: number,
     updateVendorDto: UpdateVendorDto,
@@ -169,6 +182,7 @@ export class VendorsService {
       if (existing) {
         throw new ConflictException('Vendor with this name already exists');
       }
+      vendor.slug = await this.generateUniqueSlug(updateVendorDto.name_en, id);
     }
 
     const { product_ids, ...updateData } = updateVendorDto;

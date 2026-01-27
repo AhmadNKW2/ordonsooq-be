@@ -79,6 +79,11 @@ export class BrandsController {
     return this.brandsService.findOne(+id);
   }
 
+  @Get('slug/:slug')
+  findOneBySlug(@Param('slug') slug: string) {
+    return this.brandsService.findOneBySlug(slug);
+  }
+
   @Patch(':id')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles(UserRole.ADMIN)

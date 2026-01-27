@@ -28,8 +28,9 @@ async function run() {
     console.log('Connected to database');
 
     await processTable(client, 'products', 'name_en');
-    await processTable(client, 'brands', 'name_en'); // Added brands
-    await processTable(client, 'vendors', 'name_en'); // Added vendors
+    await processTable(client, 'categories', 'name_en');
+    await processTable(client, 'brands', 'name_en');
+    await processTable(client, 'vendors', 'name_en');
 
     console.log('Done!');
 

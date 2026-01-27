@@ -45,6 +45,12 @@ export class FilterProductDto {
   limit?: number = 10;
 
   @IsOptional()
+  @IsArray()
+  @Type(() => Number)
+  @IsNumber({}, { each: true })
+  ids?: number[];
+
+  @IsOptional()
   @IsEnum(ProductSortBy)
   sortBy?: ProductSortBy = ProductSortBy.CREATED_AT;
 

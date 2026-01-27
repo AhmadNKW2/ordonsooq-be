@@ -11,6 +11,8 @@ import { Product, ProductStatus } from '../products/entities/product.entity';
 import { ProductVariant } from '../products/entities/product-variant.entity';
 import { AddToWishlistDto } from './dto/add-to-wishlist.dto';
 
+import { ProductsService } from '../products/products.service';
+
 @Injectable()
 export class WishlistService {
   constructor(
@@ -20,6 +22,7 @@ export class WishlistService {
     private productRepository: Repository<Product>,
     @InjectRepository(ProductVariant)
     private productVariantRepository: Repository<ProductVariant>,
+    private productsService: ProductsService,
   ) {}
 
   /**
@@ -153,93 +156,45 @@ export class WishlistService {
   async getWishlist(userId: number) {
     const wishlistItems = await this.wishlistRepository.find({
       where: { user_id: userId },
-      relations: [
-        'product',
-        'product.media',
-        'product.vendor',
-        'product.category',
-        'product.brand',
-        'product.priceGroups',
-        'variant',
-      ],
       order: { created_at: 'DESC' },
     });
 
-    // Map to include product image
+    if (wishlistItems.length === 0) {
+      return {
+        data: [],
+        total: 0,
+      };
+    }
+
+    // Get unique product IDs
+    const productIds = [
+      ...new Set(wishlistItems.map((item) => item.product_id)),
+    ];
+
+    // Fetch formatted products using ProductsService
+    const { data: products } = await this.productsService.findAll({
+      ids: productIds,
+      limit: 1000,
+    });
+
+    // Create a map for faster lookup
+    const productsMap = new Map(products.map((p) => [p.id, p]));
+
+    // Map to include detailed product
     const items = wishlistItems
       .map((item) => {
-        if (!item.product) return null;
-
-        const primaryMedia = item.product.media?.find((m) => m.is_primary);
-        const firstMedia = item.product.media?.[0];
-        const image = primaryMedia?.url || firstMedia?.url || null;
-
-        // Determine price
-        // If simple product, there should be one price group.
-        // If variant product, there might be multiple. We'll show the minimum price or the first one found.
-        let price = 0;
-        let sale_price: number | null = null;
-        if (item.product.priceGroups && item.product.priceGroups.length > 0) {
-          // Find the lowest price to display "From ..."
-          const prices = item.product.priceGroups.map((pg) => ({
-            price: Number(pg.price),
-            sale_price: pg.sale_price ? Number(pg.sale_price) : null,
-            effective_price:
-              pg.sale_price && Number(pg.sale_price) > 0
-                ? Number(pg.sale_price)
-                : Number(pg.price),
-          }));
-
-          // Sort by effective price
-          prices.sort((a, b) => a.effective_price - b.effective_price);
-
-          const bestPrice = prices[0];
-          price = bestPrice.price;
-          sale_price = bestPrice.sale_price;
-        }
+        const product = productsMap.get(item.product_id);
+        if (!product) return null; // Should not happen if data consistency is good
 
         return {
           id: item.id,
           product_id: item.product_id,
           variant_id: item.variant_id,
           created_at: item.created_at,
-          product: {
-            id: item.product.id,
-            name_en: item.product.name_en,
-            name_ar: item.product.name_ar,
-            sku: item.product.sku,
-            status: item.product.status,
-            visible: item.product.visible,
-            short_description_en: item.product.short_description_en,
-            short_description_ar: item.product.short_description_ar,
-            price: price,
-            sale_price: sale_price,
-            image,
-            category: item.product.category
-              ? {
-                  id: item.product.category.id,
-                  name_en: item.product.category.name_en,
-                  name_ar: item.product.category.name_ar,
-                }
-              : null,
-            brand: item.product.brand
-              ? {
-                  id: item.product.brand.id,
-                  name_en: item.product.brand.name_en,
-                  name_ar: item.product.brand.name_ar,
-                }
-              : null,
-            vendor: item.product.vendor
-              ? {
-                  id: item.product.vendor.id,
-                  name_en: item.product.vendor.name_en,
-                  name_ar: item.product.vendor.name_ar,
-                }
-              : null,
-          },
+          product: product,
         };
       })
-      .filter(Boolean); // Filter out nulls if product was deleted
+      .filter((item) => item !== null);
 
     return {
       data: items,

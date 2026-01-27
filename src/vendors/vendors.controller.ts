@@ -79,6 +79,11 @@ export class VendorsController {
     return this.vendorsService.findOne(+id);
   }
 
+  @Get('slug/:slug')
+  findOneBySlug(@Param('slug') slug: string) {
+    return this.vendorsService.findOneBySlug(slug);
+  }
+
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)

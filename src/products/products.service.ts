@@ -410,6 +410,7 @@ export class ProductsService {
       status,
       visible,
       search,
+      ids: filterIds,
     } = filterDto;
 
     // NOTE: The list view previously did a huge multi-join + getManyAndCount.
@@ -423,6 +424,11 @@ export class ProductsService {
       .where('product.status = :activeStatus', {
         activeStatus: ProductStatus.ACTIVE,
       });
+
+    // Filter by IDs
+    if (filterIds && filterIds.length > 0) {
+      baseQuery.andWhere('product.id IN (:...filterIds)', { filterIds });
+    }
 
     // Filter by status (override default ACTIVE if specified)
     if (status !== undefined) {
@@ -1156,6 +1162,19 @@ export class ProductsService {
 
     // Return detailed product structure
     return this.transformProductDetail(productBase);
+  }
+
+  async findOneBySlug(slug: string): Promise<any> {
+    const product = await this.productsRepository.findOne({
+      where: { slug },
+      select: ['id'],
+    });
+
+    if (!product) {
+      throw new NotFoundException(`Product with slug ${slug} not found`);
+    }
+
+    return this.findOne(product.id);
   }
 
   /**
