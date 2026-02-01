@@ -64,7 +64,6 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
         refreshToken: string,
         idToken: any,
         profile: any,
-        done: (err: any, user: any) => void,
     ): Promise<any> {
         try {
             let firstName = '';
@@ -125,9 +124,9 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
                 idToken,
             };
 
-            done(null, user);
+            return user;
         } catch (error) {
-            done(error, null);
+            throw error;
         }
     }
 }
