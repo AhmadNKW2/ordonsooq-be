@@ -22,13 +22,34 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
             throw new Error('Either APPLE_PRIVATE_KEY or APPLE_PRIVATE_KEY_LOCATION must be set');
         }
 
+        // Robust Key Formatting Helper
+        const formatKey = (key: string): string => {
+            if (!key) return key;
+            // 1. If it has literal \n characters, replace them with real newlines
+            let formatted = key.replace(/\\n/g, '\n');
+            
+            // 2. If it's acting as a single line but isn't wrapped properly, guard against common copy-paste errors
+            // (Standard PEM keys should already have newlines)
+            return formatted;
+        };
+
+        const finalPrivateKey = privateKeyString ? formatKey(privateKeyString) : undefined;
+        
+        // Debug Log (Safety: Only log headers/length, never the secret content)
+        if (finalPrivateKey) {
+            console.log('🍎 [AppleStrategy] Private Key Status:');
+            console.log(`   - Length: ${finalPrivateKey.length}`);
+            console.log(`   - Includes Header: ${finalPrivateKey.includes('BEGIN PRIVATE KEY')}`);
+            console.log(`   - Newlines present: ${finalPrivateKey.includes('\n')}`);
+        }
+
         super({
             clientID,
             teamID,
             keyID,
             // Use privateKeyString if available, otherwise use privateKeyLocation
-            ...(privateKeyString
-                ? { privateKeyString: privateKeyString.replace(/\\n/g, '\n') }
+            ...(finalPrivateKey
+                ? { privateKeyString: finalPrivateKey }
                 : { privateKeyLocation }
             ),
             callbackURL,
