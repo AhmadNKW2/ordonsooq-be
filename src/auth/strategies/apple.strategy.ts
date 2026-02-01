@@ -69,7 +69,7 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
         console.log('=== APPLE STRATEGY VALIDATE DEBUG ===');
         if (req && req.body) {
             // This is the full response payload from Apple
-            console.log('FULL APPLE RESPONSE BODY (req.body):', JSON.stringify(req.body, null, 2));
+            console.log('FULL APPLE RESPONSE BODY (req.body):', req.body, null, 2);
         } else {
              console.log('NO REQ.BODY FOUND');
         }
