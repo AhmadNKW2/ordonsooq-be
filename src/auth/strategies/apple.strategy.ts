@@ -59,22 +59,20 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
         });
     }
 
-    async validate(
-        req: any,
-        accessToken: string,
-        refreshToken: string,
-        idToken: any,
-        profile: any,
-    ): Promise<any> {
+    async validate(...args: any[]): Promise<any> {
+        const req = args[0]; // passReqToCallback: true
+        const accessToken = args[1];
+        const refreshToken = args[2];
+        const idToken = args[3];
+        const profile = args[4];
+
         console.log('=== APPLE STRATEGY VALIDATE DEBUG ===');
-        console.log('1. Profile:', JSON.stringify(profile, null, 2));
-        console.log('2. idToken Type:', typeof idToken);
-        if (typeof idToken === 'string') {
-             console.log('2a. idToken String (first 20 chars):', idToken.substring(0, 20) + '...');
+        if (req && req.body) {
+            // This is the full response payload from Apple
+            console.log('FULL APPLE RESPONSE BODY (req.body):', JSON.stringify(req.body, null, 2));
         } else {
-             console.log('2a. idToken Object:', JSON.stringify(idToken, null, 2));
+             console.log('NO REQ.BODY FOUND');
         }
-        console.log('3. Req Body:', JSON.stringify(req.body, null, 2));
 
         try {
             let firstName = '';
@@ -95,6 +93,21 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
             // Extract Apple ID from decoded token
             if (decodedIdToken && decodedIdToken.sub) {
                 appleId = decodedIdToken.sub;
+            }
+
+            // Fallback: Check req.body.id_token if appleId is explicitly missing
+            // This happens if the strategy middleware didn't parse the token correctly into the args
+            if (!appleId && req && req.body && req.body.id_token) {
+                 console.log('AppleStrategy: Falling back to req.body.id_token for appleId');
+                 try {
+                     const bodyToken = jwt.decode(req.body.id_token);
+                     if (bodyToken && typeof bodyToken === 'object') {
+                         if (bodyToken['sub']) appleId = bodyToken['sub'];
+                         if (bodyToken['email'] && !email) email = bodyToken['email'];
+                     }
+                 } catch (e) {
+                     console.error('AppleStrategy: Failed to decode req.body.id_token:', e);
+                 }
             }
 
             // Extract email from idToken (most reliable)
