@@ -66,6 +66,16 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
         idToken: any,
         profile: any,
     ): Promise<any> {
+        console.log('=== APPLE STRATEGY VALIDATE DEBUG ===');
+        console.log('1. Profile:', JSON.stringify(profile, null, 2));
+        console.log('2. idToken Type:', typeof idToken);
+        if (typeof idToken === 'string') {
+             console.log('2a. idToken String (first 20 chars):', idToken.substring(0, 20) + '...');
+        } else {
+             console.log('2a. idToken Object:', JSON.stringify(idToken, null, 2));
+        }
+        console.log('3. Req Body:', JSON.stringify(req.body, null, 2));
+
         try {
             let firstName = '';
             let lastName = '';
