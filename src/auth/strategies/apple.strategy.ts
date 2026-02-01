@@ -3,6 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy } from 'passport-apple';
 import { ConfigService } from '@nestjs/config';
+import * as jwt from 'jsonwebtoken';
 
 @Injectable()
 export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
@@ -71,14 +72,24 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
             let email = '';
             let appleId = '';
 
-            // Extract Apple ID from idToken
-            if (idToken && idToken.sub) {
-                appleId = idToken.sub;
+            // Handle idToken string vs object manually to be safe
+            let decodedIdToken = idToken;
+            if (typeof idToken === 'string') {
+                try {
+                    decodedIdToken = jwt.decode(idToken);
+                } catch (e) {
+                    console.error('AppleStrategy: Failed to decode idToken string:', e);
+                }
+            }
+
+            // Extract Apple ID from decoded token
+            if (decodedIdToken && decodedIdToken.sub) {
+                appleId = decodedIdToken.sub;
             }
 
             // Extract email from idToken (most reliable)
-            if (idToken && idToken.email) {
-                email = idToken.email;
+            if (decodedIdToken && decodedIdToken.email) {
+                email = decodedIdToken.email;
             }
 
             // On first login, Apple sends user data in req.body.user
