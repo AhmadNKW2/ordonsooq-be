@@ -252,6 +252,10 @@ export class UsersService {
     return await this.usersRepository.findOne({ where: { email } });
   }
 
+  async findByAppleId(appleId: string): Promise<User | null> {
+    return this.usersRepository.findOne({ where: { appleId } });
+  }
+
   async validatePassword(
     plainPassword: string,
     hashedPassword: string,

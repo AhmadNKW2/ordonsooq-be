@@ -8,6 +8,9 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { UsersModule } from '../users/users.module';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { GoogleStrategy } from './strategies/google.strategy';
+import { FacebookStrategy } from './strategies/facebook.strategy';
+import { AppleStrategy } from './strategies/apple.strategy';
 import { TokenCleanupService } from './services/token-cleanup.service';
 import { PasswordResetToken } from './entities/password-reset-token.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
@@ -35,7 +38,14 @@ import { TokenBlacklist } from './entities/token-blacklist.entity';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, TokenCleanupService],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    GoogleStrategy,
+    FacebookStrategy,
+    AppleStrategy,
+    TokenCleanupService,
+  ],
   exports: [AuthService],
 })
 export class AuthModule {}

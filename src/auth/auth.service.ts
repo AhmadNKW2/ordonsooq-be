@@ -9,6 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, LessThan } from 'typeorm';
 import { UsersService } from '../users/users.service';
+import { UserRole } from '../users/entities/user.entity';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
@@ -184,6 +185,166 @@ export class AuthService {
       },
     };
   }
+
+  async googleLogin(user: any, metadata?: RequestMetadata) {
+    if (!user) {
+      throw new BadRequestException('No user from google');
+    }
+
+    let existingUser = await this.usersService.findByEmail(user.email);
+
+    if (!existingUser) {
+      // Create user if not exists
+      const randomPassword = crypto.randomBytes(16).toString('hex');
+
+      existingUser = await this.usersService.create({
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        password: randomPassword,
+        role: UserRole.USER,
+      } as any);
+    }
+
+    const { accessToken, refreshToken, accessTokenExpiry, refreshTokenExpiry } =
+      await this.generateTokens(
+        existingUser.id,
+        existingUser.email,
+        existingUser.role,
+        metadata,
+      );
+
+    return {
+      tokens: {
+        accessToken,
+        refreshToken,
+        accessTokenExpiry,
+        refreshTokenExpiry,
+      },
+      user: {
+        id: existingUser.id,
+        email: existingUser.email,
+        firstName: existingUser.firstName,
+        lastName: existingUser.lastName,
+        role: existingUser.role,
+        picture: user.picture,
+      },
+    };
+  }
+
+  async facebookLogin(user: any, metadata?: RequestMetadata) {
+    if (!user) {
+      throw new BadRequestException('No user from facebook');
+    }
+
+    // Facebook might not return an email, so we might need to handle that.
+    // However, for this implementation we assume email is essential for account linking.
+    if (!user.email) {
+      throw new BadRequestException('Email is required for login');
+    }
+
+    let existingUser = await this.usersService.findByEmail(user.email);
+
+    if (!existingUser) {
+      // Create user if not exists
+      const randomPassword = crypto.randomBytes(16).toString('hex');
+
+      existingUser = await this.usersService.create({
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        password: randomPassword,
+        role: UserRole.USER,
+      } as any);
+    }
+
+    const { accessToken, refreshToken, accessTokenExpiry, refreshTokenExpiry } =
+      await this.generateTokens(
+        existingUser.id,
+        existingUser.email,
+        existingUser.role,
+        metadata,
+      );
+
+    return {
+      tokens: {
+        accessToken,
+        refreshToken,
+        accessTokenExpiry,
+        refreshTokenExpiry,
+      },
+      user: {
+        id: existingUser.id,
+        email: existingUser.email,
+        firstName: existingUser.firstName,
+        lastName: existingUser.lastName,
+        role: existingUser.role,
+        picture: user.picture,
+      },
+    };
+  }
+
+  async appleLogin(user: any, metadata?: RequestMetadata) {
+    if (!user) {
+      throw new BadRequestException('No user from apple');
+    }
+
+    let existingUser;
+    
+    // First try finding by appleId
+    if (user.appleId) {
+      existingUser = await this.usersService.findByAppleId(user.appleId);
+    }
+    
+    // Fallback to email if no user found by appleId (for legacy support or migration)
+    if (!existingUser && user.email) {
+      existingUser = await this.usersService.findByEmail(user.email);
+    }
+
+    if (!existingUser) {
+        // If email is hidden (private relay) and we didn't get it
+        const email = user.email || `${user.appleId}@privaterelay.appleid.com`;
+        
+        const randomPassword = crypto.randomBytes(16).toString('hex');
+    
+        existingUser = await this.usersService.create({
+            email: email,
+            firstName: user.firstName || 'Apple',
+            lastName: user.lastName || 'User',
+            password: randomPassword,
+            role: UserRole.USER,
+            appleId: user.appleId, // Save the stable Apple ID!
+        } as any);
+    } else if (!existingUser.appleId && user.appleId) {
+        // Link existing account with Apple ID if not already linked
+        await this.usersService.update(existingUser.id, { appleId: user.appleId } as any);
+    }
+
+    const { accessToken, refreshToken, accessTokenExpiry, refreshTokenExpiry } =
+      await this.generateTokens(
+        existingUser.id,
+        existingUser.email,
+        existingUser.role,
+        metadata,
+      );
+
+    return {
+      tokens: {
+        accessToken,
+        refreshToken,
+        accessTokenExpiry,
+        refreshTokenExpiry,
+      },
+      user: {
+        id: existingUser.id,
+        email: existingUser.email,
+        firstName: existingUser.firstName,
+        lastName: existingUser.lastName,
+        role: existingUser.role,
+      },
+    };
+  }
+
 
   async login(loginDto: LoginDto, metadata?: RequestMetadata) {
     const user = await this.usersService.findByEmail(loginDto.email);

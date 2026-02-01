@@ -80,6 +80,91 @@ export class AuthController {
     });
   }
 
+  @Get('google')
+  @UseGuards(AuthGuard('google'))
+  async googleAuth(@Request() req) {}
+
+  @Get('google/callback')
+  @UseGuards(AuthGuard('google'))
+  async googleAuthRedirect(
+    @Request() req: ExpressRequest,
+    @Response() res: ExpressResponse,
+  ) {
+    const data = await this.authService.googleLogin(
+      req.user,
+      this.getRequestMetadata(req),
+    );
+
+    this.setAuthCookies(
+      req,
+      res,
+      data.tokens.accessToken,
+      data.tokens.refreshToken,
+    );
+
+    const frontendUrl =
+      this.configService.get('FRONTEND_URL') || 'http://localhost:3000';
+    return res.redirect(frontendUrl);
+  }
+
+  @Get('facebook')
+  @UseGuards(AuthGuard('facebook'))
+  async facebookAuth(@Request() req) {}
+
+  @Get('facebook/callback')
+  @UseGuards(AuthGuard('facebook'))
+  async facebookAuthRedirect(
+    @Request() req: ExpressRequest,
+    @Response() res: ExpressResponse,
+  ) {
+    const data = await this.authService.facebookLogin(
+      req.user,
+      this.getRequestMetadata(req),
+    );
+
+    this.setAuthCookies(
+      req,
+      res,
+      data.tokens.accessToken,
+      data.tokens.refreshToken,
+    );
+
+    const frontendUrl =
+      this.configService.get('FRONTEND_URL') || 'http://localhost:3000';
+    return res.redirect(frontendUrl);
+  }
+
+  @Get('apple')
+  @UseGuards(AuthGuard('apple'))
+  async appleAuth(@Request() req) {}
+
+  @Post('apple/callback')
+  @UseGuards(AuthGuard('apple'))
+  async appleAuthCallback(
+    @Request() req: ExpressRequest,
+    @Response() res: ExpressResponse,
+  ) {
+    // Apple sends a POST request with the result.
+    // Logic is similar: extract user, create tokens, set cookies, redirect.
+    const data = await this.authService.appleLogin(
+      req.user,
+      this.getRequestMetadata(req),
+    );
+
+    this.setAuthCookies(
+      req,
+      res,
+      data.tokens.accessToken,
+      data.tokens.refreshToken,
+    );
+     
+    const frontendUrl =
+      this.configService.get('FRONTEND_URL') || 'http://localhost:3000';
+    
+    // Since this is a POST from Apple, we MUST redirect back to frontend
+    return res.redirect(frontendUrl);
+  }
+
   /**
    * Extract request metadata for token storage
    */

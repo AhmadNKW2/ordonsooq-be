@@ -38,6 +38,9 @@ export class User {
   @Column({ nullable: true })
   phone: string;
 
+  @Column({ nullable: true, unique: true })
+  appleId: string;
+
   @Column({ default: false })
   emailVerified: boolean;
 

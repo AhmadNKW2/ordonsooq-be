@@ -18,6 +18,10 @@ export class UpdateUserDto {
   email?: string;
 
   @IsString()
+  @IsOptional()
+  appleId?: string;
+
+  @IsString()
   @MinLength(2)
   @MaxLength(50)
   @IsOptional()

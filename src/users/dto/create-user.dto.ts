@@ -16,6 +16,10 @@ export class CreateUserDto {
   email: string;
 
   @IsString()
+  @IsOptional()
+  appleId?: string;
+
+  @IsString()
   @MinLength(2)
   @MaxLength(50)
   firstName: string;
