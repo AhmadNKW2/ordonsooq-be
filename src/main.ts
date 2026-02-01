@@ -64,6 +64,7 @@ async function bootstrap() {
     'https://ordonsooq-admin-fe.vercel.app',
     'http://localhost:3000',
     'http://localhost:3002',
+    'https://appleid.apple.com',
   ];
 
   console.log('CORS Configuration:');
