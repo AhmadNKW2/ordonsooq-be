@@ -144,25 +144,39 @@ export class AuthController {
     @Request() req: ExpressRequest,
     @Response() res: ExpressResponse,
   ) {
-    // Apple sends a POST request with the result.
-    // Logic is similar: extract user, create tokens, set cookies, redirect.
-    const data = await this.authService.appleLogin(
-      req.user,
-      this.getRequestMetadata(req),
-    );
-
-    this.setAuthCookies(
-      req,
-      res,
-      data.tokens.accessToken,
-      data.tokens.refreshToken,
-    );
-     
-    const frontendUrl =
-      this.configService.get('FRONTEND_URL') || 'http://localhost:3000';
+    console.log('=== APPLE CALLBACK START ===');
+    console.log('User from Apple:', req.user);
     
-    // Since this is a POST from Apple, we MUST redirect back to frontend
-    return res.redirect(frontendUrl);
+    try {
+      const data = await this.authService.appleLogin(
+        req.user,
+        this.getRequestMetadata(req),
+      );
+
+      console.log('User created/found:', data.user);
+      console.log('Access token generated:', data.tokens.accessToken ? 'YES' : 'NO');
+      console.log('Refresh token generated:', data.tokens.refreshToken ? 'YES' : 'NO');
+
+      this.setAuthCookies(
+        req,
+        res,
+        data.tokens.accessToken,
+        data.tokens.refreshToken,
+      );
+      
+      console.log('Cookies set successfully');
+      console.log('Cookie options:', this.authService.getCookieOptions(this.getIsSecureContext(req)));
+      
+      const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:3000';
+      console.log('Redirecting to:', frontendUrl);
+      console.log('=== APPLE CALLBACK END ===');
+      
+      return res.redirect(frontendUrl);
+    } catch (error) {
+      console.error('=== APPLE CALLBACK ERROR ===');
+      console.error('Error:', error);
+      return res.redirect(`${this.configService.get('FRONTEND_URL')}/login?error=auth_failed`);
+    }
   }
 
   /**
