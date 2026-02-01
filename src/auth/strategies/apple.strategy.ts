@@ -56,22 +56,29 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
             callbackURL,
             passReqToCallback: true,
             scope: ['name', 'email'],
+            // Force Apple to return id_token in the POST body to ensure we have it
+            authorizationURL: 'https://appleid.apple.com/auth/authorize?response_mode=form_post&response_type=code%20id_token',
         });
     }
 
     async validate(...args: any[]): Promise<any> {
-        const req = args[0]; // passReqToCallback: true
+        console.log('=== APPLE STRATEGY VALIDATE DEBUG START ===');
+        const req = args[0]; 
         const accessToken = args[1];
         const refreshToken = args[2];
         const idToken = args[3];
         const profile = args[4];
 
-        console.log('=== APPLE STRATEGY VALIDATE DEBUG ===');
+        console.log('1. accessToken exists:', !!accessToken);
+        console.log('2. refreshToken exists:', !!refreshToken);
+        console.log('3. idToken (arg) type:', typeof idToken);
+        console.log('3a. idToken (arg) value:', JSON.stringify(idToken));
+        
         if (req && req.body) {
-            // This is the full response payload from Apple
-            console.log('FULL APPLE RESPONSE BODY (req.body):', req.body, null, 2);
-        } else {
-             console.log('NO REQ.BODY FOUND');
+             console.log('4. req.body keys:', Object.keys(req.body));
+             // Log useful parts of body without dumping everything if it's huge
+             if (req.body.user) console.log('4a. req.body.user:', req.body.user);
+             if (req.body.id_token) console.log('4b. req.body.id_token exists (length):', req.body.id_token.length);
         }
 
         try {
@@ -96,13 +103,16 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
             }
 
             // Fallback: Check req.body.id_token if appleId is explicitly missing
-            // This happens if the strategy middleware didn't parse the token correctly into the args
+            // We forced response_type='code id_token', so it SHOULD be in req.body now.
             if (!appleId && req && req.body && req.body.id_token) {
-                 console.log('AppleStrategy: Falling back to req.body.id_token for appleId');
+                 console.log('AppleStrategy: Attempting to decode req.body.id_token');
                  try {
                      const bodyToken = jwt.decode(req.body.id_token);
                      if (bodyToken && typeof bodyToken === 'object') {
-                         if (bodyToken['sub']) appleId = bodyToken['sub'];
+                         if (bodyToken['sub']) {
+                             appleId = bodyToken['sub'];
+                             console.log('AppleStrategy: Successfully extracted appleId from req.body.id_token');
+                         }
                          if (bodyToken['email'] && !email) email = bodyToken['email'];
                      }
                  } catch (e) {
