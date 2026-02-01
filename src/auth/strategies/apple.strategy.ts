@@ -55,9 +55,7 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
             ),
             callbackURL,
             passReqToCallback: true,
-            scope: ['name', 'email'],
-            // Force Apple to return id_token in the POST body to ensure we have it
-            authorizationURL: 'https://appleid.apple.com/auth/authorize?response_mode=form_post&response_type=code%20id_token',
+            scope: ['name', 'email', 'openid'],
         });
     }
 
@@ -70,15 +68,26 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
         const profile = args[4];
 
         console.log('1. accessToken exists:', !!accessToken);
+        try {
+             if (accessToken) {
+                 const decodedAccess = jwt.decode(accessToken);
+                 console.log('1a. accessToken decoded (partial):', decodedAccess ? JSON.stringify(decodedAccess).substring(0, 100) : 'null');
+             }
+        } catch (e) {}
+
         console.log('2. refreshToken exists:', !!refreshToken);
         console.log('3. idToken (arg) type:', typeof idToken);
         console.log('3a. idToken (arg) value:', JSON.stringify(idToken));
-        
+
+        // CRITICAL DEBUG: Check hidden hidden args
+        if (args.length > 5) {
+             console.log('5. Arg[5] (verified? or params?):', JSON.stringify(args[5]));
+        }
+
         if (req && req.body) {
              console.log('4. req.body keys:', Object.keys(req.body));
-             // Log useful parts of body without dumping everything if it's huge
              if (req.body.user) console.log('4a. req.body.user:', req.body.user);
-             if (req.body.id_token) console.log('4b. req.body.id_token exists (length):', req.body.id_token.length);
+             if (req.body.id_token) console.log('4b. req.body.id_token exists');
         }
 
         try {
