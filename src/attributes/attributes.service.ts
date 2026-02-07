@@ -39,29 +39,62 @@ export class AttributesService {
     const nextSortOrder = (maxSortOrder?.max ?? -1) + 1;
 
     // Assign sort_order to values if they exist
-    const values = createAttributeDto.values?.map((value, index) => ({
-      ...value,
-      sort_order: index,
-    }));
+    // Destructure values to handle them separately to avoid "Cyclic dependency" error in TypeORM save
+    const { values: valuesDto, ...attributeData } = createAttributeDto;
 
     const attribute = this.attributeRepository.create({
-      ...createAttributeDto,
+      ...attributeData,
       sort_order: nextSortOrder,
-      values,
     });
 
     const savedAttribute = await this.attributeRepository.save(attribute);
+
+    if (valuesDto && valuesDto.length > 0) {
+      const values = valuesDto.map((value, index) =>
+        this.attributeValueRepository.create({
+          ...value,
+          attribute: savedAttribute, // Linking explicitly
+          sort_order: index,
+        }),
+      );
+      await this.attributeValueRepository.save(values);
+    }
+
     return this.findOne(savedAttribute.id);
   }
 
   async findAll(): Promise<Attribute[]> {
-    return await this.attributeRepository
+    const attributes = await this.attributeRepository
       .createQueryBuilder('attribute')
       .leftJoinAndSelect('attribute.values', 'values')
       .orderBy('attribute.sort_order', 'ASC')
       .addOrderBy('attribute.created_at', 'DESC')
       .addOrderBy('values.sort_order', 'ASC')
       .getMany();
+
+    // Calculate levels in memory
+    const attributeMap = new Map<number, Attribute>();
+    attributes.forEach((attr) => attributeMap.set(attr.id, attr));
+
+    attributes.forEach((attr) => {
+      let level = 0;
+      let parentId = attr.parent_id;
+      let depth = 0;
+      const MAX_DEPTH = 20; // Prevent infinite loops
+
+      while (parentId && attributeMap.has(parentId) && depth < MAX_DEPTH) {
+        level++;
+        parentId = attributeMap.get(parentId)!.parent_id;
+        depth++;
+      }
+
+      attr.level = level;
+      if (attr.values) {
+        attr.values.forEach((val) => (val.level = level));
+      }
+    });
+
+    return attributes;
   }
 
   async findOne(id: number): Promise<Attribute> {
@@ -76,6 +109,28 @@ export class AttributesService {
       throw new NotFoundException(`Attribute with ID ${id} not found`);
     }
 
+    // Calculate level by traversing up
+    let level = 0;
+    let currentId: number | null = attribute.parent_id;
+    const MAX_DEPTH = 20;
+    let depth = 0;
+
+    while (currentId && depth < MAX_DEPTH) {
+      level++;
+      // Lightweight fetch to check parent
+      const parent = await this.attributeRepository.findOne({
+        where: { id: currentId },
+        select: ['id', 'parent_id'],
+      });
+      currentId = parent ? parent.parent_id : null;
+      depth++;
+    }
+
+    attribute.level = level;
+    if (attribute.values) {
+      attribute.values.forEach((val) => (val.level = level));
+    }
+
     return attribute;
   }
 
@@ -83,7 +138,13 @@ export class AttributesService {
     id: number,
     updateAttributeDto: UpdateAttributeDto,
   ): Promise<Attribute> {
-    const attribute = await this.findOne(id);
+    // Determine if we need to check unrelated fields or just updating scalar values.
+    // To avoid "Cyclic dependency: AttributeValue", we do NOT load the relations here.
+    const attribute = await this.attributeRepository.findOne({ where: { id } });
+
+    if (!attribute) {
+      throw new NotFoundException(`Attribute with ID ${id} not found`);
+    }
 
     if (
       updateAttributeDto.name_en &&
@@ -110,6 +171,7 @@ export class AttributesService {
     attributeId: number,
     valueEn: string,
     valueAr: string,
+    parentValueId?: number,
   ): Promise<AttributeValue> {
     // Check if attribute exists
     const attribute = await this.attributeRepository.findOne({
@@ -132,6 +194,7 @@ export class AttributesService {
       attribute_id: attributeId,
       value_en: valueEn,
       value_ar: valueAr,
+      parent_value_id: parentValueId,
       sort_order: nextSortOrder,
     });
 

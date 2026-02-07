@@ -56,6 +56,8 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
             callbackURL,
             passReqToCallback: true,
             scope: ['name', 'email', 'openid'],
+            // Validate request to include id_token in body for fallback extraction
+            authorizationURL: 'https://appleid.apple.com/auth/authorize?response_mode=form_post&response_type=code%20id_token',
         });
     }
 
@@ -70,24 +72,20 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
         console.log('1. accessToken exists:', !!accessToken);
         try {
              if (accessToken) {
-                 const decodedAccess = jwt.decode(accessToken);
-                 console.log('1a. accessToken decoded (partial):', decodedAccess ? JSON.stringify(decodedAccess).substring(0, 100) : 'null');
+                 // Apple access tokens are opaque, but good to know we have one
+                 console.log('1a. accessToken length:', accessToken.length);
              }
         } catch (e) {}
 
         console.log('2. refreshToken exists:', !!refreshToken);
         console.log('3. idToken (arg) type:', typeof idToken);
         console.log('3a. idToken (arg) value:', JSON.stringify(idToken));
-
-        // CRITICAL DEBUG: Check hidden hidden args
-        if (args.length > 5) {
-             console.log('5. Arg[5] (verified? or params?):', JSON.stringify(args[5]));
-        }
+        console.log('4. Profile (arg[4]):', JSON.stringify(profile));
 
         if (req && req.body) {
-             console.log('4. req.body keys:', Object.keys(req.body));
-             if (req.body.user) console.log('4a. req.body.user:', req.body.user);
-             if (req.body.id_token) console.log('4b. req.body.id_token exists');
+             console.log('5. req.body keys:', Object.keys(req.body));
+             if (req.body.user) console.log('5a. req.body.user:', req.body.user);
+             if (req.body.id_token) console.log('5b. req.body.id_token exists. Length:', req.body.id_token.length);
         }
 
         try {

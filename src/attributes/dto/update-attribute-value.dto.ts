@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsBoolean } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsInt } from 'class-validator';
 
 export class UpdateAttributeValueDto {
   @IsOptional()
@@ -16,6 +16,10 @@ export class UpdateAttributeValueDto {
   @IsOptional()
   @IsString()
   image_url?: string | null;
+
+  @IsOptional()
+  @IsInt() // Import IsInt from class-validator
+  parent_value_id?: number | null;
 
   @IsOptional()
   @IsBoolean()

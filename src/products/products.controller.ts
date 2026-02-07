@@ -19,6 +19,7 @@ import { FilterProductDto, AssignProductsDto } from './dto/filter-product.dto';
 import { Roles, UserRole } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { RestoreProductDto } from './dto/restore-product.dto';
+import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
 
 @Controller('products')
 export class ProductsController {
@@ -39,8 +40,10 @@ export class ProductsController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.productsService.findOne(+id);
+  @UseGuards(OptionalJwtAuthGuard)
+  findOne(@Param('id') id: string, @Req() req: any) {
+    const isAdmin = req.user?.role === UserRole.ADMIN;
+    return this.productsService.findOne(+id, isAdmin);
   }
 
   @Get('slug/:slug')

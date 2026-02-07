@@ -27,6 +27,13 @@ export class AttributeValue {
   @JoinColumn({ name: 'attribute_id' })
   attribute: Attribute;
 
+  @Column({ nullable: true })
+  parent_value_id: number;
+
+  @ManyToOne(() => AttributeValue, { onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'parent_value_id' })
+  parent_value: AttributeValue;
+
   @Column()
   value_en: string;
 
@@ -50,4 +57,7 @@ export class AttributeValue {
 
   @UpdateDateColumn()
   updated_at: Date;
+
+  // Virtual property to store the depth level (Inherited from Attribute)
+  level?: number;
 }

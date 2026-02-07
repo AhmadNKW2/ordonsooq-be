@@ -69,9 +69,9 @@ export class AttributesController {
   @Roles(UserRole.ADMIN)
   addValue(
     @Param('id') id: string,
-    @Body() body: { value_en: string; value_ar: string },
+    @Body() body: { value_en: string; value_ar: string; parent_value_id?: number },
   ) {
-    return this.attributesService.addValue(+id, body.value_en, body.value_ar);
+    return this.attributesService.addValue(+id, body.value_en, body.value_ar, body.parent_value_id);
   }
 
   @Put(':id/values/reorder')

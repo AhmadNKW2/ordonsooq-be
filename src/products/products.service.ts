@@ -602,7 +602,7 @@ export class ProductsService {
   /**
    * Transform product for detailed view (GET /products/:id)
    */
-  private transformProductDetail(product: Product): any {
+  private transformProductDetail(product: Product, showCost = false): any {
     const {
       media,
       priceGroups,
@@ -683,6 +683,7 @@ export class ProductsService {
       priceGroupsMap[String(pg.id)] = {
         price: pg.price,
         sale_price: pg.sale_price,
+        ...(showCost && { cost: pg.cost }),
       };
     });
 
@@ -1100,7 +1101,7 @@ export class ProductsService {
     return response;
   }
 
-  async findOne(id: number): Promise<any> {
+  async findOne(id: number, showCost = false): Promise<any> {
     const [
       productBase,
       productCategories,
@@ -1161,10 +1162,10 @@ export class ProductsService {
     productBase.attributes = attributes;
 
     // Return detailed product structure
-    return this.transformProductDetail(productBase);
+    return this.transformProductDetail(productBase, showCost);
   }
 
-  async findOneBySlug(slug: string): Promise<any> {
+  async findOneBySlug(slug: string, showCost = false): Promise<any> {
     const product = await this.productsRepository.findOne({
       where: { slug },
       select: ['id'],
@@ -1174,7 +1175,7 @@ export class ProductsService {
       throw new NotFoundException(`Product with slug ${slug} not found`);
     }
 
-    return this.findOne(product.id);
+    return this.findOne(product.id, showCost);
   }
 
   /**
