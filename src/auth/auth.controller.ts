@@ -366,6 +366,7 @@ export class AuthController {
       email: req.user.email,
       firstName: req.user.firstName,
       lastName: req.user.lastName,
+      image: req.user.image,
       role: req.user.role,
     };
   }
