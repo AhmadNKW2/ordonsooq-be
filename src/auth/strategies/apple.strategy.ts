@@ -61,32 +61,25 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
         });
     }
 
-    async validate(...args: any[]): Promise<any> {
-        console.log('=== APPLE STRATEGY VALIDATE DEBUG START ===');
-        const req = args[0]; 
-        const accessToken = args[1];
-        const refreshToken = args[2];
-        const idToken = args[3];
-        const profile = args[4];
+    async validate(
+        req: any,
+        accessToken: string,
+        refreshToken: string,
+        idToken: any,
+        profile: any,
+    ): Promise<any> {
+        const logData = {
+            profile,
+            idToken: typeof idToken === 'string' ? jwt.decode(idToken) : idToken,
+            bodyUser: req.body?.user ? JSON.parse(req.body.user) : undefined
+        };
 
-        console.log('1. accessToken exists:', !!accessToken);
-        try {
-             if (accessToken) {
-                 // Apple access tokens are opaque, but good to know we have one
-                 console.log('1a. accessToken length:', accessToken.length);
-             }
-        } catch (e) {}
-
-        console.log('2. refreshToken exists:', !!refreshToken);
-        console.log('3. idToken (arg) type:', typeof idToken);
-        console.log('3a. idToken (arg) value:', JSON.stringify(idToken));
-        console.log('4. Profile (arg[4]):', JSON.stringify(profile));
-
-        if (req && req.body) {
-             console.log('5. req.body keys:', Object.keys(req.body));
-             if (req.body.user) console.log('5a. req.body.user:', req.body.user);
-             if (req.body.id_token) console.log('5b. req.body.id_token exists. Length:', req.body.id_token.length);
-        }
+        const logMessage = `
+--- Apple Profile Response ---
+${JSON.stringify(logData, null, 2)}
+-----------------------------
+`;
+        console.log(logMessage);
 
         try {
             let firstName = '';

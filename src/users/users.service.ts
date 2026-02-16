@@ -256,6 +256,10 @@ export class UsersService {
     return this.usersRepository.findOne({ where: { appleId } });
   }
 
+  async findByGoogleId(googleId: string): Promise<User | null> {
+    return this.usersRepository.findOne({ where: { googleId } });
+  }
+
   async validatePassword(
     plainPassword: string,
     hashedPassword: string,

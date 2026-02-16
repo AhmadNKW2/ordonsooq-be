@@ -191,7 +191,17 @@ export class AuthService {
       throw new BadRequestException('No user from google');
     }
 
-    let existingUser = await this.usersService.findByEmail(user.email);
+    let existingUser;
+
+    // 1. Try finding by googleId
+    if (user.googleId) {
+      existingUser = await this.usersService.findByGoogleId(user.googleId);
+    }
+
+    // 2. Fallback to email
+    if (!existingUser && user.email) {
+      existingUser = await this.usersService.findByEmail(user.email);
+    }
 
     if (!existingUser) {
       // Create user if not exists
@@ -203,7 +213,23 @@ export class AuthService {
         lastName: user.lastName,
         password: randomPassword,
         role: UserRole.USER,
+        googleId: user.googleId,
+        image: user.picture,
       } as any);
+    } else {
+      // Update googleId or image if missing
+      const updates: any = {};
+      if (!existingUser.googleId && user.googleId) {
+        updates.googleId = user.googleId;
+      }
+      if (!existingUser.image && user.picture) {
+        updates.image = user.picture;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        // We use update method which handles saving
+        existingUser = await this.usersService.update(existingUser.id, updates);
+      }
     }
 
     const { accessToken, refreshToken, accessTokenExpiry, refreshTokenExpiry } =
@@ -227,7 +253,7 @@ export class AuthService {
         firstName: existingUser.firstName,
         lastName: existingUser.lastName,
         role: existingUser.role,
-        picture: user.picture,
+        picture: existingUser.image || user.picture, // Use DB image or google picture
       },
     };
   }

@@ -41,6 +41,12 @@ export class User {
   @Column({ nullable: true, unique: true })
   appleId: string;
 
+  @Column({ nullable: true, unique: true })
+  googleId: string;
+
+  @Column({ nullable: true })
+  image: string;
+
   @Column({ default: false })
   emailVerified: boolean;
 

@@ -20,6 +20,14 @@ export class CreateUserDto {
   appleId?: string;
 
   @IsString()
+  @IsOptional()
+  googleId?: string;
+
+  @IsString()
+  @IsOptional()
+  image?: string;
+
+  @IsString()
   @MinLength(2)
   @MaxLength(50)
   firstName: string;
