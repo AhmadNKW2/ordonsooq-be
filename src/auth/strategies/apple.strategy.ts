@@ -69,9 +69,13 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple') {
         profile: any,
     ): Promise<any> {
         const logData = {
-            profile,
-            idToken: typeof idToken === 'string' ? jwt.decode(idToken) : idToken,
-            bodyUser: req.body?.user ? JSON.parse(req.body.user) : undefined
+            // Raw values to ensure we don't miss anything due to parsing errors
+            rawIdToken: idToken,
+            rawBodyUser: req.body?.user,
+            profile: profile,
+            // Parsed values for readability
+            decodedIdToken: typeof idToken === 'string' ? jwt.decode(idToken) : idToken,
+            parsedBodyUser: req.body?.user ? JSON.parse(req.body.user) : undefined
         };
 
         const logMessage = `
