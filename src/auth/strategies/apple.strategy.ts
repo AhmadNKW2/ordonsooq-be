@@ -43,53 +43,25 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple', 6) {
         });
     }
 
-    /**
-     * Override authenticate to capture id_token from Apple's token exchange.
-     * 
-     * passport-apple only reads id_token from req.body (form_post),
-     * but with response_type=code, Apple doesn't send id_token in the body.
-     * The id_token comes from the token exchange response instead.
-     * We intercept it here so it's available via profile AND req._appleRawIdToken.
-     */
-    authenticate(req: any, options?: any) {
-        const self = this as any;
-        const oauth2 = self._oauth2;
-        const originalGetToken = oauth2.getOAuthAccessToken.bind(oauth2);
-
-        oauth2.getOAuthAccessToken = (
-            code: string,
-            grantParams: any,
-            cb: Function,
-        ) => {
-            originalGetToken(
-                code,
-                grantParams,
-                (err: any, accessToken: string, refreshToken: string, results: any) => {
-                    if (!err && results?.id_token) {
-                        // Store raw JWT on request (per-request, no race conditions)
-                        req._appleRawIdToken = results.id_token;
-                        // Set on strategy so passport-apple's userProfile() returns decoded token
-                        try {
-                            self.idToken = jwt.decode(results.id_token);
-                        } catch (e) {
-                            console.error('🍎 Failed to decode id_token from token exchange:', e);
-                        }
-                    }
-                    cb(err, accessToken, refreshToken, results);
-                },
-            );
-        };
-
-        return (Strategy.prototype as any).authenticate.call(this, req, options);
-    }
-
     async validate(
         req: any,
         accessToken: string,
         refreshToken: string,
-        params: any,    // Token exchange response: { access_token, id_token, ... }
+        params: any,    // passport-apple passes id_token string as 4th arg
         profile: any,   // From userProfile(): decoded id_token or {}
     ): Promise<any> {
+        const callbackShape = {
+            paramsType: typeof params,
+            isParamsString: typeof params === 'string',
+            hasParamsIdToken:
+                !!params &&
+                typeof params === 'object' &&
+                typeof params.id_token === 'string',
+            hasBodyIdToken: typeof req?.body?.id_token === 'string',
+            hasBodyUser: !!req?.body?.user,
+        };
+
+        console.log('🍎 [AppleStrategy] validate() callback shape:', callbackShape);
         console.log('🍎 [AppleStrategy] validate() called');
         console.log('   params keys:', params ? Object.keys(params) : 'null');
         console.log('   params.id_token exists:', !!params?.id_token);
@@ -105,26 +77,23 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple', 6) {
         let rawIdTokenJwt = '';
 
         // ===========================================================
-        // SOURCE 1: params.id_token (token exchange response)
-        //   With callbackArity=6, passport-oauth2 passes the full
-        //   token response as 'params'. Contains the raw id_token JWT.
+        // SOURCE 1: params as raw id_token string (passport-apple behavior)
         // ===========================================================
-        if (params?.id_token && typeof params.id_token === 'string') {
+        if (typeof params === 'string' && params) {
+            rawIdTokenJwt = params;
+            console.log('   ✅ SOURCE 1: Found raw id_token in params string');
+        }
+
+        // ===========================================================
+        // SOURCE 2: params.id_token (compat fallback if strategy returns object)
+        // ===========================================================
+        if (!rawIdTokenJwt && params?.id_token && typeof params.id_token === 'string') {
             rawIdTokenJwt = params.id_token;
-            console.log('   ✅ SOURCE 1: Found id_token in params (token exchange)');
+            console.log('   ✅ SOURCE 2: Found id_token in params object');
         }
 
         // ===========================================================
-        // SOURCE 2: req._appleRawIdToken (from our authenticate override)
-        //   Fallback if callbackArity didn't work (older @nestjs/passport)
-        // ===========================================================
-        if (!rawIdTokenJwt && req?._appleRawIdToken) {
-            rawIdTokenJwt = req._appleRawIdToken;
-            console.log('   ✅ SOURCE 2: Found id_token in req._appleRawIdToken');
-        }
-
-        // ===========================================================
-        // SOURCE 3: req.body.id_token (Apple form_post, if response_type included id_token)
+        // SOURCE 3: req.body.id_token (Apple form_post)
         // ===========================================================
         if (!rawIdTokenJwt && req?.body?.id_token && typeof req.body.id_token === 'string') {
             rawIdTokenJwt = req.body.id_token;
@@ -195,7 +164,6 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple', 6) {
                 paramsType: typeof params,
                 profileKeys: profile ? Object.keys(profile) : null,
                 bodyKeys: req?.body ? Object.keys(req.body) : null,
-                hasAppleRawIdToken: !!req?._appleRawIdToken,
             }, null, 2));
             throw new Error('Apple authentication failed: could not extract user ID');
         }
