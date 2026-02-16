@@ -44,12 +44,15 @@ class AddressDto {
   city: string;
 
   @IsString()
-  @IsNotEmpty()
-  country: string;
+  country?: string;
 
   @IsOptional()
   @IsString()
-  postalCode?: string;
+  building?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
 }
 
 export class CreateOrderDto {

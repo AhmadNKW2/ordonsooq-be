@@ -49,6 +49,9 @@ export class OrderItem {
   @Column('decimal', { precision: 10, scale: 2 })
   price: number; // Unit price at purchase time
 
+  @Column('decimal', { precision: 10, scale: 2, default: 0 })
+  cost: number; // Unit cost at purchase time
+
   @Column('decimal', { precision: 10, scale: 2 })
   totalPrice: number; // price * quantity
 

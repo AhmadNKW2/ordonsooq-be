@@ -542,6 +542,10 @@ export class ProductsService {
           'combinations',
           'combinations.attribute_value',
           'combinations.attribute_value.attribute',
+          'combinations.attribute_value.parent_value',
+          'combinations.attribute_value.parent_value.attribute',
+          'combinations.attribute_value.parent_value.parent_value',
+          'combinations.attribute_value.parent_value.parent_value.attribute',
         ],
       }),
       this.dataSource.getRepository(ProductPriceGroup).find({
@@ -639,6 +643,8 @@ export class ProductsService {
         attributesMap[attrId] = {
           name_en: attr.name_en,
           name_ar: attr.name_ar,
+          unit_en: attr.unit_en,
+          unit_ar: attr.unit_ar,
           values: {},
         };
       }
@@ -653,10 +659,22 @@ export class ProductsService {
       }
     };
 
+    const processAttributeRecursive = (val: any) => {
+      if (!val) return;
+      
+      if (val.attribute) {
+        addAttributeValue(val.attribute, val);
+      }
+
+      if (val.parent_value) {
+        processAttributeRecursive(val.parent_value);
+      }
+    };
+
     variants?.forEach((v: any) => {
       v.combinations?.forEach((c: any) => {
-        if (c.attribute_value?.attribute) {
-          addAttributeValue(c.attribute_value.attribute, c.attribute_value);
+        if (c.attribute_value) {
+           processAttributeRecursive(c.attribute_value);
         }
       });
     });
@@ -998,6 +1016,8 @@ export class ProductsService {
                 attribute_id: c.attribute_value?.attribute_id,
                 attribute_name: c.attribute_value?.attribute?.name_en,
                 attribute_name_ar: c.attribute_value?.attribute?.name_ar,
+                unit_en: c.attribute_value?.attribute?.unit_en,
+                unit_ar: c.attribute_value?.attribute?.unit_ar,
                 value_id: c.attribute_value_id,
                 value_name: c.attribute_value?.value_en,
                 value_name_ar: c.attribute_value?.value_ar,
@@ -1141,6 +1161,10 @@ export class ProductsService {
           'combinations',
           'combinations.attribute_value',
           'combinations.attribute_value.attribute',
+          'combinations.attribute_value.parent_value',
+          'combinations.attribute_value.parent_value.attribute',
+          'combinations.attribute_value.parent_value.parent_value',
+          'combinations.attribute_value.parent_value.parent_value.attribute',
         ],
       }),
       this.dataSource.getRepository(ProductAttribute).find({
@@ -1237,6 +1261,8 @@ export class ProductsService {
             attribute_id: c.attribute_value?.attribute_id,
             attribute_name: c.attribute_value?.attribute?.name_en || null,
             attribute_name_ar: c.attribute_value?.attribute?.name_ar || null,
+            unit_en: c.attribute_value?.attribute?.unit_en || null,
+            unit_ar: c.attribute_value?.attribute?.unit_ar || null,
             value_id: c.attribute_value_id,
             value_name: c.attribute_value?.value || null,
             value_name_ar: c.attribute_value?.value_ar || null,

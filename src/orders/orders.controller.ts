@@ -8,9 +8,11 @@ import {
   Request,
   ForbiddenException,
   Patch,
+  Query,
 } from '@nestjs/common';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { FilterOrderDto } from './dto/filter-order.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { UserRole, Roles } from '../common/decorators/roles.decorator';
@@ -24,6 +26,13 @@ export class OrdersController {
   @Post()
   create(@Request() req, @Body() createOrderDto: CreateOrderDto) {
     return this.ordersService.create(req.user, createOrderDto);
+  }
+
+  @Get('admin')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  findAllAdmin(@Query() filterDto: FilterOrderDto) {
+    return this.ordersService.findAllAdmin(filterDto);
   }
 
   @Get()

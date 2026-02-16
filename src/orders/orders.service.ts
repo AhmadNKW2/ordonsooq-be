@@ -19,9 +19,12 @@ import { CouponsService } from '../coupons/coupons.service';
 import { WalletService } from '../wallet/wallet.service';
 import { ProductPriceGroupService } from '../products/product-price-group.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { FilterOrderDto } from './dto/filter-order.dto';
 import { User } from '../users/entities/user.entity';
 import { TransactionSource } from '../wallet/entities/wallet-transaction.entity';
 import { CartService } from '../cart/cart.service';
+
+// ... imports
 
 @Injectable()
 export class OrdersService {
@@ -30,12 +33,6 @@ export class OrdersService {
     private ordersRepository: Repository<Order>,
     @InjectRepository(OrderItem)
     private orderItemsRepository: Repository<OrderItem>,
-    @InjectRepository(Product)
-    private productsRepository: Repository<Product>,
-    @InjectRepository(ProductVariant)
-    private variantsRepository: Repository<ProductVariant>,
-    @InjectRepository(ProductStock)
-    private stockRepository: Repository<ProductStock>,
     private couponsService: CouponsService,
     private walletService: WalletService,
     private priceGroupService: ProductPriceGroupService,
@@ -126,6 +123,7 @@ export class OrdersService {
           vendorId: product.vendor_id,
           quantity: itemDto.quantity,
           price: unitPrice,
+          cost: priceGroup.cost || 0,
           totalPrice: itemTotal,
           productSnapshot: {
             name_en: product.name_en,
@@ -214,6 +212,7 @@ export class OrdersService {
           vendorId: itemData.vendorId,
           quantity: itemData.quantity,
           price: itemData.price,
+          cost: itemData.cost, // Calculated at time of purchase
           totalPrice: itemData.totalPrice,
           productSnapshot: itemData.productSnapshot,
         });
@@ -266,6 +265,43 @@ export class OrdersService {
     });
   }
 
+  async findAllAdmin(filterDto: FilterOrderDto) {
+    const { status, page = 1, limit = 10, search } = filterDto;
+    const skip = (page - 1) * limit;
+
+    const query = this.ordersRepository
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.user', 'user')
+      .leftJoinAndSelect('order.items', 'items')
+      .leftJoinAndSelect('items.product', 'product')
+      .skip(skip)
+      .take(limit)
+      .orderBy('order.createdAt', 'DESC');
+
+    if (status) {
+      query.andWhere('order.status = :status', { status });
+    }
+
+    if (search) {
+      query.andWhere(
+        '(CAST(order.id AS TEXT) LIKE :search OR user.email ILIKE :search OR user.firstName ILIKE :search)',
+        { search: `%${search}%` },
+      );
+    }
+
+    const [data, total] = await query.getManyAndCount();
+
+    return {
+      data,
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
+
   async cancel(id: number, userId: number) {
     const order = await this.findOne(id);
     if (order.userId !== userId) {
@@ -275,6 +311,31 @@ export class OrdersService {
       throw new BadRequestException('Only pending orders can be cancelled');
     }
 
+    return this.processCancellation(order, OrderStatus.CANCELLED);
+  }
+
+  async updateStatus(id: number, status: OrderStatus) {
+    const order = await this.findOne(id);
+
+    if (order.status === status) return order;
+
+    // Handle Cancellation/Refund by Admin
+    if (status === OrderStatus.CANCELLED || status === OrderStatus.REFUNDED) {
+      return this.processCancellation(order, status);
+    }
+
+    // Handle normal transitions
+    order.status = status;
+    
+    // If delivering, maybe handle COD payment?
+    if (status === OrderStatus.DELIVERED && order.paymentMethod === PaymentMethod.COD) {
+        order.paymentStatus = PaymentStatus.PAID;
+    }
+
+    return this.ordersRepository.save(order);
+  }
+
+  private async processCancellation(order: Order, newStatus: OrderStatus) {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
@@ -310,24 +371,19 @@ export class OrdersService {
           },
           queryRunner.manager,
         );
+        order.paymentStatus = PaymentStatus.REFUNDED;
       }
 
-      order.status = OrderStatus.CANCELLED;
+      order.status = newStatus;
       await queryRunner.manager.save(order);
 
       await queryRunner.commitTransaction();
-      return this.findOne(id);
+      return this.findOne(order.id);
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
     } finally {
       await queryRunner.release();
     }
-  }
-
-  async updateStatus(id: number, status: OrderStatus) {
-    const order = await this.findOne(id);
-    order.status = status;
-    return this.ordersRepository.save(order);
   }
 }
