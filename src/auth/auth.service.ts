@@ -217,12 +217,12 @@ export class AuthService {
         image: user.picture,
       } as any);
     } else {
-      // Update googleId or image if missing
+      // Update googleId or image if changed/missing
       const updates: any = {};
-      if (!existingUser.googleId && user.googleId) {
+      if (user.googleId && existingUser.googleId !== user.googleId) {
         updates.googleId = user.googleId;
       }
-      if (!existingUser.image && user.picture) {
+      if (user.picture && existingUser.image !== user.picture) {
         updates.image = user.picture;
       }
 
