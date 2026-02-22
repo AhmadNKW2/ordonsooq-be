@@ -17,19 +17,23 @@ export class TypesenseService implements OnModuleInit {
   }
 
   private initializeClient() {
+    // DEBUG: log what keys we're actually reading at runtime
+    this.logger.log(`--- TYPESENSE DEBUG ---`);
+    this.logger.log(`RAW ENV KEY: ${process.env.TYPESENSE_API_KEY}`);
+    this.logger.log(`CONFIG KEY: ${this.configService.get<string>('typesense.apiKey')}`);
+    this.logger.log(`HOST: ${process.env.TYPESENSE_HOST}`);
+
+    // Read directly from process.env to bypass any ConfigModule wiring issues
+    const apiKey = process.env.TYPESENSE_API_KEY || this.configService.get<string>('typesense.apiKey') || '';
+    const host = process.env.TYPESENSE_HOST || this.configService.get<string>('typesense.host') || 'localhost';
+    const port = parseInt(process.env.TYPESENSE_PORT || '') || this.configService.get<number>('typesense.port') || 8108;
+    const protocol = process.env.TYPESENSE_PROTOCOL || this.configService.get<string>('typesense.protocol') || 'http';
+
     this.client = new Typesense.Client({
-      nodes: [
-        {
-          host: this.configService.get<string>('typesense.host') ?? 'localhost',
-          port: this.configService.get<number>('typesense.port') ?? 8108,
-          protocol:
-            this.configService.get<string>('typesense.protocol') ?? 'http',
-        },
-      ],
-      apiKey: this.configService.get<string>('typesense.apiKey') ?? '',
+      nodes: [{ host, port, protocol }],
+      apiKey,
       connectionTimeoutSeconds:
-        this.configService.get<number>('typesense.connectionTimeoutSeconds') ??
-        10,
+        this.configService.get<number>('typesense.connectionTimeoutSeconds') ?? 10,
       numRetries: 3,
       retryIntervalSeconds: 1,
     });
