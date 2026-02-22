@@ -1771,6 +1771,11 @@ export class ProductsService {
       [id],
     );
 
+    // Re-add to search index (fire-and-forget)
+    void this.syncProductToIndex(id).catch((err) =>
+      this.logger.warn(`Failed to re-index restored product ${id}: ${err?.message}`),
+    );
+
     return { message: `Product "${product.name_en}" restored successfully` };
   }
 
