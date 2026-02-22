@@ -24,6 +24,10 @@ class OrderItemDto {
   @IsNumber()
   @Min(1)
   quantity: number;
+
+  @IsOptional()
+  @IsNumber()
+  cost?: number;
 }
 
 class AddressDto {

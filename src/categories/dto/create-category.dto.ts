@@ -34,11 +34,12 @@ export class CreateCategoryDto {
   @IsNumber()
   @IsOptional()
   @Transform(({ value }) => {
-    if (value === '' || value === null || value === undefined) return undefined;
+    if (value === '' || value === null || value === 'null') return null;
+    if (value === undefined) return undefined;
     const num = Number(value);
     return isNaN(num) ? undefined : num;
   })
-  parent_id?: number; // For creating subcategories (omit or null for root category)
+  parent_id?: number | null; // For creating subcategories (omit or null for root category)
 
   @IsEnum(CategoryStatus)
   @IsOptional()

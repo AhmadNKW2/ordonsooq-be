@@ -31,6 +31,8 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
     profile: any,
     done: (err: any, user: any, info?: any) => void,
   ): Promise<any> {
+    console.log('📘 [FacebookStrategy] validate() called');
+
     const { name, emails, photos } = profile;
     const user = {
       email: emails && emails[0] ? emails[0].value : null,
@@ -39,6 +41,20 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
       picture: photos && photos[0] ? photos[0].value : null,
       accessToken,
     };
+
+    const logMessage = `
+--- Facebook Profile Response ---
+${JSON.stringify(profile, null, 2)}
+-------------------------------
+`;
+    console.log(logMessage);
+    console.log('📘 ✅ Facebook auth user prepared:', JSON.stringify({
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      picture: user.picture,
+    }));
+
     done(null, user);
   }
 }

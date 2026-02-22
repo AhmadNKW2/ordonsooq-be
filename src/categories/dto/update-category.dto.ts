@@ -7,11 +7,12 @@ export class UpdateCategoryDto extends PartialType(CreateCategoryDto) {
   @IsNumber()
   @IsOptional()
   @Transform(({ value }) => {
-    if (value === '' || value === null || value === undefined) return undefined;
+    if (value === '' || value === null || value === 'null') return null;
+    if (value === undefined) return undefined;
     const num = Number(value);
     return isNaN(num) ? undefined : num;
   })
-  parent_id?: number;
+  parent_id?: number | null;
 
   @IsOptional()
   @Transform(({ value }) => {

@@ -27,6 +27,18 @@ export class ProductsController {
 
   // ========== PRODUCT CRUD ==========
 
+  /**
+   * POST /products/reindex
+   * Rebuild the entire Typesense products index from the database.
+   * Admin-only, safe to run multiple times.
+   */
+  @Post('reindex')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(UserRole.ADMIN)
+  reindexSearch() {
+    return this.productsService.reindexAll();
+  }
+
   @Post()
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles(UserRole.ADMIN)
@@ -35,8 +47,10 @@ export class ProductsController {
   }
 
   @Get()
-  findAll(@Query() filterDto: FilterProductDto) {
-    return this.productsService.findAll(filterDto);
+  @UseGuards(OptionalJwtAuthGuard)
+  findAll(@Query() filterDto: FilterProductDto, @Req() req: any) {
+    const isAdmin = req.user?.role === UserRole.ADMIN;
+    return this.productsService.findAll(filterDto, isAdmin);
   }
 
   @Get(':id')
@@ -47,8 +61,10 @@ export class ProductsController {
   }
 
   @Get('slug/:slug')
-  findOneBySlug(@Param('slug') slug: string) {
-    return this.productsService.findOneBySlug(slug);
+  @UseGuards(OptionalJwtAuthGuard)
+  findOneBySlug(@Param('slug') slug: string, @Req() req: any) {
+    const isAdmin = req.user?.role === UserRole.ADMIN;
+    return this.productsService.findOneBySlug(slug, isAdmin);
   }
 
   @Put(':id')

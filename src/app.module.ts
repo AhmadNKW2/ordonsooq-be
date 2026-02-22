@@ -7,6 +7,7 @@ import {
 import { CacheModule } from '@nestjs/cache-manager';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ScheduleModule } from '@nestjs/schedule';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { CategoriesModule } from './categories/categories.module';
@@ -26,13 +27,17 @@ import { HealthModule } from './health/health.module';
 import { OrdersModule } from './orders/orders.module';
 import { AddressesModule } from './addresses/addresses.module';
 import { CartModule } from './cart/cart.module';
+import { SearchModule } from './search/search.module';
+import typesenseConfig from './config/typesense.config';
 import { LoggingMiddleware } from './common/middleware/logging.middleware';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      load: [typesenseConfig],
     }),
+    ScheduleModule.forRoot(),
     CacheModule.register({
       isGlobal: true,
       ttl: Number(process.env.CACHE_TTL ?? 60),
@@ -74,6 +79,7 @@ import { LoggingMiddleware } from './common/middleware/logging.middleware';
     BrandsModule,
     AddressesModule,
     CartModule,
+    SearchModule,
   ],
 })
 export class AppModule implements NestModule {

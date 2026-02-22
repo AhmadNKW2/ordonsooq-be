@@ -13,6 +13,7 @@ import {
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { FilterOrderDto } from './dto/filter-order.dto';
+import { UpdateOrderItemsCostDto } from './dto/update-order-items-cost.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { UserRole, Roles } from '../common/decorators/roles.decorator';
@@ -55,5 +56,15 @@ export class OrdersController {
   @Roles(UserRole.ADMIN)
   updateStatus(@Param('id') id: string, @Body('status') status: OrderStatus) {
     return this.ordersService.updateStatus(+id, status);
+  }
+
+  @Patch(':id/items/cost')
+  @UseGuards(RolesGuard)
+  @Roles(UserRole.ADMIN)
+  updateItemsCost(
+    @Param('id') id: string,
+    @Body() dto: UpdateOrderItemsCostDto,
+  ) {
+    return this.ordersService.updateItemsCost(+id, dto);
   }
 }

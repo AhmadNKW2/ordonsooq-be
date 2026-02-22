@@ -80,7 +80,8 @@ export class PriceDto {
   combination?: Record<string, number>;
 
   @IsNumber()
-  cost: number;
+  @IsOptional()
+  cost?: number;
 
   @IsNumber()
   price: number;
@@ -103,7 +104,8 @@ export class WeightDto {
   combination?: Record<string, number>;
 
   @IsNumber()
-  weight: number;
+  @IsOptional()
+  weight?: number;
 
   @IsNumber()
   @IsOptional()
@@ -132,7 +134,12 @@ export class StockDto {
 
   @IsNumber()
   @Min(0)
-  quantity: number;
+  @IsOptional()
+  quantity?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  is_out_of_stock?: boolean;
 }
 
 // ==================== MAIN UPDATE DTO ====================

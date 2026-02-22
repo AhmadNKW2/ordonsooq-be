@@ -65,7 +65,7 @@ export class Category {
     onDelete: 'SET NULL',
   })
   @JoinColumn({ name: 'parent_id' })
-  parent: Category;
+  parent: Category | null;
 
   @Column({ nullable: true })
   parent_id: number | null;

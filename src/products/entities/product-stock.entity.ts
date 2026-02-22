@@ -54,6 +54,9 @@ export class ProductStock {
   @Column({ default: 10 })
   low_stock_threshold: number;
 
+  @Column({ default: true })
+  is_out_of_stock: boolean;
+
   @CreateDateColumn()
   created_at: Date;
 

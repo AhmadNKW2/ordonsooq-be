@@ -42,7 +42,8 @@ class PriceInput {
   combination?: Record<string, number>;
 
   @IsNumber()
-  cost: number;
+  @IsOptional()
+  cost?: number;
 
   @IsNumber()
   price: number;
@@ -63,7 +64,8 @@ class WeightInput {
   combination?: Record<string, number>;
 
   @IsNumber()
-  weight: number;
+  @IsOptional()
+  weight?: number;
 
   @IsNumber()
   @IsOptional()
@@ -90,7 +92,12 @@ class StockInput {
 
   @IsNumber()
   @Min(0)
-  quantity: number;
+  @IsOptional()
+  quantity?: number;
+
+  @IsBoolean()
+  @IsOptional()
+  is_out_of_stock?: boolean;
 }
 
 /**

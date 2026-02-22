@@ -1,8 +1,5 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadRequestException,
-} from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource } from 'typeorm';
 import { Product, ProductStatus } from './entities/product.entity';
@@ -27,6 +24,7 @@ import { ProductWeightGroup } from './entities/product-weight-group.entity';
 import { ProductStock } from './entities/product-stock.entity';
 import { ProductAttribute } from './entities/product-attribute.entity';
 import { CartItem } from '../cart/entities/cart-item.entity';
+import { IndexingService, IndexableProduct } from '../search/indexing.service';
 
 import { ProductVariantCombination } from './entities/product-variant-combination.entity';
 import { ProductPriceGroupValue } from './entities/product-price-group-value.entity';
@@ -36,6 +34,8 @@ import { Like, Not } from 'typeorm';
 
 @Injectable()
 export class ProductsService {
+  private readonly logger = new Logger(ProductsService.name);
+
   constructor(
     @InjectRepository(Product)
     private productsRepository: Repository<Product>,
@@ -50,7 +50,214 @@ export class ProductsService {
     private mediaGroupService: ProductMediaGroupService,
     private weightGroupService: ProductWeightGroupService,
     private dataSource: DataSource,
+    private readonly indexingService: IndexingService,
   ) {}
+
+  // ─── Search indexing helpers ───────────────────────────────────────────────
+
+  /**
+   * Tokenize a string into lowercase words for tag generation.
+   * Splits on whitespace, hyphens, slashes, commas, and dots.
+   */
+  private tokenizeForTags(text?: string | null): string[] {
+    if (!text) return [];
+    return text
+      .toLowerCase()
+      .split(/[\s\-_/,\.\(\)\[\]]+/)
+      .map((w) => w.trim())
+      .filter((w) => w.length > 1);
+  }
+
+  /**
+   * Build a deduplicated tag array from all searchable signal fields.
+   * This is the key to making synonyms work: the synonym "mobile" → "smartphone"
+   * only fires if "smartphone" actually appears somewhere in the document.
+   * By adding the category name as a tag, the product becomes findable via synonyms
+   * even if the product name itself doesn't contain those words.
+   */
+  private buildSearchTags(
+    nameEn: string,
+    nameAr: string,
+    categoryNames: string[],
+    brandEn?: string,
+    brandAr?: string,
+  ): string[] {
+    const parts: string[] = [
+      ...this.tokenizeForTags(nameEn),
+      ...this.tokenizeForTags(nameAr),
+      ...(brandEn ? this.tokenizeForTags(brandEn) : []),
+      ...(brandAr ? this.tokenizeForTags(brandAr) : []),
+      ...categoryNames.flatMap((n) => this.tokenizeForTags(n)),
+    ];
+    return [...new Set(parts)];
+  }
+
+  /**
+   * Load the minimal product data needed for Typesense and upsert the document.
+   * Fire-and-forget safe — errors are logged but never bubble up to the caller.
+   */
+  private async syncProductToIndex(productId: number): Promise<void> {
+    try {
+      const [product, productCategories, priceGroups, stockRows, mediaRows] =
+        await Promise.all([
+          this.productsRepository.findOne({
+            where: { id: productId },
+            relations: ['brand', 'category'],
+          }),
+          this.productCategoriesRepository.find({
+            where: { product_id: productId },
+            relations: ['category'],
+          }),
+          this.dataSource.getRepository(ProductPriceGroup).find({
+            where: { product_id: productId },
+          }),
+          this.dataSource.getRepository(ProductStock).find({
+            where: { product_id: productId },
+          }),
+          this.dataSource.getRepository(Media).find({
+            where: { product_id: productId },
+            order: { is_primary: 'DESC' },
+          }),
+        ]);
+
+      if (!product) return;
+
+      // ── Lowest price across all price groups (pick sale_price if set) ──────
+      const sortedByPrice = [...priceGroups].sort(
+        (a, b) =>
+          (a.sale_price ?? a.price ?? 0) - (b.sale_price ?? b.price ?? 0),
+      );
+      const bestPrice = sortedByPrice[0];
+
+      const totalStock = stockRows.reduce(
+        (sum, s) => sum + (s.quantity ?? 0),
+        0,
+      );
+      const images = mediaRows.map((m) => m.url).filter(Boolean);
+
+      // ── Category resolution ───────────────────────────────────────────────
+      // Use all categories from the junction table; fall back to primary relation
+      const allCategories =
+        productCategories
+          .map((pc) => pc.category)
+          .filter(Boolean) as Category[];
+
+      const primaryCategory: Category | null =
+        allCategories[0] ?? (product as any).category ?? null;
+
+      // Subcategory = any category with level > 0 (level 0 = main, 1+ = sub)
+      const subCategory =
+        allCategories.find((c) => c.level > 0) ?? null;
+
+      // ── Brand data ───────────────────────────────────────────────────────
+      const brand = (product as any).brand as
+        | { name_en: string; name_ar?: string }
+        | null;
+
+      // ── Descriptions — combine short + long for maximum text coverage ────
+      const descriptionEn = [
+        product.short_description_en,
+        product.long_description_en,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .trim() || undefined;
+
+      const descriptionAr = [
+        product.short_description_ar,
+        product.long_description_ar,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .trim() || undefined;
+
+      // ── Auto-generated tags ──────────────────────────────────────────────
+      // Synonyms only work when the synonym target word appears in an indexed field.
+      // By tokenising category names into tags, searching "mobile" → synonym expands
+      // to "smartphone" → matches a product in category "Smartphones".
+      const categoryNamesForTags = allCategories.flatMap((c) =>
+        [c.name_en, c.name_ar].filter(Boolean),
+      );
+
+      const tags = this.buildSearchTags(
+        product.name_en,
+        product.name_ar,
+        categoryNamesForTags,
+        brand?.name_en,
+        brand?.name_ar,
+      );
+
+      const doc: IndexableProduct = {
+        id: String(product.id),
+        name_en: product.name_en,
+        name_ar: product.name_ar,
+        description_en: descriptionEn,
+        description_ar: descriptionAr,
+        brand: brand?.name_en ?? 'Unknown',
+        category: primaryCategory?.name_en ?? 'Uncategorized',
+        subcategory: subCategory?.name_en ?? undefined,
+        tags: tags.length ? tags : undefined,
+        price: bestPrice?.price ?? 0,
+        sale_price: bestPrice?.sale_price ?? undefined,
+        rating: Number(product.average_rating) || 0,
+        rating_count: product.total_ratings ?? 0,
+        stock_quantity: totalStock,
+        is_available:
+          product.status === ProductStatus.ACTIVE && product.visible,
+        images: images.length ? images : undefined,
+        created_at: product.created_at
+          ? Math.floor(new Date(product.created_at).getTime() / 1000)
+          : Math.floor(Date.now() / 1000),
+        seller_id: product.vendor_id ? String(product.vendor_id) : undefined,
+        sales_count: undefined, // no sales_count column on entity currently
+        popularity_score: this.indexingService.calculatePopularityScore(
+          0,
+          Number(product.average_rating) || 0,
+          product.total_ratings ?? 0,
+          product.created_at ?? new Date(),
+        ),
+      };
+
+      await this.indexingService.upsertProduct(doc);
+    } catch (err) {
+      this.logger.warn(
+        `Failed to sync product ${productId} to search index: ${err?.message}`,
+      );
+    }
+  }
+
+  /**
+   * Bulk re-index all ACTIVE + visible products.
+   * Called by the admin reindex endpoint.
+   */
+  async reindexAll(): Promise<{ indexed: number }> {
+    const products = await this.productsRepository.find({
+      where: { status: ProductStatus.ACTIVE, visible: true },
+      relations: ['brand', 'category'],
+    });
+
+    const ids = products.map((p) => p.id);
+    this.logger.log(`Reindexing ${ids.length} products…`);
+
+    // Process concurrently in small batches to avoid DB overload
+    const BATCH = 50;
+    for (let i = 0; i < ids.length; i += BATCH) {
+      await Promise.all(ids.slice(i, i + BATCH).map((id) => this.syncProductToIndex(id)));
+    }
+
+    this.logger.log(`✅ Reindex complete — ${ids.length} products processed`);
+    return { indexed: ids.length };
+  }
+
+  /** Runs every night at 03:00 to heal any drift between PostgreSQL and Typesense. */
+  @Cron(CronExpression.EVERY_DAY_AT_3AM)
+  async scheduledReindex(): Promise<void> {
+    this.logger.log('Scheduled nightly reindex started…');
+    const { indexed } = await this.reindexAll();
+    this.logger.log(`Scheduled nightly reindex done — ${indexed} products synced`);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
 
   private slugify(text: string): string {
     return text
@@ -190,7 +397,7 @@ export class ProductsService {
         if (simplePrices.length > 0) {
           creationTasks.push(
             this.priceGroupService.createSimplePriceGroup(id, {
-              cost: simplePrices[0].cost,
+              cost: simplePrices[0].cost ?? 0,
               price: simplePrices[0].price,
               sale_price: simplePrices[0].sale_price,
             }),
@@ -247,7 +454,7 @@ export class ProductsService {
         if (simpleWeights.length > 0) {
           creationTasks.push(
             this.weightGroupService.createSimpleWeightGroup(id, {
-              weight: simpleWeights[0].weight,
+              weight: simpleWeights[0].weight ?? 0,
               length: simpleWeights[0].length,
               width: simpleWeights[0].width,
               height: simpleWeights[0].height,
@@ -306,7 +513,11 @@ export class ProductsService {
 
         if (simpleStocks.length > 0) {
           creationTasks.push(
-            this.variantsService.setSimpleStock(id, simpleStocks[0].quantity),
+            this.variantsService.setSimpleStock(
+              id,
+              simpleStocks[0].quantity,
+              simpleStocks[0].is_out_of_stock,
+            ),
           );
         }
 
@@ -369,7 +580,8 @@ export class ProductsService {
               return stockRepo.create({
                 product_id: id,
                 variant_id: variantMap.get(key),
-                quantity: s.quantity,
+                quantity: s.quantity ?? 0,
+                is_out_of_stock: s.is_out_of_stock ?? false,
               });
             });
 
@@ -383,6 +595,10 @@ export class ProductsService {
 
       // Return the complete product
       const result = await this.findOne(savedProduct.id);
+
+      // Sync to Typesense (fire-and-forget — never blocks the response)
+      void this.syncProductToIndex(savedProduct.id);
+
       return {
         product: result,
         message: isVariantProduct
@@ -396,7 +612,7 @@ export class ProductsService {
     }
   }
 
-  async findAll(filterDto: FilterProductDto) {
+  async findAll(filterDto: FilterProductDto, isAdmin = false) {
     const {
       page = 1,
       limit = 10,
@@ -589,7 +805,7 @@ export class ProductsService {
 
     // Transform each product using the detailed view structure
     const transformedData = data.map((product) =>
-      this.transformProductDetail(product),
+      this.transformProductDetail(product, isAdmin),
     );
 
     return {
@@ -606,7 +822,7 @@ export class ProductsService {
   /**
    * Transform product for detailed view (GET /products/:id)
    */
-  private transformProductDetail(product: Product, showCost = false): any {
+  private transformProductDetail(product: Product, isAdmin = false): any {
     const {
       media,
       priceGroups,
@@ -701,7 +917,7 @@ export class ProductsService {
       priceGroupsMap[String(pg.id)] = {
         price: pg.price,
         sale_price: pg.sale_price,
-        ...(showCost && { cost: pg.cost }),
+        ...(isAdmin && { cost: pg.cost }),
       };
     });
 
@@ -760,8 +976,7 @@ export class ProductsService {
         ?.map((v: any) => {
           const stockItem = stock?.find((s: any) => s.variant_id === v.id);
           const quantity = stockItem ? stockItem.quantity : 0;
-
-          if (quantity <= 0) return null;
+          const is_out_of_stock = stockItem ? stockItem.is_out_of_stock : true;
 
           const attributeValues: Record<string, number> = {};
           const variantValueIds = new Set<number>();
@@ -796,7 +1011,8 @@ export class ProductsService {
           return {
             id: v.id,
             is_active: v.is_active,
-            quantity: quantity,
+            ...(isAdmin && { quantity }),
+            is_out_of_stock,
             attribute_values: attributeValues,
             price_group_id: getGroupId(priceGroups),
             media_group_id: getGroupId(mediaGroupsList),
@@ -817,12 +1033,17 @@ export class ProductsService {
     } = rest;
 
     // Determine quantity for simple products
-    let simpleProductQuantity = undefined;
+    let simpleProductQuantity: number | undefined = undefined;
+    let simpleProductIsOutOfStock: boolean | undefined = undefined;
     if (variantsList.length === 0) {
       // If no variants, check for stock record associated directly with the product (where variant_id is null)
       const simpleStock = stock?.find((s: any) => !s.variant_id);
       if (simpleStock) {
         simpleProductQuantity = simpleStock.quantity;
+        simpleProductIsOutOfStock = simpleStock.is_out_of_stock;
+      } else {
+        simpleProductQuantity = 0;
+        simpleProductIsOutOfStock = true;
       }
     }
 
@@ -835,293 +1056,12 @@ export class ProductsService {
       price_groups: priceGroupsMap,
       weight_groups: weightGroupsMap,
       variants: variantsList,
-      quantity: simpleProductQuantity, // Will be undefined for variant products, and number for simple products
+      ...(isAdmin && simpleProductQuantity !== undefined && { quantity: simpleProductQuantity }),
+      ...(simpleProductIsOutOfStock !== undefined && { is_out_of_stock: simpleProductIsOutOfStock }),
     };
   }
 
-  /**
-   * Transform a product for the list view with simplified structure as requested
-   */
-  private transformProductListItem(product: Product): any {
-    const {
-      media,
-      priceGroups,
-      weightGroups,
-      stock,
-      brand,
-      variants,
-      productCategories,
-      ...rest
-    } = product as any;
-
-    const brandInfo = brand
-      ? {
-          id: brand.id,
-          name_en: brand.name_en,
-          name_ar: brand.name_ar,
-          logo: brand.logo,
-          status: brand.status,
-        }
-      : null;
-
-    // Transform productCategories to a clean categories array
-    const categories =
-      productCategories?.map((pc: any) => pc.category).filter(Boolean) || [];
-
-    // Helper to get variant stock
-    const getVariantStock = (variantId: number) => {
-      const stockItem = stock?.find((s: any) => s.variant_id === variantId);
-      return stockItem ? stockItem.quantity : 0;
-    };
-
-    // Process variants
-    let variantsList: any[] = [];
-    if (variants && variants.length > 0) {
-      variantsList = variants
-        .map((v: any) => {
-          // Get quantity
-          const quantity = getVariantStock(v.id);
-
-          // 1. Show only variants ids that are not out of stock
-          if (quantity <= 0) return null;
-
-          // Get variant attribute value IDs for matching
-          const variantValueIds = new Set(
-            v.combinations?.map((c: any) => c.attribute_value_id) || [],
-          );
-
-          const isMatch = (groupValues: any[]) => {
-            // If group has no attributes, it is a generic match (lowest priority)
-            if (!groupValues || groupValues.length === 0) return true;
-
-            const groupValueIds = groupValues.map(
-              (gv: any) => gv.attribute_value_id,
-            );
-
-            // The group matches if all its attributes are present in the variant
-            // (i.e. group is a subset of variant)
-            return groupValueIds.every((id: any) => variantValueIds.has(id));
-          };
-
-          // Find matching price - Prioritize more specific matches (more attributes)
-          let matchingPriceGroup: any = null;
-          if (priceGroups) {
-            const matches = priceGroups.filter((pg: any) =>
-              isMatch(pg.groupValues),
-            );
-            // Sort by number of attributes descending
-            matches.sort(
-              (a: any, b: any) =>
-                (b.groupValues?.length || 0) - (a.groupValues?.length || 0),
-            );
-            matchingPriceGroup = matches[0];
-          }
-
-          const priceInfo = matchingPriceGroup
-            ? {
-                price: matchingPriceGroup.price,
-                sale_price: matchingPriceGroup.sale_price,
-              }
-            : null;
-
-          // Find matching weight/dimensions - Prioritize more specific matches
-          let matchingWeightGroup: any = null;
-          if (weightGroups) {
-            const matches = weightGroups.filter((wg: any) =>
-              isMatch(wg.groupValues),
-            );
-            matches.sort(
-              (a: any, b: any) =>
-                (b.groupValues?.length || 0) - (a.groupValues?.length || 0),
-            );
-            matchingWeightGroup = matches[0];
-          }
-
-          const weight = matchingWeightGroup
-            ? matchingWeightGroup.weight
-            : null;
-          const dimensions = matchingWeightGroup
-            ? {
-                length: matchingWeightGroup.length ?? null,
-                width: matchingWeightGroup.width ?? null,
-                height: matchingWeightGroup.height ?? null,
-              }
-            : null;
-
-          // Find matching media - Prioritize more specific matches
-          let matchingMedia: any = null;
-          let allImages: any[] = [];
-          if (media) {
-            const groups = new Map();
-            media.forEach((m: any) => {
-              if (m.mediaGroup && !groups.has(m.mediaGroup.id)) {
-                groups.set(m.mediaGroup.id, m.mediaGroup);
-              }
-            });
-
-            const matchingGroups: any[] = [];
-            for (const group of groups.values()) {
-              if (isMatch(group.groupValues)) {
-                matchingGroups.push(group);
-              }
-            }
-
-            // Sort by number of attributes descending
-            matchingGroups.sort(
-              (a: any, b: any) =>
-                (b.groupValues?.length || 0) - (a.groupValues?.length || 0),
-            );
-
-            const bestGroup = matchingGroups[0];
-
-            if (bestGroup) {
-              const groupMedia = media.filter(
-                (m: any) => m.mediaGroup?.id === bestGroup.id,
-              );
-              const primary =
-                groupMedia.find((m: any) => m.is_primary) || groupMedia[0];
-              if (primary) {
-                matchingMedia = {
-                  id: primary.id,
-                  url: primary.url,
-                  type: primary.type,
-                  alt_text: primary.alt_text,
-                };
-              }
-
-              allImages = groupMedia
-                .sort((a: any, b: any) => {
-                  // primary first
-                  if (a.id === primary?.id) return -1;
-                  if (b.id === primary?.id) return 1;
-                  return 0;
-                })
-                .map((m: any) => ({
-                  id: m.id,
-                  url: m.url,
-                  type: m.type,
-                  alt_text: m.alt_text,
-                  is_primary: m.id === primary?.id,
-                }));
-            }
-          }
-
-          // 2. Appear quantity for each variant + attributes + price + media
-          return {
-            id: v.id,
-            is_active: v.is_active,
-            quantity: quantity,
-            attributes:
-              v.combinations?.map((c: any) => ({
-                attribute_id: c.attribute_value?.attribute_id,
-                attribute_name: c.attribute_value?.attribute?.name_en,
-                attribute_name_ar: c.attribute_value?.attribute?.name_ar,
-                unit_en: c.attribute_value?.attribute?.unit_en,
-                unit_ar: c.attribute_value?.attribute?.unit_ar,
-                value_id: c.attribute_value_id,
-                value_name: c.attribute_value?.value_en,
-                value_name_ar: c.attribute_value?.value_ar,
-                color_code: c.attribute_value?.color_code,
-              })) || [],
-            price: priceInfo,
-            primary_group_media: matchingMedia,
-            images: allImages,
-            weight,
-            dimensions,
-          };
-        })
-        .filter(Boolean); // Filter out nulls (out of stock)
-    }
-
-    // Fallback for simple products (no variants)
-    const priceData: any[] = [];
-    const mediaData: any[] = [];
-    const isSimpleProduct = !variants || variants.length === 0;
-
-    let simpleWeight: any = null;
-    let simpleDimensions: any = null;
-
-    if (isSimpleProduct) {
-      // Simple Price
-      const simplePrice =
-        priceGroups?.find(
-          (pg: any) => !pg.groupValues || pg.groupValues.length === 0,
-        ) || priceGroups?.[0];
-      if (simplePrice) {
-        priceData.push({
-          id: simplePrice.id,
-          price: simplePrice.price,
-          sale_price: simplePrice.sale_price,
-          attributes: [],
-        });
-      }
-
-      // Simple Media
-      if (media && media.length > 0) {
-        const primary = media.find((m: any) => m.is_primary) || media[0];
-        if (primary) {
-          mediaData.push({
-            id: primary.id,
-            attributes: [],
-            image: {
-              id: primary.id,
-              url: primary.url,
-              type: primary.type,
-              alt_text: primary.alt_text,
-            },
-          });
-        }
-      }
-
-      // Simple Weight / Dimensions
-      const simpleWeightGroup =
-        weightGroups?.find(
-          (wg: any) => !wg.groupValues || wg.groupValues.length === 0,
-        ) || weightGroups?.[0];
-      if (simpleWeightGroup) {
-        simpleWeight = simpleWeightGroup.weight;
-        simpleDimensions = {
-          length: simpleWeightGroup.length ?? null,
-          width: simpleWeightGroup.width ?? null,
-          height: simpleWeightGroup.height ?? null,
-        };
-      }
-    }
-
-    // Clean rest
-    const {
-      category_id,
-      vendor_id,
-      brand_id, // 3. Remove brand id (handled by destructuring)
-      category,
-      attributes,
-      archived_at,
-      archived_by,
-      deleted_at,
-      ...cleanRest
-    } = rest;
-
-    // Construct response
-    const response: any = {
-      ...cleanRest,
-      brand: brandInfo,
-      categories,
-      variants: variantsList,
-    };
-
-    // 4. Remove price and media and put them inside the variants
-    // Only add them back if it is a simple product
-    if (isSimpleProduct) {
-      response.price = priceData;
-      response.media = mediaData;
-      response.weight = simpleWeight;
-      response.dimensions = simpleDimensions;
-    }
-
-    return response;
-  }
-
-  async findOne(id: number, showCost = false): Promise<any> {
+  async findOne(id: number, isAdmin = false): Promise<any> {
     const [
       productBase,
       productCategories,
@@ -1186,10 +1126,10 @@ export class ProductsService {
     productBase.attributes = attributes;
 
     // Return detailed product structure
-    return this.transformProductDetail(productBase, showCost);
+    return this.transformProductDetail(productBase, isAdmin);
   }
 
-  async findOneBySlug(slug: string, showCost = false): Promise<any> {
+  async findOneBySlug(slug: string, isAdmin = false): Promise<any> {
     const product = await this.productsRepository.findOne({
       where: { slug },
       select: ['id'],
@@ -1199,7 +1139,7 @@ export class ProductsService {
       throw new NotFoundException(`Product with slug ${slug} not found`);
     }
 
-    return this.findOne(product.id, showCost);
+    return this.findOne(product.id, isAdmin);
   }
 
   /**
@@ -1515,7 +1455,7 @@ export class ProductsService {
         if (simplePrices.length > 0) {
           creationTasks.push(
             this.priceGroupService.createSimplePriceGroup(id, {
-              cost: simplePrices[0].cost, // Take first valid simple price
+              cost: simplePrices[0].cost ?? 0, // Take first valid simple price
               price: simplePrices[0].price,
               sale_price: simplePrices[0].sale_price,
             }),
@@ -1573,7 +1513,7 @@ export class ProductsService {
         if (simpleWeights.length > 0) {
           creationTasks.push(
             this.weightGroupService.createSimpleWeightGroup(id, {
-              weight: simpleWeights[0].weight,
+              weight: simpleWeights[0].weight ?? 0,
               length: simpleWeights[0].length,
               width: simpleWeights[0].width,
               height: simpleWeights[0].height,
@@ -1632,7 +1572,11 @@ export class ProductsService {
 
         if (simpleStocks.length > 0) {
           creationTasks.push(
-            this.variantsService.setSimpleStock(id, simpleStocks[0].quantity),
+            this.variantsService.setSimpleStock(
+              id,
+              simpleStocks[0].quantity,
+              simpleStocks[0].is_out_of_stock,
+            ),
           );
         }
 
@@ -1653,7 +1597,8 @@ export class ProductsService {
                   stockRepo.create({
                     product_id: id,
                     variant_id: variantId,
-                    quantity: s.quantity,
+                    quantity: s.quantity ?? 0,
+                    is_out_of_stock: s.is_out_of_stock ?? false,
                   }),
                 );
               } else {
@@ -1661,7 +1606,7 @@ export class ProductsService {
                 await this.variantsService.setStockByCombination(
                   id,
                   s.combination!,
-                  s.quantity,
+                  s.quantity ?? 0,
                 );
               }
             }
@@ -1679,6 +1624,10 @@ export class ProductsService {
 
       // Return updated product
       const updatedProduct = await this.findOne(id);
+
+      // Sync to Typesense (fire-and-forget)
+      void this.syncProductToIndex(id);
+
       return {
         product: updatedProduct,
         message: 'Product updated successfully',
@@ -1727,6 +1676,13 @@ export class ProductsService {
       archived_at: new Date(),
       archived_by: userId,
     });
+
+    // Remove from search index (fire-and-forget)
+    void this.indexingService
+      .deleteProduct(String(id))
+      .catch((err) =>
+        this.logger.warn(`Failed to remove product ${id} from index: ${err?.message}`),
+      );
 
     return { message: `Product "${product.name_en}" archived successfully` };
   }

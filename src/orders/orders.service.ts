@@ -20,6 +20,7 @@ import { WalletService } from '../wallet/wallet.service';
 import { ProductPriceGroupService } from '../products/product-price-group.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { FilterOrderDto } from './dto/filter-order.dto';
+import { UpdateOrderItemsCostDto } from './dto/update-order-items-cost.dto';
 import { User } from '../users/entities/user.entity';
 import { TransactionSource } from '../wallet/entities/wallet-transaction.entity';
 import { CartService } from '../cart/cart.service';
@@ -92,7 +93,7 @@ export class OrdersService {
           lock: { mode: 'pessimistic_write' },
         });
 
-        if (!stock || stock.quantity < itemDto.quantity) {
+        if (!stock || stock.is_out_of_stock || stock.quantity < itemDto.quantity) {
           throw new BadRequestException(
             `Insufficient stock for product ${product.name_en}`,
           );
@@ -123,7 +124,7 @@ export class OrdersService {
           vendorId: product.vendor_id,
           quantity: itemDto.quantity,
           price: unitPrice,
-          cost: priceGroup.cost || 0,
+          cost: itemDto.cost ?? priceGroup.cost ?? 0,
           totalPrice: itemTotal,
           productSnapshot: {
             name_en: product.name_en,
@@ -333,6 +334,27 @@ export class OrdersService {
     }
 
     return this.ordersRepository.save(order);
+  }
+
+  async updateItemsCost(orderId: number, dto: UpdateOrderItemsCostDto) {
+    const order = await this.findOne(orderId);
+
+    const itemMap = new Map(order.items.map((i) => [i.id, i]));
+
+    const toSave: OrderItem[] = [];
+    for (const entry of dto.items) {
+      const item = itemMap.get(entry.itemId);
+      if (!item) {
+        throw new NotFoundException(
+          `Order item #${entry.itemId} not found in order #${orderId}`,
+        );
+      }
+      item.cost = entry.cost;
+      toSave.push(item);
+    }
+
+    await this.orderItemsRepository.save(toSave);
+    return this.findOne(orderId);
   }
 
   private async processCancellation(order: Order, newStatus: OrderStatus) {

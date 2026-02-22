@@ -441,7 +441,8 @@ export class ProductVariantsService {
    */
   async setSimpleStock(
     product_id: number,
-    quantity: number,
+    quantity?: number,
+    is_out_of_stock?: boolean,
   ): Promise<ProductStock> {
     const product = await this.productRepository.findOne({
       where: { id: product_id },
@@ -456,12 +457,14 @@ export class ProductVariantsService {
     });
 
     if (stock) {
-      stock.quantity = quantity;
+      if (quantity !== undefined) stock.quantity = quantity;
+      if (is_out_of_stock !== undefined) stock.is_out_of_stock = is_out_of_stock;
     } else {
       stock = this.stockRepository.create({
         product_id: product_id,
         variant_id: null,
-        quantity,
+        quantity: quantity ?? 0,
+        is_out_of_stock: is_out_of_stock ?? false,
       });
     }
 
@@ -736,7 +739,8 @@ export class ProductVariantsService {
     product_id: number,
     items: Array<{
       combination?: Record<string, number>;
-      quantity: number;
+      quantity?: number;
+      is_out_of_stock?: boolean;
     }>,
   ): Promise<void> {
     if (items.length === 0) return;
@@ -764,8 +768,9 @@ export class ProductVariantsService {
       const stocks = simpleStocks.map((item) =>
         this.stockRepository.create({
           product_id: product_id,
-          variant_id: null, // Simple stock has no variant
-          quantity: item.quantity,
+          variant_id: null,
+          quantity: item.quantity ?? 0,
+          is_out_of_stock: item.is_out_of_stock ?? false,
         }),
       );
       await this.stockRepository.save(stocks);
@@ -783,7 +788,7 @@ export class ProductVariantsService {
           this.setStockByCombination(
             product_id,
             item.combination!,
-            item.quantity,
+            item.quantity ?? 0,
           ),
         ),
       );

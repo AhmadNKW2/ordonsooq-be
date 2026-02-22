@@ -24,6 +24,7 @@ import { Attribute } from '../attributes/entities/attribute.entity';
 import { Media } from '../media/entities/media.entity';
 import { Category } from '../categories/entities/category.entity';
 import { Brand } from '../brands/entities/brand.entity';
+import { SearchModule } from '../search/search.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { Brand } from '../brands/entities/brand.entity';
       Brand,
     ]),
     AttributesModule,
+    SearchModule,
   ],
   controllers: [ProductsController],
   providers: [

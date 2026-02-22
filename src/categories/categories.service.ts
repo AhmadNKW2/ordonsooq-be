@@ -314,6 +314,43 @@ export class CategoriesService {
       category.slug = await this.generateUniqueSlug(updateData.name_en, id);
     }
 
+    // Handle parent_id and level changes
+    if (updateData.parent_id !== undefined && updateData.parent_id !== category.parent_id) {
+      let newLevel = 0;
+      if (updateData.parent_id === null) {
+        newLevel = 0;
+        category.parent = null;
+      } else {
+        const parent = await this.categoriesRepository.findOne({
+          where: { id: updateData.parent_id },
+        });
+
+        if (!parent) {
+          throw new NotFoundException('Parent category not found');
+        }
+
+        if (parent.level >= 2) {
+          throw new BadRequestException(
+            'Maximum nesting level reached (3 levels)',
+          );
+        }
+
+        // Prevent circular reference
+        const descendantIds = await this.getAllDescendantIds(id);
+        if (descendantIds.includes(updateData.parent_id) || id === updateData.parent_id) {
+          throw new BadRequestException('Cannot set a descendant or itself as parent');
+        }
+
+        newLevel = parent.level + 1;
+        category.parent = parent;
+      }
+      
+      if (category.level !== newLevel) {
+        category.level = newLevel;
+        await this.updateDescendantLevels(id, newLevel);
+      }
+    }
+
     Object.assign(category, updateData);
     await this.categoriesRepository.save(category);
 
@@ -339,6 +376,18 @@ export class CategoriesService {
   }
 
   // ========== LIFECYCLE MANAGEMENT ==========
+
+  private async updateDescendantLevels(categoryId: number, newLevel: number): Promise<void> {
+    const children = await this.categoriesRepository.find({
+      where: { parent_id: categoryId },
+    });
+
+    for (const child of children) {
+      child.level = newLevel + 1;
+      await this.categoriesRepository.save(child);
+      await this.updateDescendantLevels(child.id, child.level);
+    }
+  }
 
   /**
    * Get all descendant category IDs (children, grandchildren, etc.)
