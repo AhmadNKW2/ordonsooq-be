@@ -125,7 +125,8 @@ export class ProductsService {
       // ── Lowest price across all price groups (pick sale_price if set) ──────
       const sortedByPrice = [...priceGroups].sort(
         (a, b) =>
-          (a.sale_price ?? a.price ?? 0) - (b.sale_price ?? b.price ?? 0),
+          (parseFloat(String(a.sale_price ?? a.price ?? 0))) -
+          (parseFloat(String(b.sale_price ?? b.price ?? 0))),
       );
       const bestPrice = sortedByPrice[0];
 
@@ -197,8 +198,8 @@ export class ProductsService {
         category: primaryCategory?.name_en ?? 'Uncategorized',
         subcategory: subCategory?.name_en ?? undefined,
         tags: tags.length ? tags : undefined,
-        price: bestPrice?.price ?? 0,
-        sale_price: bestPrice?.sale_price ?? undefined,
+        price: bestPrice?.price != null ? parseFloat(String(bestPrice.price)) : 0,
+        sale_price: bestPrice?.sale_price != null ? parseFloat(String(bestPrice.sale_price)) : undefined,
         rating: Number(product.average_rating) || 0,
         rating_count: product.total_ratings ?? 0,
         stock_quantity: totalStock,
