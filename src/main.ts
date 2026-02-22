@@ -55,39 +55,39 @@ async function bootstrap() {
     }),
   );
 
-  // // Enable CORS with credentials support for cookie-based auth
-  // const isProduction = process.env.IS_PRODUCTION === 'true';
-  // const allowedOrigins = [
-  //   'https://ordonsooq-public.vercel.app',
-  //   'https://ordonsooq.com',
-  //   'https://www.ordonsooq.com',
-  //   'https://ordonsooq-admin-fe.vercel.app',
-  //   'http://localhost:3000',
-  //   'http://localhost:3002',
-  //   'https://appleid.apple.com',
-  // ];
+  // Enable CORS with credentials support for cookie-based auth
+  const isProduction = process.env.IS_PRODUCTION === 'true';
+  const allowedOrigins = [
+    'https://ordonsooq-public.vercel.app',
+    'https://ordonsooq.com',
+    'https://www.ordonsooq.com',
+    'https://ordonsooq-admin-fe.vercel.app',
+    'http://localhost:3000',
+    'http://localhost:3002',
+    'https://appleid.apple.com',
+  ];
 
-  // console.log('CORS Configuration:');
-  // console.log('- IS_PRODUCTION:', isProduction);
-  // console.log('- Allowed Origins:', allowedOrigins);
+  console.log('CORS Configuration:');
+  console.log('- IS_PRODUCTION:', isProduction);
+  console.log('- Allowed Origins:', allowedOrigins);
 
   app.enableCors({
-    // origin: (origin, callback) => {
-    //   // Allow requests with no origin (like mobile apps, Postman, curl)
-    //   if (!origin) {
-    //     return callback(null, true);
-    //   }
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps, Postman, curl)
+      if (!origin) {
+        return callback(null, true);
+      }
 
-    //   // Check if origin is in allowed list
-    //   const isAllowed = allowedOrigins.includes(origin);
+      // Check if origin is in allowed list
+      const isAllowed = allowedOrigins.includes(origin);
 
-    //   if (isAllowed) {
-    //     return callback(null, true);
-    //   }
-    //   console.warn(`CORS blocked - Origin: ${origin}`);
-    //   callback(new Error('Not allowed by CORS'));
-    // },
-        origin: true,
+      if (isAllowed) {
+        return callback(null, true);
+      }
+      console.warn(`CORS blocked - Origin: ${origin}`);
+      callback(new Error('Not allowed by CORS'));
+    },
+        // origin: true,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: [
