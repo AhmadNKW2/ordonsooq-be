@@ -10,6 +10,7 @@ import {
   UseGuards,
   Patch,
   Req,
+  ParseIntPipe,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { ProductsService } from './products.service';
@@ -55,9 +56,9 @@ export class ProductsController {
 
   @Get(':id')
   @UseGuards(OptionalJwtAuthGuard)
-  findOne(@Param('id') id: string, @Req() req: any) {
+  findOne(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
     const isAdmin = req.user?.role === UserRole.ADMIN;
-    return this.productsService.findOne(+id, isAdmin);
+    return this.productsService.findOne(id, isAdmin);
   }
 
   @Get('slug/:slug')

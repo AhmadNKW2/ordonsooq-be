@@ -96,7 +96,7 @@ export class ProductsService {
    * Load the minimal product data needed for Typesense and upsert the document.
    * Fire-and-forget safe — errors are logged but never bubble up to the caller.
    */
-  private async syncProductToIndex(productId: number): Promise<void> {
+  private async syncProductToIndex(productId: number, throwOnError = false): Promise<void> {
     try {
       const [product, productCategories, priceGroups, stockRows, mediaRows] =
         await Promise.all([
@@ -223,6 +223,7 @@ export class ProductsService {
       this.logger.warn(
         `Failed to sync product ${productId} to search index: ${err?.message}`,
       );
+      if (throwOnError) throw err;
     }
   }
 
@@ -230,7 +231,7 @@ export class ProductsService {
    * Bulk re-index all ACTIVE + visible products.
    * Called by the admin reindex endpoint.
    */
-  async reindexAll(): Promise<{ indexed: number }> {
+  async reindexAll(): Promise<{ indexed: number; failed: number; errors: string[] }> {
     const products = await this.productsRepository.find({
       where: { status: ProductStatus.ACTIVE, visible: true },
       relations: ['brand', 'category'],
@@ -239,22 +240,37 @@ export class ProductsService {
     const ids = products.map((p) => p.id);
     this.logger.log(`Reindexing ${ids.length} products…`);
 
+    let indexed = 0;
+    const errors: string[] = [];
+
     // Process concurrently in small batches to avoid DB overload
-    const BATCH = 50;
+    const BATCH = 10;
     for (let i = 0; i < ids.length; i += BATCH) {
-      await Promise.all(ids.slice(i, i + BATCH).map((id) => this.syncProductToIndex(id)));
+      const results = await Promise.allSettled(
+        ids.slice(i, i + BATCH).map((id) => this.syncProductToIndex(id, true)),
+      );
+      for (const r of results) {
+        if (r.status === 'fulfilled') {
+          indexed++;
+        } else {
+          errors.push(r.reason?.message ?? String(r.reason));
+        }
+      }
     }
 
-    this.logger.log(`✅ Reindex complete — ${ids.length} products processed`);
-    return { indexed: ids.length };
+    this.logger.log(`✅ Reindex complete — ${indexed}/${ids.length} products indexed, ${errors.length} failed`);
+    if (errors.length) {
+      this.logger.warn(`Reindex errors: ${errors.slice(0, 5).join(' | ')}`);
+    }
+    return { indexed, failed: errors.length, errors: errors.slice(0, 10) };
   }
 
   /** Runs every night at 03:00 to heal any drift between PostgreSQL and Typesense. */
   @Cron(CronExpression.EVERY_DAY_AT_3AM)
   async scheduledReindex(): Promise<void> {
     this.logger.log('Scheduled nightly reindex started…');
-    const { indexed } = await this.reindexAll();
-    this.logger.log(`Scheduled nightly reindex done — ${indexed} products synced`);
+    const { indexed, failed } = await this.reindexAll();
+    this.logger.log(`Scheduled nightly reindex done — ${indexed} synced, ${failed} failed`);
   }
 
   // ──────────────────────────────────────────────────────────────────────────
