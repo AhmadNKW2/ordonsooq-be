@@ -340,9 +340,41 @@ export class ProductMediaGroupService {
 
     const payloadMediaIds = new Set<number>();
 
-    // Process each item in the payload
+    // Pre-resolve all media groups sequentially (no race condition)
+    // Group media items by their combination key so we call findOrCreate once per unique combination
+    const combinationKeyToGroupId = new Map<string, number>();
+
+    const getCombinationKey = (item: MediaSyncItem): string => {
+      if (!item.combination || Object.keys(item.combination).length === 0) {
+        return '__simple__';
+      }
+      return Object.entries(item.combination)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => `${k}:${v}`)
+        .join('|');
+    };
+
+    for (const item of mediaItems) {
+      const key = getCombinationKey(item);
+      if (!combinationKeyToGroupId.has(key)) {
+        let groupId: number;
+        if (key === '__simple__') {
+          const g = await this.createSimpleMediaGroup(product_id);
+          groupId = g.id;
+        } else {
+          const g = await this.findOrCreateMediaGroup(product_id, item.combination!);
+          groupId = g.id;
+        }
+        combinationKeyToGroupId.set(key, groupId);
+      }
+    }
+
+    // Process each item in the payload (now safe to run in parallel — groups pre-resolved)
     await Promise.all(
       mediaItems.map(async (item) => {
+        const key = getCombinationKey(item);
+        const mediaGroupId = combinationKeyToGroupId.get(key)!;
+
         // Check if this media_id already exists as product media
         const media = existingMediaMap.get(item.media_id);
 
@@ -350,22 +382,10 @@ export class ProductMediaGroupService {
           // Update existing media
           payloadMediaIds.add(item.media_id);
 
-          // Update fields
           media.is_primary = item.is_primary ?? false;
           media.is_group_primary = item.is_group_primary ?? false;
           media.sort_order = item.sort_order ?? 0;
-
-          // Handle combination change - find or create appropriate media group
-          if (item.combination && Object.keys(item.combination).length > 0) {
-            const mediaGroup = await this.findOrCreateMediaGroup(
-              product_id,
-              item.combination,
-            );
-            media.media_group_id = mediaGroup.id;
-          } else {
-            const simpleGroup = await this.createSimpleMediaGroup(product_id);
-            media.media_group_id = simpleGroup.id;
-          }
+          media.media_group_id = mediaGroupId;
 
           await this.mediaRepository.save(media);
         } else {
@@ -380,20 +400,6 @@ export class ProductMediaGroupService {
             );
           }
 
-          // Determine media group
-          let mediaGroupId: number;
-          if (item.combination && Object.keys(item.combination).length > 0) {
-            const mediaGroup = await this.findOrCreateMediaGroup(
-              product_id,
-              item.combination,
-            );
-            mediaGroupId = mediaGroup.id;
-          } else {
-            const simpleGroup = await this.createSimpleMediaGroup(product_id);
-            mediaGroupId = simpleGroup.id;
-          }
-
-          // Link media to product
           unlinkedMedia.product_id = product_id;
           unlinkedMedia.media_group_id = mediaGroupId;
           unlinkedMedia.sort_order = item.sort_order ?? 0;

@@ -42,7 +42,7 @@ export class CategoriesController {
   // Admin only routes
   @Post()
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   @UseInterceptors(
     FileInterceptor('image', {
       storage: memoryStorage(),
@@ -73,7 +73,7 @@ export class CategoriesController {
 
   @Patch(':id')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   @UseInterceptors(
     FileInterceptor('image', {
       storage: memoryStorage(),
@@ -111,7 +111,7 @@ export class CategoriesController {
   // Get archived categories (trash view) - includes archived products and subcategories
   @Get('archive/list')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   findArchived(@Body() filterDto?: FilterCategoryDto) {
     return this.categoriesService.findArchived(filterDto);
   }
@@ -131,7 +131,7 @@ export class CategoriesController {
   // Archive a category (soft delete)
   @Post(':id/archive')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   archive(@Param('id') id: number, @Request() req) {
     return this.categoriesService.archive(id, req.user.id);
   }
@@ -139,7 +139,7 @@ export class CategoriesController {
   // Restore a category from archive
   @Post(':id/restore')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   restore(@Param('id') id: number, @Body() restoreDto: RestoreCategoryDto) {
     return this.categoriesService.restore(id, restoreDto);
   }
@@ -158,7 +158,7 @@ export class CategoriesController {
   // Reorder categories
   @Put('reorder')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   reorder(@Body() dto: ReorderCategoriesDto) {
     return this.categoriesService.reorder(dto.categories);
   }
@@ -168,7 +168,7 @@ export class CategoriesController {
   // Assign products to this category
   @Post(':id/products')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   assignProducts(
     @Param('id') id: number,
     @Body() dto: AssignProductsToCategoryDto,
@@ -179,7 +179,7 @@ export class CategoriesController {
   // Remove products from this category
   @Delete(':id/products')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   removeProducts(
     @Param('id') id: number,
     @Body() dto: AssignProductsToCategoryDto,

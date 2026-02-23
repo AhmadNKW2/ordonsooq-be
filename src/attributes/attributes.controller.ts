@@ -25,7 +25,7 @@ export class AttributesController {
 
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   create(@Body() createAttributeDto: CreateAttributeDto) {
     return this.attributesService.create(createAttributeDto);
   }
@@ -37,7 +37,7 @@ export class AttributesController {
 
   @Put('reorder')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   reorderAttributes(@Body() reorderDto: ReorderAttributesDto) {
     return this.attributesService.reorderAttributes(reorderDto);
   }
@@ -49,7 +49,7 @@ export class AttributesController {
 
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   update(
     @Param('id') id: string,
     @Body() updateAttributeDto: UpdateAttributeDto,
@@ -66,7 +66,7 @@ export class AttributesController {
 
   @Post(':id/values')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   addValue(
     @Param('id') id: string,
     @Body() body: { value_en: string; value_ar: string; parent_value_id?: number },
@@ -76,7 +76,7 @@ export class AttributesController {
 
   @Put(':id/values/reorder')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   reorderAttributeValues(
     @Param('id') id: string,
     @Body() reorderDto: ReorderAttributeValuesDto,
@@ -86,7 +86,7 @@ export class AttributesController {
 
   @Patch('values/:valueId')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   updateValue(
     @Param('valueId') valueId: string,
     @Body() updateDto: UpdateAttributeValueDto,

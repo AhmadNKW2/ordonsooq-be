@@ -156,11 +156,9 @@ export class CreateProductDto {
   sku?: string;
 
   @IsString()
-  @MaxLength(500)
   short_description_en: string;
 
   @IsString()
-  @MaxLength(500)
   short_description_ar: string;
 
   @IsString()

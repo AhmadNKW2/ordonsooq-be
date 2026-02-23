@@ -25,6 +25,7 @@ import { Media } from '../media/entities/media.entity';
 import { Category } from '../categories/entities/category.entity';
 import { Brand } from '../brands/entities/brand.entity';
 import { SearchModule } from '../search/search.module';
+import { CartItem } from '../cart/entities/cart-item.entity';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { SearchModule } from '../search/search.module';
       Media,
       Category,
       Brand,
+      CartItem,
     ]),
     AttributesModule,
     SearchModule,

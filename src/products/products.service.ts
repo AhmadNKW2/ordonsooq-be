@@ -45,6 +45,8 @@ export class ProductsService {
     private productCategoriesRepository: Repository<ProductCategory>,
     @InjectRepository(Brand)
     private brandsRepository: Repository<Brand>,
+    @InjectRepository(CartItem)
+    private cartItemsRepository: Repository<CartItem>,
     private variantsService: ProductVariantsService,
     private priceGroupService: ProductPriceGroupService,
     private mediaGroupService: ProductMediaGroupService,
@@ -636,13 +638,23 @@ export class ProductsService {
       sortBy = 'created_at',
       sortOrder = 'DESC',
       categoryId,
+      category_ids,
       vendorId,
+      vendor_ids,
       brandId,
+      brand_ids,
+      minPrice,
+      maxPrice,
+      has_sale,
       minRating,
       maxRating,
       status,
       visible,
       search,
+      sku,
+      in_stock,
+      start_date,
+      end_date,
       ids: filterIds,
     } = filterDto;
 
@@ -673,7 +685,7 @@ export class ProductsService {
       baseQuery.andWhere('product.visible = :visible', { visible });
     }
 
-    // Filter by category (check in product_categories junction table)
+    // Filter by single category (backward compat)
     if (categoryId) {
       baseQuery.andWhere(
         'EXISTS (SELECT 1 FROM product_categories pc WHERE pc.product_id = product.id AND pc.category_id = :categoryId)',
@@ -681,26 +693,96 @@ export class ProductsService {
       );
     }
 
-    // Filter by vendor
+    // Filter by multiple categories (OR logic — product must belong to at least one)
+    if (category_ids && category_ids.length > 0) {
+      baseQuery.andWhere(
+        'EXISTS (SELECT 1 FROM product_categories pc WHERE pc.product_id = product.id AND pc.category_id IN (:...category_ids))',
+        { category_ids },
+      );
+    }
+
+    // Filter by single vendor (backward compat)
     if (vendorId) {
       baseQuery.andWhere('product.vendor_id = :vendorId', { vendorId });
     }
 
-    // Filter by brand
+    // Filter by multiple vendors
+    if (vendor_ids && vendor_ids.length > 0) {
+      baseQuery.andWhere('product.vendor_id IN (:...vendor_ids)', { vendor_ids });
+    }
+
+    // Filter by single brand (backward compat)
     if (brandId) {
       baseQuery.andWhere('product.brand_id = :brandId', { brandId });
     }
 
+    // Filter by multiple brands
+    if (brand_ids && brand_ids.length > 0) {
+      baseQuery.andWhere('product.brand_id IN (:...brand_ids)', { brand_ids });
+    }
+
+    // Filter by price range (against the cheapest price group of each product)
+    if (minPrice !== undefined) {
+      baseQuery.andWhere(
+        'EXISTS (SELECT 1 FROM product_price_groups ppg WHERE ppg.product_id = product.id AND COALESCE(ppg.sale_price, ppg.price) >= :minPrice)',
+        { minPrice },
+      );
+    }
+    if (maxPrice !== undefined) {
+      baseQuery.andWhere(
+        'EXISTS (SELECT 1 FROM product_price_groups ppg WHERE ppg.product_id = product.id AND COALESCE(ppg.sale_price, ppg.price) <= :maxPrice)',
+        { maxPrice },
+      );
+    }
+
+    // Filter by sale (product must have at least one price group with a sale_price)
+    if (has_sale !== undefined) {
+      if (has_sale) {
+        baseQuery.andWhere(
+          'EXISTS (SELECT 1 FROM product_price_groups ppg WHERE ppg.product_id = product.id AND ppg.sale_price IS NOT NULL)',
+        );
+      } else {
+        baseQuery.andWhere(
+          'NOT EXISTS (SELECT 1 FROM product_price_groups ppg WHERE ppg.product_id = product.id AND ppg.sale_price IS NOT NULL)',
+        );
+      }
+    }
+
     // Filter by rating range
     if (minRating !== undefined) {
-      baseQuery.andWhere('product.average_rating >= :minRating', {
-        minRating,
-      });
+      baseQuery.andWhere('product.average_rating >= :minRating', { minRating });
     }
     if (maxRating !== undefined) {
-      baseQuery.andWhere('product.average_rating <= :maxRating', {
-        maxRating,
+      baseQuery.andWhere('product.average_rating <= :maxRating', { maxRating });
+    }
+
+    // Filter by stock
+    if (in_stock !== undefined) {
+      if (in_stock) {
+        baseQuery.andWhere(
+          'EXISTS (SELECT 1 FROM product_stocks ps WHERE ps.product_id = product.id AND ps.quantity > 0)',
+        );
+      } else {
+        baseQuery.andWhere(
+          'NOT EXISTS (SELECT 1 FROM product_stocks ps WHERE ps.product_id = product.id AND ps.quantity > 0)',
+        );
+      }
+    }
+
+    // Filter by date range
+    if (start_date) {
+      baseQuery.andWhere('product.created_at >= :start_date', { start_date });
+    }
+    if (end_date) {
+      // Include the full end day by going to the end of the day
+      baseQuery.andWhere('product.created_at <= :end_date', {
+        end_date: new Date(new Date(end_date).getTime() + 86399999),
       });
+    }
+
+    // Exact SKU match
+    if (sku) {
+      baseQuery.andWhere('product.sku = :sku', { sku });
     }
 
     // Search by name, sku, or descriptions
@@ -715,10 +797,20 @@ export class ProductsService {
     const total = await baseQuery.getCount();
 
     // Fetch page IDs (fast)
-    const idRows = await baseQuery
-      .clone()
-      .select('product.id', 'id')
-      .orderBy(`product.${sortBy}`, sortOrder)
+    const pageQuery = baseQuery.clone().select('product.id', 'id');
+
+    if (sortBy === 'price') {
+      // Sort by the minimum effective price across all price groups
+      pageQuery.addSelect(
+        '(SELECT MIN(COALESCE(ppg.sale_price, ppg.price)) FROM product_price_groups ppg WHERE ppg.product_id = product.id)',
+        'effective_price',
+      );
+      pageQuery.orderBy('effective_price', sortOrder);
+    } else {
+      pageQuery.orderBy(`product.${sortBy}`, sortOrder);
+    }
+
+    const idRows = await pageQuery
       .skip((page - 1) * limit)
       .take(limit)
       .getRawMany<{ id: number }>();
@@ -1880,6 +1972,9 @@ export class ProductsService {
         'Product not found or not archived. Only archived products can be permanently deleted.',
       );
     }
+
+    // Remove all cart items referencing this product before deletion
+    await this.cartItemsRepository.delete({ product_id: id });
 
     await this.productsRepository.remove(product);
 

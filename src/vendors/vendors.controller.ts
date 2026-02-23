@@ -38,7 +38,7 @@ export class VendorsController {
 
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   @UseInterceptors(
     FileInterceptor('logo', {
       storage: memoryStorage(),
@@ -69,7 +69,7 @@ export class VendorsController {
 
   @Get('archive/list')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   findArchived() {
     return this.vendorsService.findArchived();
   }
@@ -86,7 +86,7 @@ export class VendorsController {
 
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   @UseInterceptors(
     FileInterceptor('logo', {
       storage: memoryStorage(),
@@ -115,14 +115,14 @@ export class VendorsController {
 
   @Post(':id/archive')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   archive(@Param('id') id: string, @Req() req: any) {
     return this.vendorsService.archive(+id, req.user.id);
   }
 
   @Post(':id/restore')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   restore(@Param('id') id: string, @Body() restoreDto?: RestoreVendorDto) {
     return this.vendorsService.restore(+id, restoreDto);
   }
@@ -139,7 +139,7 @@ export class VendorsController {
 
   @Put('reorder')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   reorder(@Body() dto: ReorderVendorsDto) {
     return this.vendorsService.reorder(dto);
   }
@@ -149,7 +149,7 @@ export class VendorsController {
   // Assign products to this vendor
   @Post(':id/products')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   assignProducts(
     @Param('id') id: string,
     @Body() dto: AssignProductsToVendorDto,
@@ -160,7 +160,7 @@ export class VendorsController {
   // Remove products from this vendor
   @Delete(':id/products')
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   removeProducts(
     @Param('id') id: string,
     @Body() dto: AssignProductsToVendorDto,

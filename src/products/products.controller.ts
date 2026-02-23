@@ -42,7 +42,7 @@ export class ProductsController {
 
   @Post()
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   create(@Body() createProductDto: CreateProductDto) {
     return this.productsService.create(createProductDto);
   }
@@ -50,27 +50,27 @@ export class ProductsController {
   @Get()
   @UseGuards(OptionalJwtAuthGuard)
   findAll(@Query() filterDto: FilterProductDto, @Req() req: any) {
-    const isAdmin = req.user?.role === UserRole.ADMIN;
+    const isAdmin = req.user?.role === UserRole.ADMIN || req.user?.role === UserRole.CATALOG_MANAGER;
     return this.productsService.findAll(filterDto, isAdmin);
   }
 
   @Get(':id')
   @UseGuards(OptionalJwtAuthGuard)
   findOne(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
-    const isAdmin = req.user?.role === UserRole.ADMIN;
+    const isAdmin = req.user?.role === UserRole.ADMIN || req.user?.role === UserRole.CATALOG_MANAGER;
     return this.productsService.findOne(id, isAdmin);
   }
 
   @Get('slug/:slug')
   @UseGuards(OptionalJwtAuthGuard)
   findOneBySlug(@Param('slug') slug: string, @Req() req: any) {
-    const isAdmin = req.user?.role === UserRole.ADMIN;
+    const isAdmin = req.user?.role === UserRole.ADMIN || req.user?.role === UserRole.CATALOG_MANAGER;
     return this.productsService.findOneBySlug(slug, isAdmin);
   }
 
   @Put(':id')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   update(@Param('id') id: string, @Body() updateProductDto: UpdateProductDto) {
     return this.productsService.update(+id, updateProductDto);
   }
@@ -79,21 +79,21 @@ export class ProductsController {
 
   @Post(':id/archive')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   archive(@Param('id') id: string, @Req() req: any) {
     return this.productsService.archive(+id, req.user.id);
   }
 
   @Post(':id/restore')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   restore(@Param('id') id: string, @Body() dto: RestoreProductDto) {
     return this.productsService.restore(+id, dto.newCategoryId);
   }
 
   @Get('archive/list')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   findArchived(@Query() filterDto: FilterProductDto) {
     return this.productsService.findArchived(filterDto);
   }
@@ -109,7 +109,7 @@ export class ProductsController {
 
   @Post('assign/category/:categoryId')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   assignToCategory(
     @Param('categoryId') categoryId: string,
     @Body() dto: AssignProductsDto,
@@ -122,7 +122,7 @@ export class ProductsController {
 
   @Delete('assign/category/:categoryId')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   removeFromCategory(
     @Param('categoryId') categoryId: string,
     @Body() dto: AssignProductsDto,
@@ -135,7 +135,7 @@ export class ProductsController {
 
   @Post('assign/vendor/:vendorId')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   assignToVendor(
     @Param('vendorId') vendorId: string,
     @Body() dto: AssignProductsDto,
@@ -148,7 +148,7 @@ export class ProductsController {
 
   @Delete('assign/vendor/:vendorId')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   removeFromVendor(
     @Param('vendorId') vendorId: string,
     @Body() dto: AssignProductsDto,

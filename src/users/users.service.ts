@@ -26,6 +26,7 @@ export class UsersService {
 
   async create(createUserDto: CreateUserDto): Promise<User> {
     const { product_ids, ...userData } = createUserDto;
+    userData.email = userData.email.toLowerCase().trim();
 
     const existingUser = await this.usersRepository.findOne({
       where: { email: userData.email },
@@ -249,7 +250,7 @@ export class UsersService {
   }
 
   async findByEmail(email: string): Promise<User | null> {
-    return await this.usersRepository.findOne({ where: { email } });
+    return await this.usersRepository.findOne({ where: { email: email.toLowerCase().trim() } });
   }
 
   async findByAppleId(appleId: string): Promise<User | null> {

@@ -373,7 +373,7 @@ export class AuthService {
 
 
   async login(loginDto: LoginDto, metadata?: RequestMetadata) {
-    const user = await this.usersService.findByEmail(loginDto.email);
+    const user = await this.usersService.findByEmail(loginDto.email.toLowerCase().trim());
 
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');
