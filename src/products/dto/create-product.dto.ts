@@ -248,4 +248,16 @@ export class CreateProductDto {
   @Type(() => StockInput)
   @IsOptional()
   stocks?: StockInput[];
+
+  // ============== Tags ==============
+
+  /**
+   * Tag names to attach to this product.
+   * Each name is normalised (lowercase, trimmed) and created if it doesn't exist.
+   * AI concept generation fires in the background for new tags.
+   */
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  tags?: string[];
 }

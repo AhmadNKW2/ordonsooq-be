@@ -272,4 +272,16 @@ export class UpdateProductDto {
   @Type(() => StockDto)
   @IsOptional()
   stocks?: StockDto[];
+
+  // ============== Tags ==============
+
+  /**
+   * Full replacement list of tag names for this product.
+   * Pass an empty array [] to remove all tags.
+   * Omit the field entirely to leave tags unchanged.
+   */
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  tags?: string[];
 }

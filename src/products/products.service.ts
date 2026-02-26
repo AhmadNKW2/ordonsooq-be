@@ -27,6 +27,7 @@ import { CartItem } from '../cart/entities/cart-item.entity';
 import { IndexingService, IndexableProduct } from '../search/indexing.service';
 import { SynonymConceptService } from '../search/synonym-concept.service';
 import { TagsService } from '../search/tags.service';
+import { Tag } from '../search/entities/tag.entity';
 
 import { ProductVariantCombination } from './entities/product-variant-combination.entity';
 import { ProductPriceGroupValue } from './entities/product-price-group-value.entity';
@@ -64,6 +65,96 @@ export class ProductsService {
    */
   async syncToIndexPublic(productId: number): Promise<void> {
     return this.syncProductToIndex(productId, true);
+  }
+
+  // ─── Product tag management ────────────────────────────────────────────────
+
+  /**
+   * Get all tags attached to a product (with their linked concepts).
+   */
+  async getProductTags(productId: number): Promise<Tag[]> {
+    const product = await this.productsRepository.findOne({
+      where: { id: productId },
+      relations: ['tags', 'tags.concepts'],
+    } as any);
+    if (!product) throw new NotFoundException('Product not found');
+    return (product as any).tags ?? [];
+  }
+
+  /**
+   * Replace the complete tag list for a product.
+   * Fires a Typesense reindex after the update.
+   */
+  async syncProductTags(productId: number, tagNames: string[]): Promise<Tag[]> {
+    const exists = await this.productsRepository.count({ where: { id: productId } });
+    if (!exists) throw new NotFoundException('Product not found');
+    await this.applyTagsToProduct(productId, tagNames);
+    void this.syncProductToIndex(productId);
+    return this.getProductTags(productId);
+  }
+
+  /**
+   * Add a single tag by name to a product.
+   * Creates the tag (and a background AI concept) if it doesn't exist yet.
+   */
+  async addProductTagByName(productId: number, tagName: string): Promise<Tag> {
+    const exists = await this.productsRepository.count({ where: { id: productId } });
+    if (!exists) throw new NotFoundException('Product not found');
+    const tag = await this.tagsService.findOrCreate(tagName);
+    await this.productsRepository
+      .createQueryBuilder()
+      .relation(Product, 'tags')
+      .of(productId)
+      .add(tag.id);
+    void this.syncProductToIndex(productId);
+    return tag;
+  }
+
+  /**
+   * Remove a single tag (by its numeric ID) from a product.
+   */
+  async removeProductTag(productId: number, tagId: number): Promise<void> {
+    const exists = await this.productsRepository.count({ where: { id: productId } });
+    if (!exists) throw new NotFoundException('Product not found');
+    await this.productsRepository
+      .createQueryBuilder()
+      .relation(Product, 'tags')
+      .of(productId)
+      .remove(tagId);
+    void this.syncProductToIndex(productId);
+  }
+
+  /**
+   * Replace the product's tag list with the provided tag names.
+   * Creates missing tags (and fires background AI concept generation).
+   * Uses addAndRemove to update the junction table atomically.
+   */
+  private async applyTagsToProduct(productId: number, tagNames: string[]): Promise<void> {
+    const normalizedNames = [
+      ...new Set(tagNames.map((n) => n.toLowerCase().trim()).filter(Boolean)),
+    ];
+
+    // Resolve (or create) tags sequentially — findOrCreate uses upsert logic
+    const resolvedTags: Tag[] = [];
+    for (const name of normalizedNames) {
+      const tag = await this.tagsService.findOrCreate(name);
+      resolvedTags.push(tag);
+    }
+
+    // Load existing tags so we can compute what to remove
+    const current = await this.productsRepository.findOne({
+      where: { id: productId },
+      relations: ['tags'],
+    } as any);
+
+    const currentIds: number[] = ((current as any)?.tags ?? []).map((t: any) => t.id);
+    const newIds = resolvedTags.map((t) => t.id);
+
+    await this.productsRepository
+      .createQueryBuilder()
+      .relation(Product, 'tags')
+      .of(productId)
+      .addAndRemove(newIds, currentIds);
   }
 
   // ─── Search indexing helpers ───────────────────────────────────────────────
@@ -742,6 +833,11 @@ export class ProductsService {
       }
 
       await Promise.all(creationTasks);
+
+      // Apply tags if provided in the DTO
+      if (dto.tags?.length) {
+        await this.applyTagsToProduct(savedProduct.id, dto.tags);
+      }
 
       // Return the complete product
       const result = await this.findOne(savedProduct.id);
@@ -1862,6 +1958,11 @@ export class ProductsService {
 
       // Execute all creation tasks in parallel
       await Promise.all(creationTasks);
+
+      // Update tags if explicitly provided in the DTO (pass [] to clear all tags)
+      if (dto.tags !== undefined) {
+        await this.applyTagsToProduct(id, dto.tags);
+      }
 
       // Return updated product
       const updatedProduct = await this.findOne(id);

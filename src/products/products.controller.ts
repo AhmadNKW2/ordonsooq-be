@@ -11,8 +11,11 @@ import {
   Patch,
   Req,
   ParseIntPipe,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { IsArray, IsNotEmpty, IsString } from 'class-validator';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -21,6 +24,18 @@ import { Roles, UserRole } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { RestoreProductDto } from './dto/restore-product.dto';
 import { OptionalJwtAuthGuard } from '../common/guards/optional-jwt-auth.guard';
+
+class SetProductTagsDto {
+  @IsArray()
+  @IsString({ each: true })
+  tags: string[];
+}
+
+class AddProductTagDto {
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+}
 
 @Controller('products')
 export class ProductsController {
@@ -169,5 +184,64 @@ export class ProductsController {
       +vendorId,
       dto.product_ids,
     );
+  }
+
+  // ========== PRODUCT TAG MANAGEMENT ==========
+
+  /**
+   * GET /products/:id/tags
+   * Returns all tags attached to the product with their linked concepts.
+   */
+  @Get(':id/tags')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  getProductTags(@Param('id', ParseIntPipe) id: number) {
+    return this.productsService.getProductTags(id);
+  }
+
+  /**
+   * PUT /products/:id/tags
+   * Replaces the full tag list for a product.
+   * Pass tags: [] to clear all tags.
+   * Each name is normalised and created if it does not exist yet.
+   */
+  @Put(':id/tags')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  setProductTags(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: SetProductTagsDto,
+  ) {
+    return this.productsService.syncProductTags(id, dto.tags);
+  }
+
+  /**
+   * POST /products/:id/tags
+   * Adds a single tag (by name) to the product.
+   * Creates the tag + fires AI concept generation if brand-new.
+   */
+  @Post(':id/tags')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  addProductTag(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: AddProductTagDto,
+  ) {
+    return this.productsService.addProductTagByName(id, dto.name);
+  }
+
+  /**
+   * DELETE /products/:id/tags/:tagId
+   * Removes a single tag (by its numeric ID) from the product.
+   */
+  @Delete(':id/tags/:tagId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  removeProductTag(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('tagId', ParseIntPipe) tagId: number,
+  ) {
+    return this.productsService.removeProductTag(id, tagId);
   }
 }
