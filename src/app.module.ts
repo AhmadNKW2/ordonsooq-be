@@ -28,6 +28,7 @@ import { OrdersModule } from './orders/orders.module';
 import { AddressesModule } from './addresses/addresses.module';
 import { CartModule } from './cart/cart.module';
 import { SearchModule } from './search/search.module';
+import { BullModule } from '@nestjs/bullmq';
 import typesenseConfig from './config/typesense.config';
 import { LoggingMiddleware } from './common/middleware/logging.middleware';
 
@@ -38,6 +39,13 @@ import { LoggingMiddleware } from './common/middleware/logging.middleware';
       load: [typesenseConfig],
     }),
     ScheduleModule.forRoot(),
+    BullModule.forRoot({
+      connection: {
+        host: process.env.REDIS_HOST ?? 'localhost',
+        port: parseInt(process.env.REDIS_PORT ?? '6379'),
+        password: process.env.REDIS_PASSWORD ?? undefined,
+      },
+    }),
     CacheModule.register({
       isGlobal: true,
       ttl: Number(process.env.CACHE_TTL ?? 60),

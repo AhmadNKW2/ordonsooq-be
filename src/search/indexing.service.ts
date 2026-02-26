@@ -2,25 +2,55 @@ import { Injectable, Logger } from '@nestjs/common';
 import { TypesenseService } from './typesense.service';
 
 export interface IndexableProduct {
+  // ── Identity ──────────────────────────────────────────────────────────────
   id: string;
+  slug?: string;
+  sku?: string;
+
+  // ── Search text (bilingual) ───────────────────────────────────────────────
   name_en: string;
   name_ar: string;
   description_en?: string;
   description_ar?: string;
-  brand: string;
-  category: string;
+
+  // ── Relational labels (for text search) ──────────────────────────────────
+  brand: string;            // brand name_en
+  category: string;         // primary category name_en
   subcategory?: string;
+  category_names_en?: string[];
+  category_names_ar?: string[];
   tags?: string[];
-  price: number;
-  sale_price?: number;
+
+  // ── Relational IDs (for facet/filter) ────────────────────────────────────
+  brand_id?: number;
+  vendor_id?: number;       // same as seller_id but typed int for facet
+  seller_id?: string;       // kept for compat (vendor_id as string)
+  category_ids?: number[];
+
+  // ── Pricing ───────────────────────────────────────────────────────────────
+  price: number;            // representative price (lowest group)
+  sale_price?: number;      // representative sale price
+  price_min: number;        // min(sale_price ?? price) across all groups
+  price_max: number;        // max(sale_price ?? price) across all groups
+
+  // ── Availability ─────────────────────────────────────────────────────────
+  stock_quantity: number;
+  in_stock: boolean;        // true if any stock row has quantity > 0
+  is_available: boolean;    // status=active && visible=true
+
+  // ── Attributes (for multi-attr filtering) ─────────────────────────────────
+  attr_pairs?: string[];    // e.g. ["color:Black","color:أسود","ram:16GB"]
+
+  // ── Rating ───────────────────────────────────────────────────────────────
   rating?: number;
   rating_count?: number;
-  stock_quantity: number;
-  is_available: boolean;
+
+  // ── Media ────────────────────────────────────────────────────────────────
   images?: string[];
+
+  // ── Sorting signals ──────────────────────────────────────────────────────
   created_at: number;
   popularity_score: number;
-  seller_id?: string;
   sales_count?: number;
 }
 
@@ -111,6 +141,14 @@ export class IndexingService {
   /** Alias for bulkIndexProducts — batch-upsert documents. */
   async bulkUpsertProducts(products: IndexableProduct[]): Promise<void> {
     return this.bulkIndexProducts(products);
+  }
+
+  /**
+   * Drop and recreate the Typesense collection.
+   * Use before a full reindex when the schema has changed.
+   */
+  async dropAndRecreateCollection(): Promise<void> {
+    return this.typesenseService.dropAndRecreateCollection();
   }
 
   // ─── Popularity score helpers ─────────────────────────────────────────────

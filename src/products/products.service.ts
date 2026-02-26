@@ -25,6 +25,8 @@ import { ProductStock } from './entities/product-stock.entity';
 import { ProductAttribute } from './entities/product-attribute.entity';
 import { CartItem } from '../cart/entities/cart-item.entity';
 import { IndexingService, IndexableProduct } from '../search/indexing.service';
+import { SynonymConceptService } from '../search/synonym-concept.service';
+import { TagsService } from '../search/tags.service';
 
 import { ProductVariantCombination } from './entities/product-variant-combination.entity';
 import { ProductPriceGroupValue } from './entities/product-price-group-value.entity';
@@ -53,7 +55,16 @@ export class ProductsService {
     private weightGroupService: ProductWeightGroupService,
     private dataSource: DataSource,
     private readonly indexingService: IndexingService,
+    private readonly synonymConceptService: SynonymConceptService,
+    private readonly tagsService: TagsService,
   ) {}
+
+  /**
+   * Public proxy used by SearchProcessor to reindex a product from a BullMQ job.
+   */
+  async syncToIndexPublic(productId: number): Promise<void> {
+    return this.syncProductToIndex(productId, true);
+  }
 
   // ─── Search indexing helpers ───────────────────────────────────────────────
 
@@ -95,12 +106,16 @@ export class ProductsService {
   }
 
   /**
-   * Load the minimal product data needed for Typesense and upsert the document.
+   * Load all data needed for Typesense and upsert the document.
    * Fire-and-forget safe — errors are logged but never bubble up to the caller.
    */
-  private async syncProductToIndex(productId: number, throwOnError = false): Promise<void> {
+  private async syncProductToIndex(
+    productId: number,
+    throwOnError = false,
+    generateAiConcepts = false,
+  ): Promise<void> {
     try {
-      const [product, productCategories, priceGroups, stockRows, mediaRows] =
+      const [product, productCategories, priceGroups, stockRows, mediaRows, variants, productWithTags] =
         await Promise.all([
           this.productsRepository.findOne({
             where: { id: productId },
@@ -112,6 +127,7 @@ export class ProductsService {
           }),
           this.dataSource.getRepository(ProductPriceGroup).find({
             where: { product_id: productId },
+            relations: ['groupValues', 'groupValues.attribute', 'groupValues.attributeValue'],
           }),
           this.dataSource.getRepository(ProductStock).find({
             where: { product_id: productId },
@@ -120,108 +136,199 @@ export class ProductsService {
             where: { product_id: productId },
             order: { is_primary: 'DESC' },
           }),
+          this.dataSource.getRepository(ProductVariant).find({
+            where: { product_id: productId },
+            relations: [
+              'combinations',
+              'combinations.attribute_value',
+              'combinations.attribute_value.attribute',
+            ],
+          }),
+          this.productsRepository.findOne({
+            where: { id: productId },
+            relations: ['tags', 'tags.concepts'],
+          } as any),
         ]);
 
       if (!product) return;
 
-      // ── Lowest price across all price groups (pick sale_price if set) ──────
+      // ── Tags: collect all search terms from APPROVED concepts ─────────────
+      const tagIds: number[] = ((productWithTags as any)?.tags ?? []).map((t: any) => t.id);
+      const searchTags = await this.tagsService.getSearchTermsForTags(tagIds);
+
+      // ── Pricing: min/max across all groups ───────────────────────────────
+      const effectivePrices = priceGroups.map((g) =>
+        parseFloat(String(g.sale_price ?? g.price ?? 0)),
+      );
+      const priceMin = effectivePrices.length ? Math.min(...effectivePrices) : 0;
+      const priceMax = effectivePrices.length ? Math.max(...effectivePrices) : 0;
+
       const sortedByPrice = [...priceGroups].sort(
         (a, b) =>
-          (parseFloat(String(a.sale_price ?? a.price ?? 0))) -
-          (parseFloat(String(b.sale_price ?? b.price ?? 0))),
+          parseFloat(String(a.sale_price ?? a.price ?? 0)) -
+          parseFloat(String(b.sale_price ?? b.price ?? 0)),
       );
-      const bestPrice = sortedByPrice[0];
+      const bestGroup = sortedByPrice[0];
 
-      const totalStock = stockRows.reduce(
-        (sum, s) => sum + (s.quantity ?? 0),
-        0,
-      );
+      // ── Stock ────────────────────────────────────────────────────────────
+      const totalStock = stockRows.reduce((sum, s) => sum + (s.quantity ?? 0), 0);
+      const inStock = totalStock > 0;
+
+      // ── Media ────────────────────────────────────────────────────────────
       const images = mediaRows.map((m) => m.url).filter(Boolean);
 
       // ── Category resolution ───────────────────────────────────────────────
-      // Use all categories from the junction table; fall back to primary relation
-      const allCategories =
-        productCategories
-          .map((pc) => pc.category)
-          .filter(Boolean) as Category[];
+      const allCategories = productCategories
+        .map((pc) => pc.category)
+        .filter(Boolean) as Category[];
 
       const primaryCategory: Category | null =
         allCategories[0] ?? (product as any).category ?? null;
+      const subCategory = allCategories.find((c) => c.level > 0) ?? null;
 
-      // Subcategory = any category with level > 0 (level 0 = main, 1+ = sub)
-      const subCategory =
-        allCategories.find((c) => c.level > 0) ?? null;
+      const categoryIds = [
+        ...new Set([
+          ...(product.category_id ? [product.category_id] : []),
+          ...allCategories.map((c) => c.id),
+        ]),
+      ];
 
-      // ── Brand data ───────────────────────────────────────────────────────
+      const categoryNamesEn = [...new Set(allCategories.map((c) => c.name_en).filter(Boolean))];
+      const categoryNamesAr = [...new Set(allCategories.map((c) => c.name_ar).filter(Boolean))];
+
+      // ── Brand data ────────────────────────────────────────────────────────
       const brand = (product as any).brand as
-        | { name_en: string; name_ar?: string }
+        | { id?: number; name_en: string; name_ar?: string }
         | null;
 
-      // ── Descriptions — combine short + long for maximum text coverage ────
+      // ── Attribute pairs for multi-attr filtering ─────────────────────────
+      // Build "AttributeName:Value" pairs from all price group values.
+      // Both EN and AR variants indexed so filtering works in both languages.
+      const attrPairSet = new Set<string>();
+      for (const group of priceGroups) {
+        for (const gv of group.groupValues ?? []) {
+          const attrEn = gv.attribute?.name_en;
+          const valEn = gv.attributeValue?.value_en;
+          const valAr = gv.attributeValue?.value_ar;
+          if (attrEn && valEn) attrPairSet.add(`${attrEn}:${valEn}`);
+          if (attrEn && valAr) attrPairSet.add(`${attrEn}:${valAr}`);
+        }
+      }
+      // Also source attr_pairs from variant combinations (covers products where
+      // pricing is NOT per-attribute-group but variants carry the attribute values).
+      for (const variant of variants) {
+        for (const combo of variant.combinations ?? []) {
+          const attrEn = combo.attribute_value?.attribute?.name_en;
+          const valEn = combo.attribute_value?.value_en;
+          const valAr = combo.attribute_value?.value_ar;
+          if (attrEn && valEn) attrPairSet.add(`${attrEn}:${valEn}`);
+          if (attrEn && valAr) attrPairSet.add(`${attrEn}:${valAr}`);
+        }
+      }
+      const attrPairs = attrPairSet.size ? [...attrPairSet] : undefined;
+
+      // ── Descriptions ─────────────────────────────────────────────────────
       const descriptionEn = [
         product.short_description_en,
         product.long_description_en,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .trim() || undefined;
+      ].filter(Boolean).join(' ').trim() || undefined;
 
       const descriptionAr = [
         product.short_description_ar,
         product.long_description_ar,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .trim() || undefined;
+      ].filter(Boolean).join(' ').trim() || undefined;
 
-      // ── Auto-generated tags ──────────────────────────────────────────────
-      // Synonyms only work when the synonym target word appears in an indexed field.
-      // By tokenising category names into tags, searching "mobile" → synonym expands
-      // to "smartphone" → matches a product in category "Smartphones".
+      // ── Tags ─────────────────────────────────────────────────────────────
+      // searchTags contains: tag names + all terms from APPROVED concepts.
+      // Fall back to the legacy tokenized approach if no tags are assigned yet.
       const categoryNamesForTags = allCategories.flatMap((c) =>
         [c.name_en, c.name_ar].filter(Boolean),
       );
-
-      const tags = this.buildSearchTags(
+      const legacyTags = this.buildSearchTags(
         product.name_en,
         product.name_ar,
         categoryNamesForTags,
         brand?.name_en,
         brand?.name_ar,
       );
+      const tags = searchTags.length > 0 ? searchTags : legacyTags;
+
+      const isAvailable = product.status === ProductStatus.ACTIVE && product.visible;
 
       const doc: IndexableProduct = {
+        // ── Identity ────────────────────────────────────────────────────
         id: String(product.id),
+        slug: product.slug ?? undefined,
+        sku: product.sku ?? undefined,
+
+        // ── Search text ─────────────────────────────────────────────────
         name_en: product.name_en,
         name_ar: product.name_ar,
         description_en: descriptionEn,
         description_ar: descriptionAr,
+
+        // ── Relational labels ────────────────────────────────────────────
         brand: brand?.name_en ?? 'Unknown',
         category: primaryCategory?.name_en ?? 'Uncategorized',
         subcategory: subCategory?.name_en ?? undefined,
+        category_names_en: categoryNamesEn.length ? categoryNamesEn : undefined,
+        category_names_ar: categoryNamesAr.length ? categoryNamesAr : undefined,
         tags: tags.length ? tags : undefined,
-        price: bestPrice?.price != null ? parseFloat(String(bestPrice.price)) : 0,
-        sale_price: bestPrice?.sale_price != null ? parseFloat(String(bestPrice.sale_price)) : undefined,
+
+        // ── Relational IDs (facets) ──────────────────────────────────────
+        brand_id: brand?.id ?? product.brand_id ?? undefined,
+        vendor_id: product.vendor_id ?? undefined,
+        seller_id: product.vendor_id ? String(product.vendor_id) : undefined,
+        category_ids: categoryIds.length ? categoryIds : undefined,
+
+        // ── Pricing ─────────────────────────────────────────────────────
+        price: bestGroup?.price != null ? parseFloat(String(bestGroup.price)) : 0,
+        sale_price: bestGroup?.sale_price != null
+          ? parseFloat(String(bestGroup.sale_price))
+          : undefined,
+        price_min: priceMin,
+        price_max: priceMax,
+
+        // ── Availability ─────────────────────────────────────────────────
+        stock_quantity: totalStock,
+        in_stock: inStock,
+        is_available: isAvailable,
+
+        // ── Attributes ──────────────────────────────────────────────────
+        attr_pairs: attrPairs,
+
+        // ── Rating ──────────────────────────────────────────────────────
         rating: Number(product.average_rating) || 0,
         rating_count: product.total_ratings ?? 0,
-        stock_quantity: totalStock,
-        is_available:
-          product.status === ProductStatus.ACTIVE && product.visible,
+
+        // ── Media ────────────────────────────────────────────────────────
         images: images.length ? images : undefined,
+
+        // ── Sort signals ─────────────────────────────────────────────────
         created_at: product.created_at
           ? Math.floor(new Date(product.created_at).getTime() / 1000)
           : Math.floor(Date.now() / 1000),
-        seller_id: product.vendor_id ? String(product.vendor_id) : undefined,
-        sales_count: undefined, // no sales_count column on entity currently
         popularity_score: this.indexingService.calculatePopularityScore(
           0,
           Number(product.average_rating) || 0,
           product.total_ratings ?? 0,
           product.created_at ?? new Date(),
         ),
+        sales_count: undefined,
       };
 
       await this.indexingService.upsertProduct(doc);
+
+      // ── Fire-and-forget: generate AI synonym concepts (new products only) ──
+      if (generateAiConcepts)
+      void this.synonymConceptService.generateAndSaveConceptsForProduct({
+        name_en: product.name_en,
+        name_ar: product.name_ar,
+        category_names_en: categoryNamesEn,
+        category_names_ar: categoryNamesAr,
+        brand_en: brand?.name_en,
+        brand_ar: brand?.name_ar,
+      });
     } catch (err) {
       this.logger.warn(
         `Failed to sync product ${productId} to search index: ${err?.message}`,
@@ -231,10 +338,32 @@ export class ProductsService {
   }
 
   /**
+   * Public: reindex a single product by ID.
+   * Useful for debugging via the admin reindex endpoint.
+   */
+  async reindexOne(
+    productId: number,
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      await this.syncProductToIndex(productId, true);
+      return { success: true, message: `Product ${productId} reindexed` };
+    } catch (err: any) {
+      return { success: false, message: err?.message ?? 'Unknown error' };
+    }
+  }
+
+  /**
    * Bulk re-index all ACTIVE + visible products.
    * Called by the admin reindex endpoint.
+   * Pass { dropFirst: true } to drop+recreate the Typesense collection first.
    */
-  async reindexAll(): Promise<{ indexed: number; failed: number; errors: string[] }> {
+  async reindexAll(
+    opts: { dropFirst?: boolean } = {},
+  ): Promise<{ indexed: number; failed: number; errors: string[] }> {
+    if (opts.dropFirst) {
+      await this.indexingService.dropAndRecreateCollection();
+    }
+
     const products = await this.productsRepository.find({
       where: { status: ProductStatus.ACTIVE, visible: true },
       relations: ['brand', 'category'],
@@ -273,7 +402,9 @@ export class ProductsService {
   async scheduledReindex(): Promise<void> {
     this.logger.log('Scheduled nightly reindex started…');
     const { indexed, failed } = await this.reindexAll();
-    this.logger.log(`Scheduled nightly reindex done — ${indexed} synced, ${failed} failed`);
+    this.logger.log(
+      `Scheduled nightly reindex done — ${indexed} synced, ${failed} failed`,
+    );
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -616,7 +747,8 @@ export class ProductsService {
       const result = await this.findOne(savedProduct.id);
 
       // Sync to Typesense (fire-and-forget — never blocks the response)
-      void this.syncProductToIndex(savedProduct.id);
+      // Pass generateAiConcepts=true so AI runs only on the first index (creation).
+      void this.syncProductToIndex(savedProduct.id, false, true);
 
       return {
         product: result,

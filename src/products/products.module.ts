@@ -1,4 +1,5 @@
-import { Module } from '@nestjs/common';
+import { Module, OnModuleInit } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ProductsService } from './products.service';
 import { ProductsController } from './products.controller';
@@ -25,7 +26,9 @@ import { Media } from '../media/entities/media.entity';
 import { Category } from '../categories/entities/category.entity';
 import { Brand } from '../brands/entities/brand.entity';
 import { SearchModule } from '../search/search.module';
+import { SearchProcessor } from '../search/search.processor';
 import { CartItem } from '../cart/entities/cart-item.entity';
+import { Tag } from '../search/entities/tag.entity';
 
 @Module({
   imports: [
@@ -48,6 +51,7 @@ import { CartItem } from '../cart/entities/cart-item.entity';
       Category,
       Brand,
       CartItem,
+      Tag,
     ]),
     AttributesModule,
     SearchModule,
@@ -68,4 +72,18 @@ import { CartItem } from '../cart/entities/cart-item.entity';
     ProductWeightGroupService,
   ],
 })
-export class ProductsModule {}
+export class ProductsModule implements OnModuleInit {
+  constructor(private readonly moduleRef: ModuleRef) {}
+
+  onModuleInit() {
+    // Wire ProductsService into SearchProcessor to break the circular dependency.
+    // SearchProcessor lives in SearchModule but needs ProductsService.
+    try {
+      const processor = this.moduleRef.get(SearchProcessor, { strict: false });
+      const productsService = this.moduleRef.get(ProductsService, { strict: false });
+      processor.setProductsService(productsService);
+    } catch {
+      // SearchProcessor may not be available in all test environments
+    }
+  }
+}

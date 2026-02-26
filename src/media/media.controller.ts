@@ -36,7 +36,7 @@ export class MediaController {
    */
   @Post('upload')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   @UseInterceptors(
     FileInterceptor('file', {
       storage: memoryStorage(),
@@ -69,7 +69,7 @@ export class MediaController {
    */
   @Delete(':id')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   async delete(@Param('id') id: string) {
     await this.mediaService.delete(+id);
     return { message: 'Media deleted successfully' };

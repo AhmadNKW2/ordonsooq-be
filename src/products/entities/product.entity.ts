@@ -3,7 +3,9 @@ import {
   Column,
   PrimaryGeneratedColumn,
   ManyToOne,
+  ManyToMany,
   OneToMany,
+  JoinTable,
   CreateDateColumn,
   UpdateDateColumn,
   DeleteDateColumn,
@@ -149,6 +151,15 @@ export class Product {
   // Product attributes relationship
   @OneToMany(() => ProductAttribute, (attr) => attr.product, { cascade: true })
   attributes: ProductAttribute[];
+
+  // Tags relationship (many-to-many, drives search term expansion)
+  @ManyToMany('Tag', (tag: any) => tag.products, { eager: false })
+  @JoinTable({
+    name: 'product_tags',
+    joinColumn: { name: 'product_id', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'tag_id', referencedColumnName: 'id' },
+  })
+  tags: any[];
 
   // Ratings relationship
   @OneToMany('Rating', 'product')

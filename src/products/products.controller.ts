@@ -29,15 +29,27 @@ export class ProductsController {
   // ========== PRODUCT CRUD ==========
 
   /**
-   * POST /products/reindex
+   * POST /products/reindex?rebuild=true
    * Rebuild the entire Typesense products index from the database.
+   * Pass ?rebuild=true to drop+recreate the collection schema first (for schema changes).
    * Admin-only, safe to run multiple times.
    */
   @Post('reindex')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles(UserRole.ADMIN)
-  reindexSearch() {
-    return this.productsService.reindexAll();
+  reindexSearch(@Query('rebuild') rebuild?: string) {
+    return this.productsService.reindexAll({ dropFirst: rebuild === 'true' });
+  }
+
+  /**
+   * POST /products/reindex/:id
+   * Reindex a single product by ID. Useful for debugging.
+   */
+  @Post('reindex/:id')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(UserRole.ADMIN)
+  reindexOne(@Param('id', ParseIntPipe) id: number) {
+    return this.productsService.reindexOne(id);
   }
 
   @Post()
