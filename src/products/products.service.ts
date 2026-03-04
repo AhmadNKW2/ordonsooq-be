@@ -39,6 +39,93 @@ import { Like, Not } from 'typeorm';
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
 
+  // ─── In-memory background job tracker ─────────────────────────────────────
+  // Kept for the lifetime of the process (survives restarts via a fresh Map).
+  // Auto-cleaned after 24 h to avoid memory bloat.
+  private readonly jobs = new Map<
+    string,
+    {
+      type: 'reindex' | 'generate-concepts';
+      status: 'running' | 'done' | 'failed';
+      startedAt: Date;
+      finishedAt?: Date;
+      result?: Record<string, unknown>;
+      error?: string;
+    }
+  >();
+
+  private createJob(type: 'reindex' | 'generate-concepts'): string {
+    const id = `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    this.jobs.set(id, { type, status: 'running', startedAt: new Date() });
+    // Auto-evict after 24 h
+    setTimeout(() => this.jobs.delete(id), 24 * 60 * 60 * 1000).unref?.();
+    return id;
+  }
+
+  getJobStatus(jobId: string) {
+    const job = this.jobs.get(jobId);
+    if (!job) return null;
+    return {
+      job_id: jobId,
+      type: job.type,
+      status: job.status,
+      started_at: job.startedAt,
+      finished_at: job.finishedAt ?? null,
+      duration_seconds:
+        job.finishedAt
+          ? Math.round((job.finishedAt.getTime() - job.startedAt.getTime()) / 1000)
+          : Math.round((Date.now() - job.startedAt.getTime()) / 1000),
+      result: job.result ?? null,
+      error: job.error ?? null,
+    };
+  }
+
+  /** Kick off reindexAll in background and return a job_id immediately. */
+  startReindexJob(opts: { dropFirst?: boolean } = {}): string {
+    const jobId = this.createJob('reindex');
+    this.reindexAll(opts)
+      .then((result) => {
+        const job = this.jobs.get(jobId);
+        if (job) {
+          job.status = 'done';
+          job.finishedAt = new Date();
+          job.result = result as unknown as Record<string, unknown>;
+        }
+      })
+      .catch((err: Error) => {
+        const job = this.jobs.get(jobId);
+        if (job) {
+          job.status = 'failed';
+          job.finishedAt = new Date();
+          job.error = err?.message ?? String(err);
+        }
+      });
+    return jobId;
+  }
+
+  /** Kick off generateAiConceptsForAll in background and return a job_id immediately. */
+  startGenerateConceptsJob(): string {
+    const jobId = this.createJob('generate-concepts');
+    this.generateAiConceptsForAll()
+      .then((result) => {
+        const job = this.jobs.get(jobId);
+        if (job) {
+          job.status = 'done';
+          job.finishedAt = new Date();
+          job.result = result as unknown as Record<string, unknown>;
+        }
+      })
+      .catch((err: Error) => {
+        const job = this.jobs.get(jobId);
+        if (job) {
+          job.status = 'failed';
+          job.finishedAt = new Date();
+          job.error = err?.message ?? String(err);
+        }
+      });
+    return jobId;
+  }
+
   constructor(
     @InjectRepository(Product)
     private productsRepository: Repository<Product>,

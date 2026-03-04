@@ -13,6 +13,7 @@ import {
   ParseIntPipe,
   HttpCode,
   HttpStatus,
+  NotFoundException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { IsArray, IsNotEmpty, IsString } from 'class-validator';
@@ -52,8 +53,13 @@ export class ProductsController {
   @Post('reindex')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles(UserRole.ADMIN)
+  @HttpCode(HttpStatus.ACCEPTED)
   reindexSearch(@Query('rebuild') rebuild?: string) {
-    return this.productsService.reindexAll({ dropFirst: rebuild === 'true' });
+    const jobId = this.productsService.startReindexJob({ dropFirst: rebuild === 'true' });
+    return {
+      job_id: jobId,
+      message: 'Reindex started. Poll GET /products/jobs/:job_id to track progress.',
+    };
   }
 
   /**
@@ -69,15 +75,34 @@ export class ProductsController {
 
   /**
    * POST /products/generate-concepts
-   * Trigger AI synonym concept generation for ALL existing active products.
+   * Trigger AI synonym concept generation for ALL products (all statuses).
    * Already-existing concept_keys are skipped — safe to re-run.
-   * Admin-only. Response may take time (1–2 min for large catalogs).
+   * Admin-only. Returns 202 immediately; poll GET /products/jobs/:job_id for status.
    */
   @Post('generate-concepts')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles(UserRole.ADMIN)
+  @HttpCode(HttpStatus.ACCEPTED)
   generateAiConcepts() {
-    return this.productsService.generateAiConceptsForAll();
+    const jobId = this.productsService.startGenerateConceptsJob();
+    return {
+      job_id: jobId,
+      message: 'AI concept generation started. Poll GET /products/jobs/:job_id to track progress.',
+    };
+  }
+
+  /**
+   * GET /products/jobs/:jobId
+   * Poll the status of a background reindex or generate-concepts job.
+   * Returns status: 'running' | 'done' | 'failed', duration_seconds, and the final result.
+   */
+  @Get('jobs/:jobId')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(UserRole.ADMIN)
+  getJobStatus(@Param('jobId') jobId: string) {
+    const status = this.productsService.getJobStatus(jobId);
+    if (!status) throw new NotFoundException(`Job '${jobId}' not found (may have expired after 24 h)`);
+    return status;
   }
 
   @Post()
