@@ -102,9 +102,10 @@ export class SearchQueryDto {
   @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  @Transform(({ value }: { value: string | string[] }) =>
-    Array.isArray(value) ? value : [value],
-  )
+  @Transform(({ value }: { value: string | string[] | undefined }) => {
+    if (value === undefined || value === null) return value;
+    return Array.isArray(value) ? value : [value];
+  })
   attrs?: string[];
 
   // ── Pagination ──────────────────────────────────────────────────────────────

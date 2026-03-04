@@ -22,7 +22,10 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 /**
  * Admin endpoints for synonym concept CRUD + approve/reject/disable.
  *
- * Reindex endpoints live at POST /products/reindex (ProductsController).
+ * Related admin endpoints in ProductsController (no circular-dep):
+ *   POST /products/reindex?rebuild=true   — reindex ALL products in Typesense
+ *   POST /products/reindex/:id            — reindex a single product
+ *   POST /products/generate-concepts      — re-run AI concept generation for all active products
  */
 @UseGuards(JwtAuthGuard)
 @Controller('admin/search')

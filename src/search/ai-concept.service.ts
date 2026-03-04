@@ -7,10 +7,15 @@ export interface ProductConceptInput {
   category_names_ar: string[];
   brand_en?: string;
   brand_ar?: string;
+  vendor_en?: string;
+  vendor_ar?: string;
+  description_en?: string;
+  description_ar?: string;
 }
 
 export interface GeneratedConcept {
   concept_key: string;
+  concept_key_ar?: string;
   terms_en: string[];
   terms_ar: string[];
 }
@@ -69,6 +74,13 @@ export class AiConceptService {
   // ── Prompt ──────────────────────────────────────────────────────────────────
 
   private buildPrompt(input: ProductConceptInput): string {
+    const descEn = input.description_en
+      ? input.description_en.slice(0, 400)
+      : 'N/A';
+    const descAr = input.description_ar
+      ? input.description_ar.slice(0, 400)
+      : 'N/A';
+
     return `You are a search synonym expert for an Arabic/English e-commerce platform.
 
 Given this product:
@@ -78,21 +90,27 @@ Given this product:
 - Category (AR): ${input.category_names_ar.join(', ')}
 - Brand (EN): ${input.brand_en ?? 'N/A'}
 - Brand (AR): ${input.brand_ar ?? 'N/A'}
+- Vendor (EN): ${input.vendor_en ?? 'N/A'}
+- Vendor (AR): ${input.vendor_ar ?? 'N/A'}
+- Description (EN): ${descEn}
+- Description (AR): ${descAr}
 
 Generate 1–3 synonym CONCEPTS for this product type.
 
 Rules:
-- Each concept represents a GENERIC PRODUCT TYPE (not brand, model, or marketing word)
-- concept_key: lowercase English with underscores, e.g. "power_bank", "wireless_earbuds"
+- Each concept represents a GENERIC PRODUCT TYPE (not brand, model, vendor, or marketing word)
+- concept_key: lowercase English slug with underscores, e.g. "power_bank", "wireless_earbuds"
+- concept_key_ar: the same concept expressed as a short Arabic label (2–4 words max), e.g. "شاحن متنقل"
 - terms_en: 3–8 generic English synonyms for that type
 - terms_ar: 3–8 genuine Arabic synonyms for that type
-- Do NOT include brand names, model numbers, or spec values
+- Do NOT include brand names, vendor names, model numbers, or spec values
 - Return ONLY valid JSON, no markdown, no explanation
 
 Return format:
 [
   {
     "concept_key": "power_bank",
+    "concept_key_ar": "شاحن متنقل",
     "terms_en": ["power bank", "portable charger", "battery pack", "external battery"],
     "terms_ar": ["باور بانك", "شاحن متنقل", "بطارية خارجية", "شاحن محمول"]
   }
@@ -185,6 +203,10 @@ Return format:
           .trim()
           .toLowerCase()
           .replace(/\s+/g, '_'),
+        concept_key_ar:
+          typeof item.concept_key_ar === 'string'
+            ? item.concept_key_ar.trim()
+            : undefined,
         terms_en: this.normalizeTerms(item.terms_en as string[]),
         terms_ar: this.normalizeTerms(item.terms_ar as string[]),
       }))

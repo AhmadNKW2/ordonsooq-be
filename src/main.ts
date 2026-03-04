@@ -7,6 +7,12 @@ import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import cookieParser from 'cookie-parser';
+import { types } from 'pg';
+
+// Force the pg driver to treat TIMESTAMP WITHOUT TIME ZONE (OID 1114) as UTC.
+// Without this, the pg driver uses the Node/system local timezone to parse bare
+// timestamps, causing incorrect Date values when the system is not in UTC.
+types.setTypeParser(1114, (val: string) => new Date(val + 'Z'));
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);

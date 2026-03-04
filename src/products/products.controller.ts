@@ -67,6 +67,19 @@ export class ProductsController {
     return this.productsService.reindexOne(id);
   }
 
+  /**
+   * POST /products/generate-concepts
+   * Trigger AI synonym concept generation for ALL existing active products.
+   * Already-existing concept_keys are skipped — safe to re-run.
+   * Admin-only. Response may take time (1–2 min for large catalogs).
+   */
+  @Post('generate-concepts')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(UserRole.ADMIN)
+  generateAiConcepts() {
+    return this.productsService.generateAiConceptsForAll();
+  }
+
   @Post()
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)

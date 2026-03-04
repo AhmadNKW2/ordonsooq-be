@@ -69,12 +69,90 @@ export class TypesenseService implements OnModuleInit {
 
   private async ensureCollectionExists() {
     const collectionName = this.getCollectionName();
+
+    let existing: Awaited<ReturnType<ReturnType<typeof this.client.collections>['retrieve']>> | null = null;
     try {
-      await this.client.collections(collectionName).retrieve();
-      this.logger.log(`Collection "${collectionName}" already exists`);
+      existing = await this.client.collections(collectionName).retrieve();
     } catch {
+      // Collection does not exist — create it
+    }
+
+    if (existing) {
+      this.logger.log(`Collection "${collectionName}" already exists`);
+      try {
+        await this.patchMissingFields(collectionName, existing.fields ?? []);
+      } catch (err: any) {
+        this.logger.warn(
+          `Schema patch failed (non-fatal): ${err?.message ?? err}`,
+        );
+      }
+    } else {
       await this.createProductsCollection(collectionName);
     }
+  }
+
+  /**
+   * Add any fields present in the desired schema but missing from the
+   * existing Typesense collection (e.g. after a schema update in code).
+   */
+  private async patchMissingFields(
+    collectionName: string,
+    existingFields: Array<{ name: string }>,
+  ): Promise<void> {
+    const desiredFields = [
+      { name: 'id', type: 'string' as const },
+      { name: 'slug', type: 'string' as const, optional: true, index: false },
+      { name: 'sku', type: 'string' as const, optional: true, index: false },
+      { name: 'name_en', type: 'string' as const, locale: 'en' },
+      { name: 'name_ar', type: 'string' as const, locale: 'ar' },
+      { name: 'description_en', type: 'string' as const, locale: 'en', optional: true },
+      { name: 'description_ar', type: 'string' as const, locale: 'ar', optional: true },
+      { name: 'brand', type: 'string' as const, facet: true },
+      { name: 'category', type: 'string' as const, facet: true },
+      { name: 'subcategory', type: 'string' as const, facet: true, optional: true },
+      { name: 'category_names_en', type: 'string[]' as const, optional: true, facet: false },
+      { name: 'category_names_ar', type: 'string[]' as const, optional: true, facet: false },
+      { name: 'tags', type: 'string[]' as const, optional: true, facet: false },
+      { name: 'brand_id', type: 'int32' as const, optional: true, facet: true },
+      { name: 'vendor_id', type: 'int32' as const, optional: true, facet: true },
+      { name: 'seller_id', type: 'string' as const, optional: true, facet: false },
+      { name: 'category_ids', type: 'int32[]' as const, optional: true, facet: true },
+      { name: 'price', type: 'float' as const, facet: true },
+      { name: 'sale_price', type: 'float' as const, optional: true, facet: false },
+      { name: 'price_min', type: 'float' as const, facet: true },
+      { name: 'price_max', type: 'float' as const, facet: true },
+      { name: 'stock_quantity', type: 'int32' as const },
+      { name: 'in_stock', type: 'bool' as const, facet: true },
+      { name: 'is_available', type: 'bool' as const, facet: true },
+      { name: 'attr_pairs', type: 'string[]' as const, optional: true, facet: true },
+      { name: 'rating', type: 'float' as const, facet: true, optional: true },
+      { name: 'rating_count', type: 'int32' as const, optional: true },
+      { name: 'images', type: 'string[]' as const, optional: true, index: false },
+      { name: 'created_at', type: 'int64' as const },
+      { name: 'popularity_score', type: 'float' as const },
+      { name: 'sales_count', type: 'int32' as const, optional: true },
+    ];
+
+    // 'id' is always implicit in Typesense and is never included in retrieve()
+    // fields — skip it to avoid a 409 on the PATCH call.
+    const existingNames = new Set(existingFields.map((f) => f.name));
+    existingNames.add('id');
+
+    // When adding fields to a non-empty collection every new field MUST be
+    // optional (existing documents don't have them yet).
+    const missingFields = desiredFields
+      .filter((f) => !existingNames.has(f.name))
+      .map((f) => ({ ...f, optional: true }));
+
+    if (!missingFields.length) return;
+
+    this.logger.log(
+      `Patching ${missingFields.length} missing field(s) into "${collectionName}": ${missingFields.map((f) => f.name).join(', ')}`,
+    );
+    await this.client.collections(collectionName).update({
+      fields: missingFields,
+    } as any);
+    this.logger.log(`✅ Schema patch applied to "${collectionName}"`);
   }
 
   private async createProductsCollection(name: string) {

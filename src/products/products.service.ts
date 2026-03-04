@@ -210,7 +210,7 @@ export class ProductsService {
         await Promise.all([
           this.productsRepository.findOne({
             where: { id: productId },
-            relations: ['brand', 'category'],
+            relations: ['brand', 'category', 'vendor'],
           }),
           this.productCategoriesRepository.find({
             where: { product_id: productId },
@@ -263,7 +263,7 @@ export class ProductsService {
 
       // ── Stock ────────────────────────────────────────────────────────────
       const totalStock = stockRows.reduce((sum, s) => sum + (s.quantity ?? 0), 0);
-      const inStock = totalStock > 0;
+      const inStock = stockRows.some((s) => !s.is_out_of_stock);
 
       // ── Media ────────────────────────────────────────────────────────────
       const images = mediaRows.map((m) => m.url).filter(Boolean);
@@ -290,6 +290,11 @@ export class ProductsService {
       // ── Brand data ────────────────────────────────────────────────────────
       const brand = (product as any).brand as
         | { id?: number; name_en: string; name_ar?: string }
+        | null;
+
+      // ── Vendor data ───────────────────────────────────────────────────────
+      const vendor = (product as any).vendor as
+        | { name_en?: string; name_ar?: string }
         | null;
 
       // ── Attribute pairs for multi-attr filtering ─────────────────────────
@@ -419,6 +424,10 @@ export class ProductsService {
         category_names_ar: categoryNamesAr,
         brand_en: brand?.name_en,
         brand_ar: brand?.name_ar,
+        vendor_en: vendor?.name_en,
+        vendor_ar: vendor?.name_ar,
+        description_en: descriptionEn,
+        description_ar: descriptionAr,
       });
     } catch (err) {
       this.logger.warn(
@@ -444,6 +453,102 @@ export class ProductsService {
   }
 
   /**
+   * Run AI concept generation for ALL active + visible products.
+   * Processes in small sequential batches to respect AI rate limits.
+   * Already-existing concept_keys are skipped (safe to run multiple times).
+   */
+  async generateAiConceptsForAll(): Promise<{
+    processed: number;
+    failed: number;
+    errors: string[];
+  }> {
+    const products = await this.productsRepository.find({
+      relations: ['brand', 'category', 'vendor'],
+    });
+
+    this.logger.log(
+      `Generating AI concepts for ${products.length} products (all statuses)…`,
+    );
+
+    let processed = 0;
+    const errors: string[] = [];
+    const BATCH = 5; // small batches to avoid AI rate limits
+    const DELAY_MS = 1000;
+
+    for (let i = 0; i < products.length; i += BATCH) {
+      const batch = products.slice(i, i + BATCH);
+
+      for (const product of batch) {
+        try {
+          const productCategories = await this.productCategoriesRepository.find({
+            where: { product_id: product.id },
+            relations: ['category'],
+          });
+
+          const allCategories = productCategories
+            .map((pc) => pc.category)
+            .filter(Boolean) as Category[];
+
+          const categoryNamesEn = [
+            ...new Set(allCategories.map((c) => c.name_en).filter(Boolean)),
+          ];
+          const categoryNamesAr = [
+            ...new Set(allCategories.map((c) => c.name_ar).filter(Boolean)),
+          ];
+
+          const brand = (product as any).brand as
+            | { name_en: string; name_ar?: string }
+            | null;
+
+          const vendorData = (product as any).vendor as
+            | { name_en?: string; name_ar?: string }
+            | null;
+
+          const descEn = [
+            product.short_description_en,
+            product.long_description_en,
+          ].filter(Boolean).join(' ').trim() || undefined;
+
+          const descAr = [
+            product.short_description_ar,
+            product.long_description_ar,
+          ].filter(Boolean).join(' ').trim() || undefined;
+
+          await this.synonymConceptService.generateAndSaveConceptsForProduct({
+            name_en: product.name_en,
+            name_ar: product.name_ar,
+            category_names_en: categoryNamesEn,
+            category_names_ar: categoryNamesAr,
+            brand_en: brand?.name_en,
+            brand_ar: brand?.name_ar,
+            vendor_en: vendorData?.name_en,
+            vendor_ar: vendorData?.name_ar,
+            description_en: descEn,
+            description_ar: descAr,
+          });
+
+          processed++;
+        } catch (err: any) {
+          errors.push(
+            `Product ${product.id}: ${err?.message ?? String(err)}`,
+          );
+        }
+      }
+
+      // Delay between batches to respect AI rate limits
+      if (i + BATCH < products.length) {
+        await new Promise((r) => setTimeout(r, DELAY_MS));
+      }
+    }
+
+    this.logger.log(
+      `✅ AI concept generation done — ${processed}/${products.length} processed, ${errors.length} failed`,
+    );
+
+    return { processed, failed: errors.length, errors: errors.slice(0, 20) };
+  }
+
+  /**
    * Bulk re-index all ACTIVE + visible products.
    * Called by the admin reindex endpoint.
    * Pass { dropFirst: true } to drop+recreate the Typesense collection first.
@@ -456,12 +561,11 @@ export class ProductsService {
     }
 
     const products = await this.productsRepository.find({
-      where: { status: ProductStatus.ACTIVE, visible: true },
       relations: ['brand', 'category'],
     });
 
     const ids = products.map((p) => p.id);
-    this.logger.log(`Reindexing ${ids.length} products…`);
+    this.logger.log(`Reindexing ${ids.length} products (all statuses)…`);
 
     let indexed = 0;
     const errors: string[] = [];
@@ -997,14 +1101,27 @@ export class ProductsService {
       }
     }
 
-    // Filter by date range
+    // Filter by date range — dates from the client are in Amman local time (UTC+3).
+    // We subtract 3 h from the boundaries so the DB comparison is in UTC,
+    // matching the UTC-stored timestamps. Dates are passed as ISO strings to
+    // prevent the pg driver from re-applying the Windows system timezone offset
+    // when serialising a JS Date object.
+    const AMMAN_OFFSET_MS = 3 * 60 * 60 * 1000; // UTC+3 in milliseconds
     if (start_date) {
-      baseQuery.andWhere('product.created_at >= :start_date', { start_date });
+      const startUtc = new Date(
+        new Date(start_date).getTime() - AMMAN_OFFSET_MS,
+      ).toISOString();
+      baseQuery.andWhere('product.created_at >= :start_date', {
+        start_date: startUtc,
+      });
     }
     if (end_date) {
-      // Include the full end day by going to the end of the day
+      // End of the selected Amman day = next day midnight UTC+3 minus 1 ms, converted to UTC
+      const endUtc = new Date(
+        new Date(end_date).getTime() + 86400000 - 1 - AMMAN_OFFSET_MS,
+      ).toISOString();
       baseQuery.andWhere('product.created_at <= :end_date', {
-        end_date: new Date(new Date(end_date).getTime() + 86399999),
+        end_date: endUtc,
       });
     }
 

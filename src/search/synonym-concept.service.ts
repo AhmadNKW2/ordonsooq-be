@@ -116,6 +116,7 @@ export class SynonymConceptService implements OnModuleInit {
 
     const concept = this.conceptRepo.create({
       concept_key: dto.concept_key,
+      concept_key_ar: (dto as any).concept_key_ar ?? null,
       terms_en: dto.terms_en,
       terms_ar: dto.terms_ar,
       status: SynonymConceptStatus.PENDING,
@@ -148,6 +149,7 @@ export class SynonymConceptService implements OnModuleInit {
     }
 
     if (dto.concept_key) concept.concept_key = dto.concept_key;
+    if ('concept_key_ar' in dto) concept.concept_key_ar = dto.concept_key_ar ?? null;
     if (dto.terms_en) concept.terms_en = dto.terms_en;
     if (dto.terms_ar) concept.terms_ar = dto.terms_ar;
     concept.updated_by = adminId ?? null;
@@ -269,6 +271,10 @@ export class SynonymConceptService implements OnModuleInit {
     category_names_ar: string[];
     brand_en?: string;
     brand_ar?: string;
+    vendor_en?: string;
+    vendor_ar?: string;
+    description_en?: string;
+    description_ar?: string;
   }): Promise<void> {
     try {
       const concepts = await this.aiConceptService.generateConcepts(input);
@@ -299,6 +305,7 @@ export class SynonymConceptService implements OnModuleInit {
     await this.conceptRepo.save(
       this.conceptRepo.create({
         concept_key: concept.concept_key,
+        concept_key_ar: concept.concept_key_ar ?? null,
         terms_en: concept.terms_en,
         terms_ar: concept.terms_ar,
         status: SynonymConceptStatus.PENDING,
@@ -306,6 +313,6 @@ export class SynonymConceptService implements OnModuleInit {
       }),
     );
 
-    this.logger.log(`🆕 New pending concept: "${concept.concept_key}"`);
+    this.logger.log(`🆕 New pending concept: "${concept.concept_key}" / "${concept.concept_key_ar ?? ''}"`);
   }
 }

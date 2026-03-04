@@ -32,6 +32,12 @@ export class UpdateSynonymConceptDto {
   concept_key?: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  @Transform(({ value }: { value: string }) => value?.trim())
+  concept_key_ar?: string;
+
+  @IsOptional()
   @IsArray()
   @ArrayMinSize(2)
   @ArrayMaxSize(12)
@@ -54,6 +60,12 @@ export class CreateManualSynonymConceptDto {
     value?.trim().toLowerCase().replace(/\s+/g, '_'),
   )
   concept_key: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  @Transform(({ value }: { value: string }) => value?.trim())
+  concept_key_ar?: string;
 
   @IsArray()
   @ArrayMinSize(2)

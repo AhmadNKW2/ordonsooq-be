@@ -35,7 +35,7 @@ export interface IndexableProduct {
 
   // ── Availability ─────────────────────────────────────────────────────────
   stock_quantity: number;
-  in_stock: boolean;        // true if any stock row has quantity > 0
+  in_stock: boolean;        // true if any stock row has is_out_of_stock === false
   is_available: boolean;    // status=active && visible=true
 
   // ── Attributes (for multi-attr filtering) ─────────────────────────────────
