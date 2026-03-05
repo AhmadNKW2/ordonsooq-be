@@ -729,7 +729,7 @@ export class ProductsService {
     return finalSlug;
   }
 
-  async create(dto: CreateProductDto): Promise<any> {
+  async create(dto: CreateProductDto, userId?: number): Promise<any> {
     try {
       // Validate categories exist and are active
       if (dto.category_ids && dto.category_ids.length > 0) {
@@ -770,6 +770,7 @@ export class ProductsService {
         brand_id: dto.brand_id,
         status: dto.status ?? ProductStatus.ACTIVE,
         visible: dto.visible ?? true,
+        created_by: userId ?? null,
       });
       const savedProduct = await this.productsRepository.save(product);
 
@@ -1273,6 +1274,7 @@ export class ProductsService {
         .createQueryBuilder('product')
         .leftJoinAndSelect('product.brand', 'brand')
         .leftJoinAndSelect('product.vendor', 'vendor')
+        .leftJoinAndSelect('product.createdByUser', 'createdByUser')
         .where('product.id IN (:...ids)', { ids })
         .orderBy(`product.${sortBy}`, sortOrder)
         .getMany(),
@@ -1367,8 +1369,18 @@ export class ProductsService {
       variants,
       productCategories,
       attributes: productAttributes,
+      createdByUser,
       ...rest
     } = product as any;
+
+    const creatorInfo = createdByUser
+      ? {
+          id: createdByUser.id,
+          firstName: createdByUser.firstName,
+          lastName: createdByUser.lastName,
+          email: createdByUser.email,
+        }
+      : null;
 
     const brandInfo = brand
       ? {
@@ -1564,6 +1576,7 @@ export class ProductsService {
       archived_at,
       archived_by,
       deleted_at,
+      created_by,
       ...cleanRest
     } = rest;
 
@@ -1593,6 +1606,7 @@ export class ProductsService {
       variants: variantsList,
       ...(isAdmin && simpleProductQuantity !== undefined && { quantity: simpleProductQuantity }),
       ...(simpleProductIsOutOfStock !== undefined && { is_out_of_stock: simpleProductIsOutOfStock }),
+      ...(isAdmin && { created_by: creatorInfo }),
     };
   }
 
@@ -1609,7 +1623,7 @@ export class ProductsService {
     ] = await Promise.all([
       this.productsRepository.findOne({
         where: { id },
-        relations: ['category', 'vendor', 'brand'],
+        relations: ['category', 'vendor', 'brand', 'createdByUser'],
       }),
       this.dataSource.getRepository(ProductCategory).find({
         where: { product_id: id },

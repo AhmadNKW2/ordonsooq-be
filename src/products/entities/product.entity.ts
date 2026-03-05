@@ -16,6 +16,7 @@ import {
 import { Category } from '../../categories/entities/category.entity';
 import { Vendor } from '../../vendors/entities/vendor.entity';
 import { Brand } from '../../brands/entities/brand.entity';
+import { User } from '../../users/entities/user.entity';
 import { ProductVariant } from './product-variant.entity';
 import { ProductPriceGroup } from './product-price-group.entity';
 import { ProductWeightGroup } from './product-weight-group.entity';
@@ -176,6 +177,13 @@ export class Product {
 
   @Column({ nullable: true, type: 'int' })
   archived_by: number | null;
+
+  @Column({ nullable: true, type: 'int' })
+  created_by: number | null;
+
+  @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+  @JoinColumn({ name: 'created_by' })
+  createdByUser: User;
 
   @CreateDateColumn()
   created_at: Date;
