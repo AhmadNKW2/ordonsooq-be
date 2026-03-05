@@ -29,7 +29,7 @@ export class UpdateSynonymConceptDto {
   @Transform(({ value }: { value: string }) =>
     value?.trim().toLowerCase().replace(/\s+/g, '_'),
   )
-  concept_key?: string;
+  concept_key_en?: string;
 
   @IsOptional()
   @IsString()
@@ -40,14 +40,14 @@ export class UpdateSynonymConceptDto {
   @IsOptional()
   @IsArray()
   @ArrayMinSize(2)
-  @ArrayMaxSize(12)
+  @ArrayMaxSize(100)
   @Transform(({ value }: { value: string[] }) => normalizeTerms(value))
   terms_en?: string[];
 
   @IsOptional()
   @IsArray()
   @ArrayMinSize(2)
-  @ArrayMaxSize(12)
+  @ArrayMaxSize(100)
   @Transform(({ value }: { value: string[] }) => normalizeTerms(value))
   terms_ar?: string[];
 }
@@ -59,7 +59,7 @@ export class CreateManualSynonymConceptDto {
   @Transform(({ value }: { value: string }) =>
     value?.trim().toLowerCase().replace(/\s+/g, '_'),
   )
-  concept_key: string;
+  concept_key_en: string;
 
   @IsOptional()
   @IsString()
@@ -69,13 +69,13 @@ export class CreateManualSynonymConceptDto {
 
   @IsArray()
   @ArrayMinSize(2)
-  @ArrayMaxSize(12)
+  @ArrayMaxSize(100)
   @Transform(({ value }: { value: string[] }) => normalizeTerms(value))
   terms_en: string[];
 
   @IsArray()
   @ArrayMinSize(2)
-  @ArrayMaxSize(12)
+  @ArrayMaxSize(100)
   @Transform(({ value }: { value: string[] }) => normalizeTerms(value))
   terms_ar: string[];
 }

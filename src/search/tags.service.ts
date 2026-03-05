@@ -226,7 +226,7 @@ export class TagsService {
     try {
       // Check if concept with same key already exists
       let concept = await this.conceptsRepository.findOne({
-        where: { concept_key: tag.name },
+        where: { concept_key_en: tag.name },
       });
 
       if (!concept) {
@@ -234,7 +234,7 @@ export class TagsService {
 
         concept = await this.conceptsRepository.save(
           this.conceptsRepository.create({
-            concept_key: tag.name,
+            concept_key_en: tag.name,
             terms_en: generated?.terms_en ?? [],
             terms_ar: generated?.terms_ar ?? [],
             status: SynonymConceptStatus.PENDING,

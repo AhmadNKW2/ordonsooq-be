@@ -221,7 +221,7 @@ export class TypesenseService implements OnModuleInit {
 
   /**
    * Upsert a multi-way synonym group into Typesense.
-   * @param synonymId  Unique key (= concept_key from DB)
+   * @param synonymId  Unique key (= concept_key_en from DB)
    * @param terms      All terms (EN + AR combined)
    */
   async upsertSynonym(synonymId: string, terms: string[]): Promise<void> {

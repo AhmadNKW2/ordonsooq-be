@@ -67,7 +67,7 @@ export class AdminSearchController {
 
   /**
    * PUT /admin/search/concepts/:id
-   * Edit concept_key, terms_en, terms_ar.
+   * Edit concept_key_en, concept_key_ar, terms_en, terms_ar.
    * If already approved, changes are re-synced to Typesense immediately.
    */
   @Put('concepts/:id')

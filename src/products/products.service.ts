@@ -513,8 +513,10 @@ export class ProductsService {
         brand_ar: brand?.name_ar,
         vendor_en: vendor?.name_en,
         vendor_ar: vendor?.name_ar,
-        description_en: descriptionEn,
-        description_ar: descriptionAr,
+        short_description_en: product.short_description_en ?? undefined,
+        short_description_ar: product.short_description_ar ?? undefined,
+        long_description_en: product.long_description_en ?? undefined,
+        long_description_ar: product.long_description_ar ?? undefined,
       });
     } catch (err) {
       this.logger.warn(
@@ -591,16 +593,6 @@ export class ProductsService {
             | { name_en?: string; name_ar?: string }
             | null;
 
-          const descEn = [
-            product.short_description_en,
-            product.long_description_en,
-          ].filter(Boolean).join(' ').trim() || undefined;
-
-          const descAr = [
-            product.short_description_ar,
-            product.long_description_ar,
-          ].filter(Boolean).join(' ').trim() || undefined;
-
           await this.synonymConceptService.generateAndSaveConceptsForProduct({
             name_en: product.name_en,
             name_ar: product.name_ar,
@@ -610,8 +602,10 @@ export class ProductsService {
             brand_ar: brand?.name_ar,
             vendor_en: vendorData?.name_en,
             vendor_ar: vendorData?.name_ar,
-            description_en: descEn,
-            description_ar: descAr,
+            short_description_en: product.short_description_en ?? undefined,
+            short_description_ar: product.short_description_ar ?? undefined,
+            long_description_en: product.long_description_en ?? undefined,
+            long_description_ar: product.long_description_ar ?? undefined,
           });
 
           processed++;

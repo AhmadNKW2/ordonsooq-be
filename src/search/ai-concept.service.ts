@@ -9,12 +9,14 @@ export interface ProductConceptInput {
   brand_ar?: string;
   vendor_en?: string;
   vendor_ar?: string;
-  description_en?: string;
-  description_ar?: string;
+  short_description_en?: string;
+  short_description_ar?: string;
+  long_description_en?: string;
+  long_description_ar?: string;
 }
 
 export interface GeneratedConcept {
-  concept_key: string;
+  concept_key_en: string;
   concept_key_ar?: string;
   terms_en: string[];
   terms_ar: string[];
@@ -74,14 +76,8 @@ export class AiConceptService {
   // ── Prompt ──────────────────────────────────────────────────────────────────
 
   private buildPrompt(input: ProductConceptInput): string {
-    const descEn = input.description_en
-      ? input.description_en.slice(0, 400)
-      : 'N/A';
-    const descAr = input.description_ar
-      ? input.description_ar.slice(0, 400)
-      : 'N/A';
 
-    return `You are a search synonym expert for an Arabic/English e-commerce platform.
+    return `You are a search synonym expert for an Arabic/English e-commerce platform targeting Jordanian customers.
 
 Given this product:
 - Name (EN): ${input.name_en}
@@ -92,35 +88,37 @@ Given this product:
 - Brand (AR): ${input.brand_ar ?? 'N/A'}
 - Vendor (EN): ${input.vendor_en ?? 'N/A'}
 - Vendor (AR): ${input.vendor_ar ?? 'N/A'}
-- Description (EN): ${descEn}
-- Description (AR): ${descAr}
+- Short Description (EN): ${input.short_description_en ?? 'N/A'}
+- Short Description (AR): ${input.short_description_ar ?? 'N/A'}
+- Long Description (EN): ${input.long_description_en ?? 'N/A'}
+- Long Description (AR): ${input.long_description_ar ?? 'N/A'}
 
-Generate 1–3 synonym CONCEPTS for this product type.
+Generate 20 - 30 synonym CONCEPTS for this product type.
 
 Rules:
 - Each concept represents a GENERIC PRODUCT TYPE (not brand, model, vendor, or marketing word)
-- concept_key: lowercase English slug with underscores, e.g. "power_bank", "wireless_earbuds"
-- concept_key_ar: the same concept expressed as a short Arabic label (2–4 words max), e.g. "شاحن متنقل"
-- terms_en: 3–8 generic English synonyms for that type
-- terms_ar: 3–8 genuine Arabic synonyms for that type
+- concept_key_en: lowercase English slug with underscores (one or two words), e.g. "smartphone", "power_bank"
+- concept_key_ar: the same concept as a short Arabic label, e.g. "هاتف ذكي"
+- terms_en: Include EVERY English word or phrase a customer might search — both SINGLE WORDS (e.g. "mobile", "phone") and MULTI-WORD PHRASES (e.g. "mobile phone", "cell phone", "smartphone"). Be exhaustive and comprehensive. There is NO limit on the number of terms — include as many as relevant (10, 20, 30, 50+ terms is perfectly fine if they all apply).
+- terms_ar: Include EVERY Arabic word or phrase a Jordanian customer might search — cover BOTH Modern Standard Arabic (الفصحى) AND Jordanian colloquial Arabic (العامية الأردنية). Include single words AND multi-word phrases. There is NO limit — include as many as relevant. Examples of the variety expected: هاتف، موبايل، خليوي، خلوي، جوال، تلفون، تليفون، تلفان، سمارت فون، هاتف ذكي، جهاز محمول، جوالات، خلويات.
 - Do NOT include brand names, vendor names, model numbers, or spec values
 - Return ONLY valid JSON, no markdown, no explanation
 
-Return format:
+Example of CORRECT exhaustive output for a smartphone:
 [
   {
-    "concept_key": "power_bank",
-    "concept_key_ar": "شاحن متنقل",
-    "terms_en": ["power bank", "portable charger", "battery pack", "external battery"],
-    "terms_ar": ["باور بانك", "شاحن متنقل", "بطارية خارجية", "شاحن محمول"]
+    "concept_key_en": "smartphone",
+    "concept_key_ar": "هاتف ذكي",
+    "terms_en": ["phone", "phones", "mobile", "mobiles", "mobile phone", "cell phone", "cellular phone", "cellphone", "smartphone", "smart phone", "handphone", "handheld", "handheld device", "android phone", "touchscreen phone"],
+    "terms_ar": ["هاتف", "هواتف", "موبايل", "خليوي", "خلوي", "جوال", "جوالات", "تلفون", "تليفون", "تلفان", "سمارت فون", "هاتف ذكي", "هاتف محمول", "جهاز محمول", "جهاز ذكي", "خلويات", "شاشة لمس"]
   }
-]`;
+]`;  
   }
 
   // ── OpenAI ──────────────────────────────────────────────────────────────────
 
   private async callOpenAI(prompt: string): Promise<string> {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    const response = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -194,12 +192,12 @@ Return format:
       .filter(
         (item) =>
           typeof item === 'object' &&
-          typeof item.concept_key === 'string' &&
+          typeof item.concept_key_en === 'string' &&
           Array.isArray(item.terms_en) &&
           Array.isArray(item.terms_ar),
       )
       .map((item) => ({
-        concept_key: String(item.concept_key)
+        concept_key_en: String(item.concept_key_en)
           .trim()
           .toLowerCase()
           .replace(/\s+/g, '_'),
@@ -221,11 +219,11 @@ Return format:
           .map((t) => t.trim().toLowerCase())
           .filter((t) => t.length > 1 && !/^\d+$/.test(t)),
       ),
-    ].slice(0, 12);
+    ];
   }
 
   /**
-   * Generate terms for a new tag name (concept_key = tag name).
+   * Generate terms for a new tag name (concept_key_en = tag name).
    * Used when admin creates a brand-new tag that has no concept yet.
    * Returns { terms_en, terms_ar } or null if AI unavailable / error.
    */
@@ -234,18 +232,18 @@ Return format:
   ): Promise<{ terms_en: string[]; terms_ar: string[] } | null> {
     if (!this.openaiKey && !this.geminiKey) return null;
 
-    const prompt = `You are a search synonym expert for an Arabic/English e-commerce platform.
+    const prompt = `You are a search synonym expert for an Arabic/English e-commerce platform targeting Jordanian customers.
 
-Generate synonyms for this product tag/category: "${tagName}"
+Generate ALL search synonyms for this product tag/category: "${tagName}"
 
 Rules:
-- terms_en: 3–8 generic English synonyms for this type
-- terms_ar: 3–8 genuine Arabic synonyms for this type
+- terms_en: Include EVERY English word or phrase a customer might search — both SINGLE WORDS and MULTI-WORD PHRASES. Be exhaustive. There is NO limit — include as many as relevant (10, 20, 30, 50+ terms is perfectly fine).
+- terms_ar: Include EVERY Arabic word or phrase a Jordanian customer might search — cover BOTH Modern Standard Arabic (الفصحى) AND Jordanian colloquial Arabic (العامية الأردنية). Include single words AND multi-word phrases. There is NO limit.
 - Do NOT include brand names, model numbers, or spec values
 - Return ONLY valid JSON, no markdown, no explanation
 
 Return format:
-{ "terms_en": ["..."], "terms_ar": ["..."] }`;
+{ "terms_en": ["..."], "terms_ar": ["..."] }`;  
 
     try {
       const raw = this.openaiKey

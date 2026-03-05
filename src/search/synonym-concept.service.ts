@@ -53,7 +53,7 @@ export class SynonymConceptService implements OnModuleInit {
       }
 
       const toSeed = approved.map((c) => ({
-        id: c.concept_key,
+        id: c.concept_key_en,
         terms: [...c.terms_en, ...c.terms_ar],
       }));
 
@@ -106,16 +106,16 @@ export class SynonymConceptService implements OnModuleInit {
     adminId?: number,
   ): Promise<SearchSynonymConcept> {
     const existing = await this.conceptRepo.findOne({
-      where: { concept_key: dto.concept_key },
+      where: { concept_key_en: dto.concept_key_en },
     });
     if (existing) {
       throw new ConflictException(
-        `Concept key "${dto.concept_key}" already exists`,
+        `Concept key "${dto.concept_key_en}" already exists`,
       );
     }
 
     const concept = this.conceptRepo.create({
-      concept_key: dto.concept_key,
+      concept_key_en: dto.concept_key_en,
       concept_key_ar: (dto as any).concept_key_ar ?? null,
       terms_en: dto.terms_en,
       terms_ar: dto.terms_ar,
@@ -136,19 +136,19 @@ export class SynonymConceptService implements OnModuleInit {
   ): Promise<SearchSynonymConcept> {
     const concept = await this.findOne(id);
 
-    // Check concept_key uniqueness if it's being changed
-    if (dto.concept_key && dto.concept_key !== concept.concept_key) {
+    // Check concept_key_en uniqueness if it's being changed
+    if (dto.concept_key_en && dto.concept_key_en !== concept.concept_key_en) {
       const conflict = await this.conceptRepo.findOne({
-        where: { concept_key: dto.concept_key },
+        where: { concept_key_en: dto.concept_key_en },
       });
       if (conflict && conflict.id !== id) {
         throw new ConflictException(
-          `Concept key "${dto.concept_key}" already exists`,
+          `Concept key "${dto.concept_key_en}" already exists`,
         );
       }
     }
 
-    if (dto.concept_key) concept.concept_key = dto.concept_key;
+    if (dto.concept_key_en) concept.concept_key_en = dto.concept_key_en;
     if ('concept_key_ar' in dto) concept.concept_key_ar = dto.concept_key_ar ?? null;
     if (dto.terms_en) concept.terms_en = dto.terms_en;
     if (dto.terms_ar) concept.terms_ar = dto.terms_ar;
@@ -159,7 +159,7 @@ export class SynonymConceptService implements OnModuleInit {
     // If already approved, re-sync to Typesense with updated terms and reindex products
     if (saved.status === SynonymConceptStatus.APPROVED) {
       const terms = [...saved.terms_en, ...saved.terms_ar];
-      await this.typesenseService.upsertSynonym(saved.concept_key, terms);
+      await this.typesenseService.upsertSynonym(saved.concept_key_en, terms);
 
       const productIds = await this.tagsService.getProductIdsByConceptId(id);
       await this.tagsService.enqueueReindexForProducts(productIds);
@@ -185,11 +185,11 @@ export class SynonymConceptService implements OnModuleInit {
     }
 
     // Push to Typesense
-    await this.typesenseService.upsertSynonym(concept.concept_key, terms);
+    await this.typesenseService.upsertSynonym(concept.concept_key_en, terms);
 
     // Update DB
     concept.status = SynonymConceptStatus.APPROVED;
-    concept.typesense_synonym_id = concept.concept_key;
+    concept.typesense_synonym_id = concept.concept_key_en;
     concept.approved_by = adminId ?? null;
     concept.approved_at = new Date();
     concept.rejected_by = null;
@@ -215,7 +215,7 @@ export class SynonymConceptService implements OnModuleInit {
 
     // If was approved, remove from Typesense
     if (concept.status === SynonymConceptStatus.APPROVED) {
-      await this.typesenseService.deleteSynonym(concept.concept_key);
+      await this.typesenseService.deleteSynonym(concept.concept_key_en);
     }
 
     concept.status = SynonymConceptStatus.REJECTED;
@@ -235,7 +235,7 @@ export class SynonymConceptService implements OnModuleInit {
       throw new BadRequestException('Only approved concepts can be disabled');
     }
 
-    await this.typesenseService.deleteSynonym(concept.concept_key);
+    await this.typesenseService.deleteSynonym(concept.concept_key_en);
 
     concept.status = SynonymConceptStatus.REJECTED;
     concept.typesense_synonym_id = null;
@@ -251,7 +251,7 @@ export class SynonymConceptService implements OnModuleInit {
     const concept = await this.findOne(id);
 
     if (concept.status === SynonymConceptStatus.APPROVED) {
-      await this.typesenseService.deleteSynonym(concept.concept_key);
+      await this.typesenseService.deleteSynonym(concept.concept_key_en);
     }
 
     await this.conceptRepo.remove(concept);
@@ -261,7 +261,7 @@ export class SynonymConceptService implements OnModuleInit {
 
   /**
    * Generate AI concepts for a product and save them as pending.
-   * Skips concepts whose concept_key already exists in DB.
+   * Skips concepts whose concept_key_en already exists in DB.
    * Fire-and-forget safe — errors are logged, never thrown.
    */
   async generateAndSaveConceptsForProduct(input: {
@@ -273,8 +273,10 @@ export class SynonymConceptService implements OnModuleInit {
     brand_ar?: string;
     vendor_en?: string;
     vendor_ar?: string;
-    description_en?: string;
-    description_ar?: string;
+    short_description_en?: string;
+    short_description_ar?: string;
+    long_description_en?: string;
+    long_description_ar?: string;
   }): Promise<void> {
     try {
       const concepts = await this.aiConceptService.generateConcepts(input);
@@ -293,18 +295,18 @@ export class SynonymConceptService implements OnModuleInit {
     concept: GeneratedConcept,
   ): Promise<void> {
     const existing = await this.conceptRepo.findOne({
-      where: { concept_key: concept.concept_key },
+      where: { concept_key_en: concept.concept_key_en },
     });
 
     if (existing) {
       // Already exists — do not overwrite status or terms
-      this.logger.debug(`Concept "${concept.concept_key}" already exists, skipping`);
+      this.logger.debug(`Concept "${concept.concept_key_en}" already exists, skipping`);
       return;
     }
 
     await this.conceptRepo.save(
       this.conceptRepo.create({
-        concept_key: concept.concept_key,
+        concept_key_en: concept.concept_key_en,
         concept_key_ar: concept.concept_key_ar ?? null,
         terms_en: concept.terms_en,
         terms_ar: concept.terms_ar,
@@ -313,6 +315,6 @@ export class SynonymConceptService implements OnModuleInit {
       }),
     );
 
-    this.logger.log(`🆕 New pending concept: "${concept.concept_key}" / "${concept.concept_key_ar ?? ''}"`);
+    this.logger.log(`🆕 New pending concept: "${concept.concept_key_en}" / "${concept.concept_key_ar ?? ''}"`);
   }
 }
