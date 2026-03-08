@@ -21,7 +21,7 @@ export class FilterBrandDto {
 
   @IsOptional()
   @Type(() => Number)
-  limit?: number = 10;
+  limit?: number = 1000;
 
   @IsOptional()
   @IsEnum(BrandSortBy)
