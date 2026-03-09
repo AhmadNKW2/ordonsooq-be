@@ -19,6 +19,7 @@ export const ALLOWED_IMAGE_TYPES = [
   'image/webp',
   'image/gif',
   'image/avif',
+  'image/tiff',
 ];
 export const ALLOWED_VIDEO_TYPES = [
   'video/mp4',
