@@ -371,7 +371,7 @@ export class ProductMediaGroupService {
 
     // Process each item in the payload (now safe to run in parallel — groups pre-resolved)
     await Promise.all(
-      mediaItems.map(async (item) => {
+      mediaItems.map(async (item, index) => {
         const key = getCombinationKey(item);
         const mediaGroupId = combinationKeyToGroupId.get(key)!;
 
@@ -384,7 +384,7 @@ export class ProductMediaGroupService {
 
           media.is_primary = item.is_primary ?? false;
           media.is_group_primary = item.is_group_primary ?? false;
-          media.sort_order = item.sort_order ?? 0;
+          media.sort_order = item.sort_order ?? index;
           media.media_group_id = mediaGroupId;
 
           await this.mediaRepository.save(media);
@@ -402,7 +402,7 @@ export class ProductMediaGroupService {
 
           unlinkedMedia.product_id = product_id;
           unlinkedMedia.media_group_id = mediaGroupId;
-          unlinkedMedia.sort_order = item.sort_order ?? 0;
+          unlinkedMedia.sort_order = item.sort_order ?? index;
           unlinkedMedia.is_primary = item.is_primary ?? false;
           unlinkedMedia.is_group_primary = item.is_group_primary ?? false;
 
