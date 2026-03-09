@@ -1,8 +1,9 @@
-import { Injectable, Logger, Inject } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import type { Cache } from 'cache-manager';
 import { TypesenseService } from './typesense.service';
+import { ProductsService } from '../products/products.service';
 import { SearchQueryDto, AutocompleteQueryDto } from './dto/search-query.dto';
 import {
   SearchResponseDto,
@@ -17,15 +18,17 @@ export class SearchService {
     private readonly typesenseService: TypesenseService,
     private readonly configService: ConfigService,
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
+    @Inject(forwardRef(() => ProductsService))
+    private readonly productsService: ProductsService,
   ) {}
 
-  async search(dto: SearchQueryDto): Promise<SearchResponseDto> {
+  async search(dto: SearchQueryDto): Promise<any> {
     const cacheKey = `search:${JSON.stringify(dto)}`;
     const cacheTtl = this.configService.get<number>(
       'typesense.searchCacheTtlSeconds',
     );
 
-    const cached = await this.cacheManager.get<SearchResponseDto>(cacheKey);
+    const cached = await this.cacheManager.get<any>(cacheKey);
     if (cached) return cached;
 
     const perPage =
@@ -85,7 +88,7 @@ export class SearchService {
       .replace('price:desc', 'price_min:desc');
 
     const searchParams = {
-      q: dto.q,
+      q: dto.q ?? '*',
       query_by:
         'name_en,name_ar,brand,tags,category_names_en,category_names_ar,description_en,description_ar',
       query_by_weights: '5,5,3,4,2,2,1,1',
@@ -108,12 +111,33 @@ export class SearchService {
       .search(searchParams as any);
 
     const total = result.found ?? 0;
-    const response: SearchResponseDto = {
-      hits: (result.hits ?? []).map((h) => h.document as any),
-      total,
-      page: dto.page ?? 1,
-      per_page: perPage,
-      total_pages: Math.ceil(total / perPage),
+    const items = result.hits ?? [];
+    
+    let dbProducts: any[] = [];
+    if (items.length > 0) {
+      const ids = items.map((h) => Number((h.document as any).id));
+      // Call ProductsService to get fully hydrated products
+      const dbResult = await this.productsService.findAll({ limit: ids.length, ids });
+      
+      // Map to preserve Typesense's hit ordering
+      const productMap = new Map();
+      if (dbResult.data && dbResult.data.length > 0) {
+        dbResult.data.forEach((p: any) => {
+          productMap.set(p.id, p);
+        });
+      }
+      
+      dbProducts = ids.map(id => productMap.get(id)).filter(Boolean);
+    }
+
+    const response = {
+      data: dbProducts,
+      meta: {
+        total,
+        page: dto.page ?? 1,
+        limit: perPage,
+        totalPages: Math.ceil(total / perPage),
+      },
       facets: (result.facet_counts ?? []).map((fc) => ({
         field_name: fc.field_name,
         counts: fc.counts.map((c) => ({ value: c.value, count: c.count })),

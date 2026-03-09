@@ -1,4 +1,4 @@
-import { Module, OnModuleInit } from '@nestjs/common';
+import { Module, OnModuleInit, forwardRef } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ProductsService } from './products.service';
@@ -54,7 +54,7 @@ import { Tag } from '../search/entities/tag.entity';
       Tag,
     ]),
     AttributesModule,
-    SearchModule,
+    forwardRef(() => SearchModule),
   ],
   controllers: [ProductsController],
   providers: [

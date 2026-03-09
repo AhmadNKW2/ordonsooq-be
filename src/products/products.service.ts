@@ -1493,7 +1493,7 @@ export class ProductsService {
       const primaryProductImage = mediaList.find((m: any) => m.is_primary);
       const groupPrimaryImage = mediaList.find((m: any) => m.is_group_primary);
 
-      // Fallback for sorting: prioritize product primary, then group primary, then first
+      // Fallback for sorting: prioritize primary, then group primary, then first
       const mainDisplay =
         primaryProductImage || groupPrimaryImage || mediaList[0];
 
@@ -1504,14 +1504,19 @@ export class ProductsService {
         alt_text: m.alt_text,
         is_primary: m.is_primary,
         is_group_primary: m.is_group_primary,
+        sort_order: m.sort_order,
       });
 
       mediaGroupsMap[String(groupId)] = {
         media: mediaList
           .sort((a: any, b: any) => {
+            // First use sort_order if provided and different
+            if (a.sort_order !== undefined && b.sort_order !== undefined && a.sort_order !== b.sort_order) {
+              return a.sort_order - b.sort_order;
+            }
             if (a.id === mainDisplay.id) return -1;
             if (b.id === mainDisplay.id) return 1;
-            return 0;
+            return a.id - b.id;
           })
           .map((m: any) => formatImage(m)),
       };
@@ -1712,21 +1717,30 @@ export class ProductsService {
 
     // Transform media to include mediaGroup object and remove media_group_id
     const transformedMedia =
-      media?.map((m: any) => {
-        const { media_group_id, mediaGroup, ...mediaRest } = m;
-        return {
-          ...mediaRest,
-          media_group: mediaGroup
-            ? {
-                id: mediaGroup.id,
-                product_id: mediaGroup.product_id,
-                groupValues: mediaGroup.groupValues,
-                created_at: mediaGroup.created_at,
-                updated_at: mediaGroup.updated_at,
-              }
-            : null,
-        };
-      }) || [];
+      media
+        ?.sort((a: any, b: any) => {
+          if (a.sort_order !== undefined && b.sort_order !== undefined && a.sort_order !== b.sort_order) {
+            return a.sort_order - b.sort_order;
+          }
+          if (a.is_primary) return -1;
+          if (b.is_primary) return 1;
+          return a.id - b.id;
+        })
+        .map((m: any) => {
+          const { media_group_id, mediaGroup, ...mediaRest } = m;
+          return {
+            ...mediaRest,
+            media_group: mediaGroup
+              ? {
+                  id: mediaGroup.id,
+                  product_id: mediaGroup.product_id,
+                  groupValues: mediaGroup.groupValues,
+                  created_at: mediaGroup.created_at,
+                  updated_at: mediaGroup.updated_at,
+                }
+              : null,
+          };
+        }) || [];
 
     // Transform productCategories to a clean categories array
     const categories =

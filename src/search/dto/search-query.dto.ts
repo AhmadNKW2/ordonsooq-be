@@ -11,10 +11,12 @@ import {
 import { Type, Transform } from 'class-transformer';
 
 export class SearchQueryDto {
+  @IsOptional()
   @IsString()
-  q: string;
+  q?: string = '*';
 
   // ── Text filters ────────────────────────────────────────────────────────────
+
 
   @IsOptional()
   @IsString()

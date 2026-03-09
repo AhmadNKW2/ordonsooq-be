@@ -18,7 +18,7 @@ export class SearchController {
   search(
     @Query(new ValidationPipe({ transform: true, whitelist: true }))
     query: SearchQueryDto,
-  ): Promise<SearchResponseDto> {
+  ): Promise<any> {
     return this.searchService.search(query);
   }
 

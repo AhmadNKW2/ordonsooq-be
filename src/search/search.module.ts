@@ -13,11 +13,13 @@ import { AdminSearchController } from './admin-search.controller';
 import { AdminTagsController } from './admin-tags.controller';
 import { SearchSynonymConcept } from './entities/search-synonym-concept.entity';
 import { Tag } from './entities/tag.entity';
+import { ProductsModule } from '../products/products.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([SearchSynonymConcept, Tag]),
     BullModule.registerQueue({ name: SEARCH_QUEUE }),
+    forwardRef(() => ProductsModule),
   ],
   controllers: [SearchController, AdminSearchController, AdminTagsController],
   providers: [
