@@ -29,10 +29,10 @@ export class UsersController {
     return this.usersService.create(createUserDto);
   }
 
-  // Get all users with filtering (Admin only)
+  // Get all users with filtering (Admin & Catalog Manager)
   @Get()
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   findAll(@Query() filterDto: FilterUserDto) {
     return this.usersService.findAll(filterDto);
   }

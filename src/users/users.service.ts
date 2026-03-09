@@ -62,7 +62,7 @@ export class UsersService {
       limit = 10,
       sortBy = 'createdAt',
       sortOrder = 'DESC',
-      role,
+      roles,
       isActive,
       search,
     } = filterDto || {};
@@ -80,9 +80,9 @@ export class UsersService {
         'user.updatedAt',
       ]);
 
-    // Filter by role
-    if (role) {
-      queryBuilder.andWhere('user.role = :role', { role });
+    // Filter by multiple roles
+    if (roles && roles.length > 0) {
+      queryBuilder.andWhere('user.role IN (:...roles)', { roles });
     }
 
     // Filter by isActive

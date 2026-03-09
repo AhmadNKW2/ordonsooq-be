@@ -1057,6 +1057,7 @@ export class ProductsService {
       vendor_ids,
       brandId,
       brand_ids,
+      created_by,
       minPrice,
       maxPrice,
       has_sale,
@@ -1133,6 +1134,11 @@ export class ProductsService {
     // Filter by multiple brands
     if (brand_ids && brand_ids.length > 0) {
       baseQuery.andWhere('product.brand_id IN (:...brand_ids)', { brand_ids });
+    }
+
+    // Filter by creator
+    if (created_by && created_by.length > 0) {
+      baseQuery.andWhere('product.created_by IN (:...created_by)', { created_by });
     }
 
     // Filter by price range (against the cheapest price group of each product)

@@ -1,5 +1,5 @@
-import { IsOptional, IsEnum, IsString, IsBoolean } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsOptional, IsEnum, IsString, IsBoolean, IsArray } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 import { UserRole } from '../entities/user.entity';
 
 export enum UserSortBy {
@@ -32,8 +32,14 @@ export class FilterUserDto {
   sortOrder?: SortOrder = SortOrder.DESC;
 
   @IsOptional()
-  @IsEnum(UserRole)
-  role?: UserRole;
+  @Transform(({ value }) => {
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') return value.split(',');
+    return [value];
+  })
+  @IsArray()
+  @IsEnum(UserRole, { each: true })
+  roles?: UserRole[];
 
   @IsOptional()
   @Type(() => Boolean)

@@ -133,6 +133,17 @@ export class FilterProductDto {
   @IsNumber({}, { each: true })
   brand_ids?: number[];
 
+  // ─── Creator filter ──────────────────────────────────
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (Array.isArray(value)) return value.map(Number);
+    if (typeof value === 'string') return value.split(',').map(Number);
+    return [Number(value)];
+  })
+  @IsArray()
+  @IsNumber({}, { each: true })
+  created_by?: number[];
+
   // ─── Price filter ────────────────────────────────────
   /** Minimum effective price (sale_price if set, otherwise price) */
   @IsOptional()
