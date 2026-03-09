@@ -1449,8 +1449,15 @@ export class ProductsService {
           attributesMap[attrId] = {
             name_en: pa.attribute.name_en,
             name_ar: pa.attribute.name_ar,
+            controls_pricing: pa.controls_pricing,
+            controls_media: pa.controls_media,
+            controls_weight: pa.controls_weight,
             values: {},
           };
+        } else {
+          attributesMap[attrId].controls_pricing = pa.controls_pricing;
+          attributesMap[attrId].controls_media = pa.controls_media;
+          attributesMap[attrId].controls_weight = pa.controls_weight;
         }
       }
     });
