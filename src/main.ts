@@ -64,6 +64,7 @@ async function bootstrap() {
   // Enable CORS with credentials support for cookie-based auth
   const isProduction = process.env.IS_PRODUCTION === 'true';
   const allowedOrigins = [
+    'https://addmin.ordonsooq.com',
     'https://ordonsooq-public.vercel.app',
     'https://ordonsooq.com',
     'https://www.ordonsooq.com',
