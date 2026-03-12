@@ -1583,7 +1583,12 @@ export class ProductsService {
         ?.map((v: any) => {
           const stockItem = stock?.find((s: any) => s.variant_id === v.id);
           const quantity = stockItem ? stockItem.quantity : 0;
-            const is_out_of_stock = stockItem ? stockItem.is_out_of_stock : false;
+          const is_out_of_stock = stockItem ? stockItem.is_out_of_stock : false;
+
+          const attributeValues: Record<string, number> = {};
+          const variantValueIds = new Set<number>();
+          v.combinations?.forEach((c: any) => {
+            attributeValues[String(c.attribute_value?.attribute_id)] =
               c.attribute_value_id;
             variantValueIds.add(c.attribute_value_id);
           });
