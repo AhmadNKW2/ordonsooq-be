@@ -100,6 +100,16 @@ class StockInput {
   is_out_of_stock?: boolean;
 }
 
+class VariantInput {
+  @IsObject()
+  @IsOptional()
+  combination?: Record<string, number>;
+
+  @IsBoolean()
+  @IsOptional()
+  is_active?: boolean;
+}
+
 /**
  * Media item DTO for linking pre-uploaded media to products
  */
@@ -248,6 +258,18 @@ export class CreateProductDto {
   @Type(() => StockInput)
   @IsOptional()
   stocks?: StockInput[];
+
+  // ============== Variants ==============
+
+  /**
+   * Explicit variants array to define is_active and other specific variant statuses.
+   * If not provided, variants will be deduced implicitly from combinations in prices, weights, and stocks.
+   */
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => VariantInput)
+  @IsOptional()
+  variants?: VariantInput[];
 
   // ============== Tags ==============
 

@@ -142,6 +142,18 @@ export class StockDto {
   is_out_of_stock?: boolean;
 }
 
+// ==================== VARIANT ====================
+
+export class VariantDto {
+  @IsObject()
+  @IsOptional()
+  combination?: Record<string, number>;
+
+  @IsBoolean()
+  @IsOptional()
+  is_active?: boolean;
+}
+
 // ==================== MAIN UPDATE DTO ====================
 
 /**
@@ -272,6 +284,18 @@ export class UpdateProductDto {
   @Type(() => StockDto)
   @IsOptional()
   stocks?: StockDto[];
+
+  // ============== Variants ==============
+
+  /**
+   * Explicit variants array to define is_active and other specific variant statuses.
+   * If not provided, variants will be deduced implicitly from combinations in prices, weights, and stocks.
+   */
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => VariantDto)
+  @IsOptional()
+  variants?: VariantDto[];
 
   // ============== Tags ==============
 

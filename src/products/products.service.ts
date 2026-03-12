@@ -938,12 +938,15 @@ export class ProductsService {
       }
 
       // Handle Stocks and Variants (Batch Insert)
+      const hasVariants = (dto as any).variants && (dto as any).variants.length > 0;
+      const hasComboStocks = dto.stocks && dto.stocks.some(s => s.combination && Object.keys(s.combination).length > 0);
+      const hasComboPrices = dto.prices && dto.prices.some(p => p.combination && Object.keys(p.combination).length > 0);
+      const hasComboWeights = dto.weights && dto.weights.some(w => w.combination && Object.keys(w.combination).length > 0);
+      const shouldCreateVariants = hasVariants || hasComboStocks || hasComboPrices || hasComboWeights;
+
       if (dto.stocks && dto.stocks.length > 0) {
         const simpleStocks = dto.stocks.filter(
           (s) => !s.combination || Object.keys(s.combination).length === 0,
-        );
-        const combinationStocks = dto.stocks.filter(
-          (s) => s.combination && Object.keys(s.combination).length > 0,
         );
 
         if (simpleStocks.length > 0) {
@@ -955,58 +958,82 @@ export class ProductsService {
             ),
           );
         }
+      }
 
-        if (combinationStocks.length > 0) {
-          const runBatchStocks = async () => {
-            // 1. Create Variants
-            const variantRepo = this.dataSource.getRepository(ProductVariant);
-            const variantComboRepo = this.dataSource.getRepository(
-              ProductVariantCombination,
-            );
-            const stockRepo = this.dataSource.getRepository(ProductStock);
-            const variantMap = new Map<string, number>();
+      if (shouldCreateVariants) {
+        const runBatchVariantsAndStocks = async () => {
+          // 1. Create Variants
+          const variantRepo = this.dataSource.getRepository(ProductVariant);
+          const variantComboRepo = this.dataSource.getRepository(ProductVariantCombination);
+          const stockRepo = this.dataSource.getRepository(ProductStock);
+          const variantMap = new Map<string, number>();
 
-            // Deduplicate combinations
-            const uniqueCombinations = new Map<
-              string,
-              Record<string, number>
-            >();
-            combinationStocks.forEach((s) => {
-              const key = Object.entries(s.combination!)
-                .sort(([a], [b]) => Number(a) - Number(b))
-                .map(([k, v]) => `${k}:${v}`)
-                .join('|');
-              if (!uniqueCombinations.has(key)) {
-                uniqueCombinations.set(key, s.combination!);
-              }
-            });
+          // Deduplicate combinations from all relevant arrays to preserve variant active logic
+          const uniqueCombinations = new Map<
+            string,
+            { combination: Record<string, number>; is_active: boolean }
+          >();
 
-            const variantsToCreate = Array.from(uniqueCombinations.keys()).map(
-              () => variantRepo.create({ product_id: id, is_active: true }),
-            );
-
-            const savedVariants = await variantRepo.save(variantsToCreate);
-
-            const combosToSave: any[] = [];
-            let i = 0;
-            for (const [key, combination] of uniqueCombinations) {
-              const variant = savedVariants[i];
-              variantMap.set(key, variant.id);
-
-              Object.values(combination).forEach((valId) => {
-                combosToSave.push(
-                  variantComboRepo.create({
-                    variant_id: variant.id,
-                    attribute_value_id: valId,
-                  }),
-                );
-              });
-              i++;
+          const addCombination = (
+            combo: Record<string, number> | undefined,
+            is_active: boolean = true,
+          ) => {
+            if (!combo || Object.keys(combo).length === 0) return;
+            const key = Object.entries(combo)
+              .sort(([a], [b]) => Number(a) - Number(b))
+              .map(([k, v]) => `${k}:${v}`)
+              .join('|');
+            if (!uniqueCombinations.has(key)) {
+              uniqueCombinations.set(key, { combination: combo, is_active });
+            } else if (is_active === false) {
+              uniqueCombinations.get(key)!.is_active = false;
             }
+          };
 
-            await variantComboRepo.save(combosToSave);
+          if ((dto as any).variants && (dto as any).variants.length > 0) {
+            (dto as any).variants.forEach((v: any) => addCombination(v.combination, v.is_active ?? true));
+          }
+          if (dto.stocks && dto.stocks.length > 0) {
+            dto.stocks.forEach((s) => addCombination(s.combination, true));
+          }
+          if (dto.prices && dto.prices.length > 0) {
+            dto.prices.forEach((p) => addCombination(p.combination, true));
+          }
+          if (dto.weights && dto.weights.length > 0) {
+            dto.weights.forEach((w) => addCombination(w.combination, true));
+          }
 
-            // 2. Create Stocks
+          const variantsToCreate = Array.from(uniqueCombinations.values()).map(
+            (val) => variantRepo.create({ product_id: id, is_active: val.is_active }),
+          );
+
+          const savedVariants = await variantRepo.save(variantsToCreate);
+
+          const combosToSave: any[] = [];
+          let i = 0;
+          for (const [key, val] of uniqueCombinations) {
+            const variant = savedVariants[i];
+            variantMap.set(key, variant.id);
+
+            Object.values(val.combination).forEach((valId) => {
+              combosToSave.push(
+                variantComboRepo.create({
+                  variant_id: variant.id,
+                  attribute_value_id: valId as number,
+                }),
+              );
+            });
+            i++;
+          }
+          
+          await variantComboRepo.save(combosToSave);
+
+          // 2. Create Stocks
+          if (dto.stocks && dto.stocks.length > 0) {
+            const combinationStocks = dto.stocks.filter(
+              (s) => s.combination && Object.keys(s.combination).length > 0,
+            );
+            
             const stocksToSave = combinationStocks.map((s) => {
               const key = Object.entries(s.combination!)
                 .sort(([a], [b]) => Number(a) - Number(b))
@@ -1020,10 +1047,12 @@ export class ProductsService {
               });
             });
 
-            await stockRepo.save(stocksToSave);
-          };
-          creationTasks.push(runBatchStocks());
-        }
+            if (stocksToSave.length > 0) {
+              await stockRepo.save(stocksToSave);
+            }
+          }
+        };
+        creationTasks.push(runBatchVariantsAndStocks());
       }
 
       await Promise.all(creationTasks);
@@ -1971,65 +2000,83 @@ export class ProductsService {
       // PHASE 3: REBUILD DATA (Optimized Batch Creation)
       // =================================================================
 
-      // 1. Create Variants for Stocks (Needed for mapping)
-      // We only strictly need variants for stocks. Prices/Weights use their own groups.
+      // 1. Create Variants (Needed for mapping)
+      // We aggregate unique combinations from explicitly provided variants, as well as those found in stocks, prices, and weights.
       const variantMap = new Map<string, number>(); // combinationKey -> variantId
 
+      const uniqueCombinations = new Map<
+        string,
+        { combination: Record<string, number>; is_active: boolean }
+      >();
+
+      const addCombination = (
+        combo: Record<string, number> | undefined,
+        is_active: boolean = true,
+      ) => {
+        if (!combo || Object.keys(combo).length === 0) return;
+        const key = Object.entries(combo)
+          .sort(([a], [b]) => Number(a) - Number(b))
+          .map(([k, v]) => `${k}:${v}`)
+          .join('|');
+
+        if (!uniqueCombinations.has(key)) {
+          uniqueCombinations.set(key, { combination: combo, is_active });
+        } else if (is_active === false) {
+          uniqueCombinations.get(key)!.is_active = false;
+        }
+      };
+
+      if ((dto as any).variants && (dto as any).variants.length > 0) {
+        (dto as any).variants.forEach((v: any) =>
+          addCombination(v.combination, v.is_active ?? true),
+        );
+      }
       if (dto.stocks && dto.stocks.length > 0) {
-        const combinationStocks = dto.stocks.filter(
-          (s) => s.combination && Object.keys(s.combination).length > 0,
+        dto.stocks.forEach((s) => addCombination(s.combination, true));
+      }
+      if (dto.prices && dto.prices.length > 0) {
+        dto.prices.forEach((p) => addCombination(p.combination, true));
+      }
+      if (dto.weights && dto.weights.length > 0) {
+        dto.weights.forEach((w) => addCombination(w.combination, true));
+      }
+
+      if (uniqueCombinations.size > 0) {
+        const variantRepo = this.dataSource.getRepository(ProductVariant);
+        const variantComboRepo = this.dataSource.getRepository(
+          ProductVariantCombination,
         );
 
-        if (combinationStocks.length > 0) {
-          // Identify unique combinations from stocks
-          const uniqueCombinations = new Map<string, Record<string, number>>();
-          combinationStocks.forEach((s) => {
-            // Create a consistent key for the combination
-            const key = Object.entries(s.combination!)
-              .sort(([a], [b]) => Number(a) - Number(b))
-              .map(([k, v]) => `${k}:${v}`)
-              .join('|');
+        const variantsToCreate = Array.from(uniqueCombinations.values()).map(
+          (val) =>
+            variantRepo.create({
+              product_id: id,
+              is_active: val.is_active,
+            }),
+        );
 
-            if (!uniqueCombinations.has(key)) {
-              uniqueCombinations.set(key, s.combination!);
-            }
+        const savedVariants = await variantRepo.save(variantsToCreate);
+
+        // Prepare combinations data
+        const combosToSave: any[] = [];
+        let i = 0;
+        for (const [key, val] of uniqueCombinations) {
+          const variant = savedVariants[i];
+          variantMap.set(key, variant.id);
+
+          const attributeValues = Object.values(val.combination);
+          attributeValues.forEach((valId) => {
+            combosToSave.push(
+              variantComboRepo.create({
+                variant_id: variant.id,
+                attribute_value_id: valId,
+              }),
+            );
           });
-
-          // Create variants in bulk
-          if (uniqueCombinations.size > 0) {
-            const variantRepo = this.dataSource.getRepository(ProductVariant);
-            const variantComboRepo = this.dataSource.getRepository(
-              ProductVariantCombination,
-            );
-
-            const variantsToCreate = Array.from(uniqueCombinations.keys()).map(
-              () => variantRepo.create({ product_id: id, is_active: true }),
-            );
-
-            const savedVariants = await variantRepo.save(variantsToCreate);
-
-            // Prepare combinations data
-            const combosToSave: any[] = [];
-            let i = 0;
-            for (const [key, combination] of uniqueCombinations) {
-              const variant = savedVariants[i];
-              variantMap.set(key, variant.id);
-
-              const attributeValues = Object.values(combination);
-              attributeValues.forEach((valId) => {
-                combosToSave.push(
-                  variantComboRepo.create({
-                    variant_id: variant.id,
-                    attribute_value_id: valId,
-                  }),
-                );
-              });
-              i++;
-            }
-
-            await variantComboRepo.save(combosToSave);
-          }
+          i++;
         }
+
+        await variantComboRepo.save(combosToSave);
       }
 
       const creationTasks: Promise<any>[] = [];
