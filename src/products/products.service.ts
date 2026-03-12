@@ -360,6 +360,10 @@ export class ProductsService {
         .map((pc) => pc.category)
         .filter(Boolean) as Category[];
 
+      if (allCategories.length === 0 && (product as any).category) {
+        allCategories.push((product as any).category);
+      }
+
       const primaryCategory: Category | null =
         allCategories[0] ?? (product as any).category ?? null;
       const subCategory = allCategories.find((c) => c.level > 0) ?? null;
@@ -577,6 +581,10 @@ export class ProductsService {
           const allCategories = productCategories
             .map((pc) => pc.category)
             .filter(Boolean) as Category[];
+
+          if (allCategories.length === 0 && (product as any).category) {
+            allCategories.push((product as any).category);
+          }
 
           const categoryNamesEn = [
             ...new Set(allCategories.map((c) => c.name_en).filter(Boolean)),
@@ -1374,6 +1382,7 @@ export class ProductsService {
       brand,
       variants,
       productCategories,
+      category, // Ensure we extract category relation
       attributes: productAttributes,
       createdByUser,
       ...rest
@@ -1398,8 +1407,12 @@ export class ProductsService {
         }
       : null;
 
-    const categories =
-      productCategories?.map((pc: any) => pc.category).filter(Boolean) || [];
+    let categories: any[] = [];
+    if (productCategories && productCategories.length > 0) {
+      categories = productCategories.map((pc: any) => pc.category).filter(Boolean);
+    } else if (category) {
+      categories = [category];
+    }
 
     // --- Attributes Map ---
     const attributesMap: Record<string, any> = {};
@@ -1590,7 +1603,6 @@ export class ProductsService {
       category_id,
       vendor_id,
       brand_id,
-      category,
       archived_at,
       archived_by,
       deleted_at,
@@ -1756,8 +1768,12 @@ export class ProductsService {
         }) || [];
 
     // Transform productCategories to a clean categories array
-    const categories =
-      productCategories?.map((pc: any) => pc.category).filter(Boolean) || [];
+    let categories: any[] = [];
+    if (productCategories && productCategories.length > 0) {
+      categories = productCategories.map((pc: any) => pc.category).filter(Boolean);
+    } else if (category) {
+      categories = [category];
+    }
 
     const brandInfo = brand
       ? {

@@ -107,7 +107,11 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
-      "@nestjs/core"
+      "@nestjs/core",
+      "bcrypt",
+      "msgpackr-extract",
+      "sharp",
+      "unrs-resolver"
     ]
   }
 }
