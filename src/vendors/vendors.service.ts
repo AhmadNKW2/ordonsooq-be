@@ -16,6 +16,8 @@ import {
 } from './dto/archive-vendor.dto';
 import { ReorderVendorsDto } from './dto/reorder-vendors.dto';
 import { Product, ProductStatus } from '../products/entities/product.entity';
+import { FilterProductDto } from '../products/dto/filter-product.dto';
+import { ProductsService } from '../products/products.service';
 import { R2StorageService } from '../common/services/r2-storage.service';
 
 @Injectable()
@@ -28,6 +30,7 @@ export class VendorsService {
     @InjectRepository(Product)
     private productsRepository: Repository<Product>,
     private r2StorageService: R2StorageService,
+    private readonly productsService: ProductsService,
   ) {}
 
   private slugify(text: string): string {
@@ -141,28 +144,44 @@ export class VendorsService {
     });
   }
 
-  async findOne(id: number): Promise<Vendor> {
+  async findOne(id: number, productFilter?: FilterProductDto): Promise<Vendor> {
     const vendor = await this.vendorRepository.findOne({
       where: { id },
-      relations: ['products'],
     });
 
     if (!vendor) {
       throw new NotFoundException(`Vendor with ID ${id} not found`);
     }
 
+    const productsResult = await this.productsService.findAll({
+      ...productFilter,
+      vendor_ids: [id],
+      vendorId: undefined,
+      limit: productFilter?.limit ?? 100,
+    });
+    (vendor as any).products = productsResult.data;
+    (vendor as any).productsMeta = productsResult.meta;
+
     return vendor;
   }
 
-  async findOneBySlug(slug: string): Promise<Vendor> {
+  async findOneBySlug(slug: string, productFilter?: FilterProductDto): Promise<Vendor> {
     const vendor = await this.vendorRepository.findOne({
       where: { slug },
-      relations: ['products'],
     });
 
     if (!vendor) {
       throw new NotFoundException(`Vendor with slug ${slug} not found`);
     }
+
+    const productsResult = await this.productsService.findAll({
+      ...productFilter,
+      vendor_ids: [vendor.id],
+      vendorId: undefined,
+      limit: productFilter?.limit ?? 100,
+    });
+    (vendor as any).products = productsResult.data;
+    (vendor as any).productsMeta = productsResult.meta;
 
     return vendor;
   }

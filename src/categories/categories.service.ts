@@ -11,6 +11,7 @@ import { Category, CategoryStatus } from './entities/category.entity';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { FilterCategoryDto } from './dto/filter-category.dto';
+import { FilterProductDto } from '../products/dto/filter-product.dto';
 import {
   RestoreCategoryDto,
   PermanentDeleteCategoryDto,
@@ -261,7 +262,25 @@ export class CategoriesService {
     return mainCategories;
   }
 
-  async findOne(id: number): Promise<Category> {
+  private async getDescendantIds(id: number): Promise<number[]> {
+    const children = await this.categoriesRepository.find({
+      where: { parent_id: id },
+      select: ['id'],
+    });
+    const childIds = children.map((c) => c.id);
+
+    if (childIds.length === 0) return [];
+
+    const grandchildren = await this.categoriesRepository.find({
+      where: { parent_id: In(childIds) },
+      select: ['id'],
+    });
+    const grandChildIds = grandchildren.map((c) => c.id);
+
+    return [...childIds, ...grandChildIds];
+  }
+
+  async findOne(id: number, productFilter?: FilterProductDto): Promise<Category> {
     const category = await this.categoriesRepository.findOne({
       where: { id },
       relations: ['parent', 'children'],
@@ -271,17 +290,23 @@ export class CategoriesService {
       throw new NotFoundException('Category not found');
     }
 
+    const descendantIds = await this.getDescendantIds(category.id);
+    const category_ids = [category.id, ...descendantIds];
+
     // Get products using ProductsService to ensure consistent format
     const productsResult = await this.productsService.findAll({
-      categoryId: id,
-      limit: 100,
+      ...productFilter,
+      categoryId: undefined,
+      category_ids: category_ids,
+      limit: productFilter?.limit ?? 100,
     });
     (category as any).products = productsResult.data;
+    (category as any).productsMeta = productsResult.meta;
 
     return category;
   }
 
-  async findOneBySlug(slug: string): Promise<Category> {
+  async findOneBySlug(slug: string, productFilter?: FilterProductDto): Promise<Category> {
     const category = await this.categoriesRepository.findOne({
       where: { slug },
       relations: ['parent', 'children'],
@@ -291,12 +316,18 @@ export class CategoriesService {
       throw new NotFoundException(`Category with slug ${slug} not found`);
     }
 
+    const descendantIds = await this.getDescendantIds(category.id);
+    const category_ids = [category.id, ...descendantIds];
+
     // Get products using ProductsService to ensure consistent format
     const productsResult = await this.productsService.findAll({
-      categoryId: category.id,
-      limit: 100,
+      ...productFilter,
+      categoryId: undefined,
+      category_ids: category_ids,
+      limit: productFilter?.limit ?? 100,
     });
     (category as any).products = productsResult.data;
+    (category as any).productsMeta = productsResult.meta;
 
     return category;
   }

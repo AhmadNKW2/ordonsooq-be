@@ -11,6 +11,7 @@ import {
   UploadedFile,
   Req,
   Put,
+  Query,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
@@ -23,6 +24,7 @@ import {
 } from './dto/archive-vendor.dto';
 import { ReorderVendorsDto } from './dto/reorder-vendors.dto';
 import { AssignProductsToVendorDto } from './dto/assign-products.dto';
+import { FilterProductDto } from '../products/dto/filter-product.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles, UserRole } from '../common/decorators/roles.decorator';
@@ -75,13 +77,13 @@ export class VendorsController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.vendorsService.findOne(+id);
+  findOne(@Param('id') id: string, @Query() filterDto: FilterProductDto) {
+    return this.vendorsService.findOne(+id, filterDto);
   }
 
   @Get('slug/:slug')
-  findOneBySlug(@Param('slug') slug: string) {
-    return this.vendorsService.findOneBySlug(slug);
+  findOneBySlug(@Param('slug') slug: string, @Query() filterDto: FilterProductDto) {
+    return this.vendorsService.findOneBySlug(slug, filterDto);
   }
 
   @Patch(':id')

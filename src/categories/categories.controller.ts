@@ -13,6 +13,7 @@ import {
   Request,
   Put,
   Req,
+  Query,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
@@ -21,6 +22,7 @@ import { CategoriesService } from './categories.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { FilterCategoryDto } from './dto/filter-category.dto';
+import { FilterProductDto } from '../products/dto/filter-product.dto';
 import {
   RestoreCategoryDto,
   PermanentDeleteCategoryDto,
@@ -117,13 +119,13 @@ export class CategoriesController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: number) {
-    return this.categoriesService.findOne(id);
+  findOne(@Param('id') id: number, @Query() filterDto: FilterProductDto) {
+    return this.categoriesService.findOne(id, filterDto);
   }
 
   @Get('slug/:slug')
-  async findOneBySlug(@Param('slug') slug: string) {
-    return this.categoriesService.findOneBySlug(slug);
+  async findOneBySlug(@Param('slug') slug: string, @Query() filterDto: FilterProductDto) {
+    return this.categoriesService.findOneBySlug(slug, filterDto);
   }
 
   // ========== LIFECYCLE MANAGEMENT ==========

@@ -17,6 +17,7 @@ import { BrandsService } from './brands.service';
 import { CreateBrandDto } from './dto/create-brand.dto';
 import { UpdateBrandDto } from './dto/update-brand.dto';
 import { FilterBrandDto } from './dto/filter-brand.dto';
+import { FilterProductDto } from '../products/dto/filter-product.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles, UserRole } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -75,13 +76,13 @@ export class BrandsController {
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.brandsService.findOne(+id);
+  findOne(@Param('id') id: string, @Query() filterDto: FilterProductDto) {
+    return this.brandsService.findOne(+id, filterDto);
   }
 
   @Get('slug/:slug')
-  findOneBySlug(@Param('slug') slug: string) {
-    return this.brandsService.findOneBySlug(slug);
+  findOneBySlug(@Param('slug') slug: string, @Query() filterDto: FilterProductDto) {
+    return this.brandsService.findOneBySlug(slug, filterDto);
   }
 
   @Patch(':id')

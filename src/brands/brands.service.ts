@@ -11,6 +11,8 @@ import { Brand, BrandStatus } from './entities/brand.entity';
 import { CreateBrandDto } from './dto/create-brand.dto';
 import { UpdateBrandDto } from './dto/update-brand.dto';
 import { FilterBrandDto } from './dto/filter-brand.dto';
+import { FilterProductDto } from '../products/dto/filter-product.dto';
+import { ProductsService } from '../products/products.service';
 import { Product, ProductStatus } from '../products/entities/product.entity';
 import {
   RestoreBrandDto,
@@ -28,6 +30,7 @@ export class BrandsService {
     @InjectRepository(Product)
     private readonly productsRepository: Repository<Product>,
     private readonly r2StorageService: R2StorageService,
+    private readonly productsService: ProductsService,
   ) {}
 
   private slugify(text: string): string {
@@ -145,25 +148,43 @@ export class BrandsService {
     };
   }
 
-  async findOne(id: number): Promise<Brand> {
+  async findOne(id: number, productFilter?: FilterProductDto): Promise<Brand> {
     const brand = await this.brandsRepository.findOne({
       where: { id },
-      relations: ['products'],
     });
     if (!brand) {
       throw new NotFoundException('Brand not found');
     }
+
+    const productsResult = await this.productsService.findAll({
+      ...productFilter,
+      brand_ids: [id],
+      brandId: undefined,
+      limit: productFilter?.limit ?? 100,
+    });
+    (brand as any).products = productsResult.data;
+    (brand as any).productsMeta = productsResult.meta;
+
     return brand;
   }
 
-  async findOneBySlug(slug: string): Promise<Brand> {
+  async findOneBySlug(slug: string, productFilter?: FilterProductDto): Promise<Brand> {
     const brand = await this.brandsRepository.findOne({
       where: { slug },
-      relations: ['products'],
     });
     if (!brand) {
       throw new NotFoundException(`Brand with slug ${slug} not found`);
     }
+
+    const productsResult = await this.productsService.findAll({
+      ...productFilter,
+      brand_ids: [brand.id],
+      brandId: undefined,
+      limit: productFilter?.limit ?? 100,
+    });
+    (brand as any).products = productsResult.data;
+    (brand as any).productsMeta = productsResult.meta;
+
     return brand;
   }
 
