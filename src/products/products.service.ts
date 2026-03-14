@@ -849,7 +849,7 @@ export class ProductsService {
             const groupsToSave = combinationPrices.map((p) =>
               priceRepo.create({
                 product_id: id,
-                cost: p.cost,
+                cost: p.cost ?? 0,
                 price: p.price,
                 sale_price: p.sale_price,
               }),
@@ -2132,7 +2132,7 @@ export class ProductsService {
             const groupsToSave = combinationPrices.map((p) =>
               priceRepo.create({
                 product_id: id,
-                cost: p.cost,
+                cost: p.cost ?? 0,
                 price: p.price,
                 sale_price: p.sale_price,
               }),

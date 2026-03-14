@@ -46,7 +46,7 @@ export class ProductPriceGroupService {
 
     if (existingGroup) {
       // Update the existing group with new price data
-      existingGroup.cost = priceData.cost;
+      existingGroup.cost = priceData.cost ?? 0;
       existingGroup.price = priceData.price;
       existingGroup.sale_price = priceData.sale_price;
       return this.priceGroupRepository.save(existingGroup);
@@ -55,7 +55,7 @@ export class ProductPriceGroupService {
     // Create new group
     const priceGroup = this.priceGroupRepository.create({
       product_id: product_id,
-      cost: priceData.cost,
+      cost: priceData.cost ?? 0,
       price: priceData.price,
       sale_price: priceData.sale_price,
     });
@@ -289,7 +289,7 @@ export class ProductPriceGroupService {
     const simpleGroup = existingGroups.find((g) => g.groupValues.length === 0);
 
     if (simpleGroup) {
-      simpleGroup.cost = priceData.cost;
+      simpleGroup.cost = priceData.cost ?? 0;
       simpleGroup.price = priceData.price;
       simpleGroup.sale_price = priceData.sale_price;
       return this.priceGroupRepository.save(simpleGroup);
@@ -298,7 +298,7 @@ export class ProductPriceGroupService {
     // Create new simple group
     const priceGroup = this.priceGroupRepository.create({
       product_id: product_id,
-      cost: priceData.cost,
+      cost: priceData.cost ?? 0,
       price: priceData.price,
       sale_price: priceData.sale_price,
     });
