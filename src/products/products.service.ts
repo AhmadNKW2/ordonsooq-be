@@ -1217,11 +1217,11 @@ export class ProductsService {
     if (in_stock !== undefined) {
       if (in_stock) {
         baseQuery.andWhere(
-          'EXISTS (SELECT 1 FROM product_stocks ps WHERE ps.product_id = product.id AND ps.quantity > 0)',
+          'EXISTS (SELECT 1 FROM product_stock ps WHERE ps.product_id = product.id AND ps.is_out_of_stock = false)',
         );
       } else {
         baseQuery.andWhere(
-          'NOT EXISTS (SELECT 1 FROM product_stocks ps WHERE ps.product_id = product.id AND ps.quantity > 0)',
+          'EXISTS (SELECT 1 FROM product_stock ps WHERE ps.product_id = product.id AND ps.is_out_of_stock = true)',
         );
       }
     }

@@ -75,7 +75,11 @@ export class FilterProductDto {
   status?: ProductStatus;
 
   @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
+  @Transform(({ obj, key }) => {
+    const value = obj[key];
+    if (value === 'false' || value === false || value === '0') return false;
+    return [true, 'true', '1', 1].includes(value);
+  })
   @IsBoolean()
   visible?: boolean;
 
@@ -161,7 +165,11 @@ export class FilterProductDto {
 
   /** Only products currently on sale (have a sale_price) */
   @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
+  @Transform(({ obj, key }) => {
+    const value = obj[key];
+    if (value === 'false' || value === false || value === '0') return false;
+    return [true, 'true', '1', 1].includes(value);
+  })
   @IsBoolean()
   has_sale?: boolean;
 
@@ -181,7 +189,11 @@ export class FilterProductDto {
   // ─── Stock filter ────────────────────────────────────
   /** Only products that have at least 1 unit in stock */
   @IsOptional()
-  @Transform(({ value }) => value === 'true' || value === true)
+  @Transform(({ obj, key }) => {
+    const value = obj[key];
+    if (value === 'false' || value === false || value === '0') return false;
+    return [true, 'true', '1', 1].includes(value);
+  })
   @IsBoolean()
   in_stock?: boolean;
 

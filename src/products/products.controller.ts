@@ -20,6 +20,7 @@ import { IsArray, IsNotEmpty, IsString } from 'class-validator';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { PatchProductDto } from './dto/patch-product.dto';
 import { FilterProductDto, AssignProductsDto } from './dto/filter-product.dto';
 import { Roles, UserRole } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -138,6 +139,13 @@ export class ProductsController {
   @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   update(@Param('id') id: string, @Body() updateProductDto: UpdateProductDto) {
     return this.productsService.update(+id, updateProductDto);
+  }
+
+  @Patch(':id')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  patch(@Param('id') id: string, @Body() patchProductDto: PatchProductDto) {
+    return this.productsService.update(+id, patchProductDto as UpdateProductDto);
   }
 
   // ========== LIFECYCLE MANAGEMENT ==========
