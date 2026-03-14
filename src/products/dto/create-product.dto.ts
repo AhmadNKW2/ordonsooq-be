@@ -148,16 +148,16 @@ class MediaInput {
 export class CreateProductDto {
   // Basic product info
   @IsString()
-  @MaxLength(200)
+  @MaxLength(300)
   name_en: string;
 
   @IsString()
-  @MaxLength(200)
+  @MaxLength(300)
   @IsOptional()
   slug?: string;
 
   @IsString()
-  @MaxLength(200)
+  @MaxLength(300)
   name_ar: string;
 
   @IsString()

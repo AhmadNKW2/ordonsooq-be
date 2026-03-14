@@ -171,11 +171,11 @@ export class UpdateProductDto {
   // ============== Basic Product Info (Required) ==============
 
   @IsString()
-  @MaxLength(200)
+  @MaxLength(300)
   name_en: string;
 
   @IsString()
-  @MaxLength(200)
+  @MaxLength(300)
   name_ar: string;
 
   @IsString()
