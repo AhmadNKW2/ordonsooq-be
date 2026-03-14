@@ -1968,28 +1968,42 @@ export class ProductsService {
       }
 
       // 2. Delete Prices, Weights, Stocks (Independent groups)
-      cleanupTasks.push(this.priceGroupService.deletePriceGroupsForProduct(id));
-      cleanupTasks.push(
-        this.weightGroupService.deleteWeightGroupsForProduct(id),
-      );
-      cleanupTasks.push(this.variantsService.deleteAllStocksForProduct(id));
+      if (dto.prices !== undefined) {
+        cleanupTasks.push(this.priceGroupService.deletePriceGroupsForProduct(id));
+      }
+      if (dto.weights !== undefined) {
+        cleanupTasks.push(
+          this.weightGroupService.deleteWeightGroupsForProduct(id),
+        );
+      }
+      if (dto.stocks !== undefined) {
+        cleanupTasks.push(this.variantsService.deleteAllStocksForProduct(id));
+      }
 
       // 3. Variant Cleanup Chain (Cart -> Variants -> Attributes)
-      // NOTE: Deleting variants is extremely slow. We should only delete if absolutely necessary.
-      // But currently the logic requires full rebuild.
-      const variantCleanupTask = async () => {
-        // Delete related cart items to avoid Foreign Key constraint violations
-        await this.dataSource
-          .getRepository(CartItem)
-          .delete({ product_id: id });
+      // We only rebuild variants and attributes if the relevant structures are provided
+      const rebuildVariants =
+        dto.attributes !== undefined ||
+        (dto as any).variants !== undefined ||
+        dto.prices !== undefined ||
+        dto.weights !== undefined ||
+        dto.stocks !== undefined;
 
-        // Delete all existing variants
-        await this.variantsService.deleteAllVariantsForProduct(id);
+      if (rebuildVariants) {
+        const variantCleanupTask = async () => {
+          // Delete related cart items to avoid Foreign Key constraint violations
+          await this.dataSource
+            .getRepository(CartItem)
+            .delete({ product_id: id });
 
-        // Delete all existing attributes
-        await this.variantsService.deleteAllAttributesForProduct(id);
-      };
-      cleanupTasks.push(variantCleanupTask());
+          // Delete all existing variants
+          await this.variantsService.deleteAllVariantsForProduct(id);
+
+          // Delete all existing attributes
+          await this.variantsService.deleteAllAttributesForProduct(id);
+        };
+        cleanupTasks.push(variantCleanupTask());
+      }
 
       // Execute all cleanup tasks in parallel
       await Promise.all(cleanupTasks);
