@@ -1456,6 +1456,8 @@ export class ProductsService {
           name_ar: attr.name_ar,
           unit_en: attr.unit_en,
           unit_ar: attr.unit_ar,
+          attribute_type: attr.attribute_type,
+          list_separately: attr.list_separately,
           values: {},
         };
       }
@@ -1497,12 +1499,16 @@ export class ProductsService {
           attributesMap[attrId] = {
             name_en: pa.attribute.name_en,
             name_ar: pa.attribute.name_ar,
+            attribute_type: pa.attribute.attribute_type,
+            list_separately: pa.attribute.list_separately,
             controls_pricing: pa.controls_pricing,
             controls_media: pa.controls_media,
             controls_weight: pa.controls_weight,
             values: {},
           };
         } else {
+          attributesMap[attrId].attribute_type = pa.attribute.attribute_type;
+          attributesMap[attrId].list_separately = pa.attribute.list_separately;
           attributesMap[attrId].controls_pricing = pa.controls_pricing;
           attributesMap[attrId].controls_media = pa.controls_media;
           attributesMap[attrId].controls_weight = pa.controls_weight;
