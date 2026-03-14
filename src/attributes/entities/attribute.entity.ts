@@ -55,6 +55,12 @@ export class Attribute {
   @Column({ default: false })
   is_color: boolean;
 
+  @Column({ type: 'varchar', nullable: true })
+  attribute_type?: string; // 'variant_attribute' | 'spec_attribute'
+
+  @Column({ nullable: true, default: false })
+  list_separately?: boolean;
+
   @Column({ default: 0 })
   sort_order: number;
 

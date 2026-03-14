@@ -8,6 +8,7 @@ import {
   IsHexColor,
   IsInt,
   IsNumber,
+  IsIn,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -65,6 +66,15 @@ export class CreateAttributeDto {
   @IsBoolean()
   @IsOptional()
   is_color?: boolean;
+
+  @IsString()
+  @IsIn(['variant_attribute', 'spec_attribute'])
+  @IsOptional()
+  attribute_type?: string;
+
+  @IsBoolean()
+  @IsOptional()
+  list_separately?: boolean;
 
   @IsBoolean()
   @IsOptional()
