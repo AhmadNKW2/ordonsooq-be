@@ -156,13 +156,16 @@ export class AuthController {
         data.tokens.accessToken,
         data.tokens.refreshToken,
       );
-      
-      const frontendUrl = this.configService.get('FRONTEND_URL') || 'http://localhost:3000';
+
+      const frontendUrl =
+        this.configService.get('FRONTEND_URL') || 'http://localhost:3000';
       return res.redirect(frontendUrl);
     } catch (error) {
       console.error('=== APPLE CALLBACK ERROR ===');
       console.error('Error:', error);
-      return res.redirect(`${this.configService.get('FRONTEND_URL')}/login?error=auth_failed`);
+      return res.redirect(
+        `${this.configService.get('FRONTEND_URL')}/login?error=auth_failed`,
+      );
     }
   }
 

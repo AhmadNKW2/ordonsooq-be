@@ -115,7 +115,7 @@ export class CategoriesService {
     // Map parent_id from DTO to parent_id for entity
     const { parent_id, product_ids, ...rest } = createCategoryDto;
     const slug = await this.generateUniqueSlug(rest.name_en);
-    
+
     const category = this.categoriesRepository.create({
       ...rest,
       slug,
@@ -141,14 +141,24 @@ export class CategoriesService {
     categoryId: number,
     product_ids: number[],
   ): Promise<void> {
-    // Delete existing assignments for this category
-    await this.productCategoriesRepository.delete({ category_id: categoryId });
+    if (!product_ids || product_ids.length === 0) return;
 
-    if (product_ids.length === 0) return;
+    // To prevent pagination bugs from silently wiping out products that weren't sent,
+    // we only ADD products that are missing, and we DO NOT delete existing ones here.
+    // Explicit removal should be done via the removeProductsFromCategory endpoint.
+
+    const existingAssignments = await this.productCategoriesRepository.find({
+      where: { category_id: categoryId },
+    });
+    const existingIds = new Set(existingAssignments.map((a) => a.product_id));
+
+    const newIds = product_ids.filter((id) => !existingIds.has(id));
+
+    if (newIds.length === 0) return;
 
     // Validate products exist and are active
     const products = await this.productsRepository.find({
-      where: { id: In(product_ids), status: ProductStatus.ACTIVE },
+      where: { id: In(newIds), status: ProductStatus.ACTIVE },
     });
 
     if (products.length > 0) {
@@ -280,7 +290,10 @@ export class CategoriesService {
     return [...childIds, ...grandChildIds];
   }
 
-  async findOne(id: number, productFilter?: FilterProductDto): Promise<Category> {
+  async findOne(
+    id: number,
+    productFilter?: FilterProductDto,
+  ): Promise<Category> {
     const category = await this.categoriesRepository.findOne({
       where: { id },
       relations: ['parent', 'children'],
@@ -306,7 +319,10 @@ export class CategoriesService {
     return category;
   }
 
-  async findOneBySlug(slug: string, productFilter?: FilterProductDto): Promise<Category> {
+  async findOneBySlug(
+    slug: string,
+    productFilter?: FilterProductDto,
+  ): Promise<Category> {
     const category = await this.categoriesRepository.findOne({
       where: { slug },
       relations: ['parent', 'children'],
@@ -346,7 +362,10 @@ export class CategoriesService {
     }
 
     // Handle parent_id and level changes
-    if (updateData.parent_id !== undefined && updateData.parent_id !== category.parent_id) {
+    if (
+      updateData.parent_id !== undefined &&
+      updateData.parent_id !== category.parent_id
+    ) {
       let newLevel = 0;
       if (updateData.parent_id === null) {
         newLevel = 0;
@@ -368,14 +387,19 @@ export class CategoriesService {
 
         // Prevent circular reference
         const descendantIds = await this.getAllDescendantIds(id);
-        if (descendantIds.includes(updateData.parent_id) || id === updateData.parent_id) {
-          throw new BadRequestException('Cannot set a descendant or itself as parent');
+        if (
+          descendantIds.includes(updateData.parent_id) ||
+          id === updateData.parent_id
+        ) {
+          throw new BadRequestException(
+            'Cannot set a descendant or itself as parent',
+          );
         }
 
         newLevel = parent.level + 1;
         category.parent = parent;
       }
-      
+
       if (category.level !== newLevel) {
         category.level = newLevel;
         await this.updateDescendantLevels(id, newLevel);
@@ -408,7 +432,10 @@ export class CategoriesService {
 
   // ========== LIFECYCLE MANAGEMENT ==========
 
-  private async updateDescendantLevels(categoryId: number, newLevel: number): Promise<void> {
+  private async updateDescendantLevels(
+    categoryId: number,
+    newLevel: number,
+  ): Promise<void> {
     const children = await this.categoriesRepository.find({
       where: { parent_id: categoryId },
     });

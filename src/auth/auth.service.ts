@@ -316,34 +316,36 @@ export class AuthService {
     }
 
     let existingUser;
-    
+
     // First try finding by appleId
     if (user.appleId) {
       existingUser = await this.usersService.findByAppleId(user.appleId);
     }
-    
+
     // Fallback to email if no user found by appleId (for legacy support or migration)
     if (!existingUser && user.email) {
       existingUser = await this.usersService.findByEmail(user.email);
     }
 
     if (!existingUser) {
-        // If email is hidden (private relay) and we didn't get it
-        const email = user.email || `${user.appleId}@privaterelay.appleid.com`;
-        
-        const randomPassword = crypto.randomBytes(16).toString('hex');
-    
-        existingUser = await this.usersService.create({
-            email: email,
-            firstName: user.firstName || 'Apple',
-            lastName: user.lastName || 'User',
-            password: randomPassword,
-            role: UserRole.USER,
-            appleId: user.appleId, // Save the stable Apple ID!
-        } as any);
+      // If email is hidden (private relay) and we didn't get it
+      const email = user.email || `${user.appleId}@privaterelay.appleid.com`;
+
+      const randomPassword = crypto.randomBytes(16).toString('hex');
+
+      existingUser = await this.usersService.create({
+        email: email,
+        firstName: user.firstName || 'Apple',
+        lastName: user.lastName || 'User',
+        password: randomPassword,
+        role: UserRole.USER,
+        appleId: user.appleId, // Save the stable Apple ID!
+      } as any);
     } else if (!existingUser.appleId && user.appleId) {
-        // Link existing account with Apple ID if not already linked
-        await this.usersService.update(existingUser.id, { appleId: user.appleId } as any);
+      // Link existing account with Apple ID if not already linked
+      await this.usersService.update(existingUser.id, {
+        appleId: user.appleId,
+      } as any);
     }
 
     const { accessToken, refreshToken, accessTokenExpiry, refreshTokenExpiry } =
@@ -371,9 +373,10 @@ export class AuthService {
     };
   }
 
-
   async login(loginDto: LoginDto, metadata?: RequestMetadata) {
-    const user = await this.usersService.findByEmail(loginDto.email.toLowerCase().trim());
+    const user = await this.usersService.findByEmail(
+      loginDto.email.toLowerCase().trim(),
+    );
 
     if (!user) {
       throw new UnauthorizedException('Invalid credentials');

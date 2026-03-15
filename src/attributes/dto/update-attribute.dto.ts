@@ -3,7 +3,9 @@ import { CreateAttributeDto, AttributeValueDto } from './create-attribute.dto';
 import { IsArray, IsInt, IsOptional, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
-export class UpdateAttributeValueItemDto extends PartialType(AttributeValueDto) {
+export class UpdateAttributeValueItemDto extends PartialType(
+  AttributeValueDto,
+) {
   @IsOptional()
   @IsInt()
   id?: number;

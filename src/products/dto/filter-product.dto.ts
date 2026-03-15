@@ -84,11 +84,14 @@ export class FilterProductDto {
   visible?: boolean;
 
   // ─── Category filter ─────────────────────────────────
-  /** Single category ID (backward compat) */
+  /** Single category ID (backward compat). Use "none" to find uncategorized products. */
   @IsOptional()
-  @Type(() => Number)
-  @IsNumber()
-  categoryId?: number;
+  @Transform(({ value }) => {
+    if (value === 'none') return 'none';
+    const num = Number(value);
+    return isNaN(num) ? undefined : num;
+  })
+  categoryId?: number | 'none';
 
   /** Multiple category IDs (comma-separated or repeated param) */
   @IsOptional()

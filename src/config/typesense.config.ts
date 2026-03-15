@@ -13,13 +13,10 @@ export default registerAs('typesense', () => ({
     parseInt(process.env.SEARCH_DEFAULT_PER_PAGE ?? '20', 10) || 20,
   searchAutocompletePerPage:
     parseInt(process.env.SEARCH_AUTOCOMPLETE_PER_PAGE ?? '8', 10) || 8,
-  searchMaxTypos:
-    parseInt(process.env.SEARCH_MAX_TYPOS ?? '2', 10) || 2,
+  searchMaxTypos: parseInt(process.env.SEARCH_MAX_TYPOS ?? '2', 10) || 2,
   searchCacheTtlSeconds:
     parseInt(process.env.SEARCH_CACHE_TTL_SECONDS ?? '300', 10) || 300,
   searchAutocompleteCacheTtlSeconds:
-    parseInt(
-      process.env.SEARCH_AUTOCOMPLETE_CACHE_TTL_SECONDS ?? '60',
-      10,
-    ) || 60,
+    parseInt(process.env.SEARCH_AUTOCOMPLETE_CACHE_TTL_SECONDS ?? '60', 10) ||
+    60,
 }));

@@ -124,7 +124,10 @@ export class CategoriesController {
   }
 
   @Get('slug/:slug')
-  async findOneBySlug(@Param('slug') slug: string, @Query() filterDto: FilterProductDto) {
+  async findOneBySlug(
+    @Param('slug') slug: string,
+    @Query() filterDto: FilterProductDto,
+  ) {
     return this.categoriesService.findOneBySlug(slug, filterDto);
   }
 

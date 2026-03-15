@@ -69,9 +69,15 @@ export class AttributesController {
   @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   addValue(
     @Param('id') id: string,
-    @Body() body: { value_en: string; value_ar: string; parent_value_id?: number },
+    @Body()
+    body: { value_en: string; value_ar: string; parent_value_id?: number },
   ) {
-    return this.attributesService.addValue(+id, body.value_en, body.value_ar, body.parent_value_id);
+    return this.attributesService.addValue(
+      +id,
+      body.value_en,
+      body.value_ar,
+      body.parent_value_id,
+    );
   }
 
   @Put(':id/values/reorder')

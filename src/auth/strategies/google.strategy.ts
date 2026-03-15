@@ -43,7 +43,7 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
       googleId: profile.id,
       accessToken,
     };
-    
+
     const logMessage = `
 --- Google Profile Response ---
 ${JSON.stringify(profile, null, 2)}

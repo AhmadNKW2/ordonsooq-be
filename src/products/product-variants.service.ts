@@ -458,7 +458,8 @@ export class ProductVariantsService {
 
     if (stock) {
       if (quantity !== undefined) stock.quantity = quantity;
-      if (is_out_of_stock !== undefined) stock.is_out_of_stock = is_out_of_stock;
+      if (is_out_of_stock !== undefined)
+        stock.is_out_of_stock = is_out_of_stock;
     } else {
       stock = this.stockRepository.create({
         product_id: product_id,

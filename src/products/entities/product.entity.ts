@@ -99,7 +99,7 @@ export class Product {
   category: Category;
 
   @Column({ nullable: true })
-  category_id: number;
+  category_id: number | null;
 
   // Vendor relationship
   @ManyToOne(() => Vendor, { onDelete: 'SET NULL', nullable: true })

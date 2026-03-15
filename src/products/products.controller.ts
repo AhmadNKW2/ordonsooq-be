@@ -56,10 +56,13 @@ export class ProductsController {
   @Roles(UserRole.ADMIN)
   @HttpCode(HttpStatus.ACCEPTED)
   reindexSearch(@Query('rebuild') rebuild?: string) {
-    const jobId = this.productsService.startReindexJob({ dropFirst: rebuild === 'true' });
+    const jobId = this.productsService.startReindexJob({
+      dropFirst: rebuild === 'true',
+    });
     return {
       job_id: jobId,
-      message: 'Reindex started. Poll GET /products/jobs/:job_id to track progress.',
+      message:
+        'Reindex started. Poll GET /products/jobs/:job_id to track progress.',
     };
   }
 
@@ -88,7 +91,8 @@ export class ProductsController {
     const jobId = this.productsService.startGenerateConceptsJob();
     return {
       job_id: jobId,
-      message: 'AI concept generation started. Poll GET /products/jobs/:job_id to track progress.',
+      message:
+        'AI concept generation started. Poll GET /products/jobs/:job_id to track progress.',
     };
   }
 
@@ -102,7 +106,10 @@ export class ProductsController {
   @Roles(UserRole.ADMIN)
   getJobStatus(@Param('jobId') jobId: string) {
     const status = this.productsService.getJobStatus(jobId);
-    if (!status) throw new NotFoundException(`Job '${jobId}' not found (may have expired after 24 h)`);
+    if (!status)
+      throw new NotFoundException(
+        `Job '${jobId}' not found (may have expired after 24 h)`,
+      );
     return status;
   }
 
@@ -116,21 +123,27 @@ export class ProductsController {
   @Get()
   @UseGuards(OptionalJwtAuthGuard)
   findAll(@Query() filterDto: FilterProductDto, @Req() req: any) {
-    const isAdmin = req.user?.role === UserRole.ADMIN || req.user?.role === UserRole.CATALOG_MANAGER;
+    const isAdmin =
+      req.user?.role === UserRole.ADMIN ||
+      req.user?.role === UserRole.CATALOG_MANAGER;
     return this.productsService.findAll(filterDto, isAdmin);
   }
 
   @Get(':id')
   @UseGuards(OptionalJwtAuthGuard)
   findOne(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
-    const isAdmin = req.user?.role === UserRole.ADMIN || req.user?.role === UserRole.CATALOG_MANAGER;
+    const isAdmin =
+      req.user?.role === UserRole.ADMIN ||
+      req.user?.role === UserRole.CATALOG_MANAGER;
     return this.productsService.findOne(id, isAdmin);
   }
 
   @Get('slug/:slug')
   @UseGuards(OptionalJwtAuthGuard)
   findOneBySlug(@Param('slug') slug: string, @Req() req: any) {
-    const isAdmin = req.user?.role === UserRole.ADMIN || req.user?.role === UserRole.CATALOG_MANAGER;
+    const isAdmin =
+      req.user?.role === UserRole.ADMIN ||
+      req.user?.role === UserRole.CATALOG_MANAGER;
     return this.productsService.findOneBySlug(slug, isAdmin);
   }
 
@@ -145,7 +158,10 @@ export class ProductsController {
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   patch(@Param('id') id: string, @Body() patchProductDto: PatchProductDto) {
-    return this.productsService.update(+id, patchProductDto as UpdateProductDto);
+    return this.productsService.update(
+      +id,
+      patchProductDto as UpdateProductDto,
+    );
   }
 
   // ========== LIFECYCLE MANAGEMENT ==========

@@ -80,7 +80,9 @@ export class ProductsModule implements OnModuleInit {
     // SearchProcessor lives in SearchModule but needs ProductsService.
     try {
       const processor = this.moduleRef.get(SearchProcessor, { strict: false });
-      const productsService = this.moduleRef.get(ProductsService, { strict: false });
+      const productsService = this.moduleRef.get(ProductsService, {
+        strict: false,
+      });
       processor.setProductsService(productsService);
     } catch {
       // SearchProcessor may not be available in all test environments

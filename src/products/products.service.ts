@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Logger,
+} from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, DataSource } from 'typeorm';
@@ -71,10 +76,11 @@ export class ProductsService {
       status: job.status,
       started_at: job.startedAt,
       finished_at: job.finishedAt ?? null,
-      duration_seconds:
-        job.finishedAt
-          ? Math.round((job.finishedAt.getTime() - job.startedAt.getTime()) / 1000)
-          : Math.round((Date.now() - job.startedAt.getTime()) / 1000),
+      duration_seconds: job.finishedAt
+        ? Math.round(
+            (job.finishedAt.getTime() - job.startedAt.getTime()) / 1000,
+          )
+        : Math.round((Date.now() - job.startedAt.getTime()) / 1000),
       result: job.result ?? null,
       error: job.error ?? null,
     };
@@ -173,7 +179,9 @@ export class ProductsService {
    * Fires a Typesense reindex after the update.
    */
   async syncProductTags(productId: number, tagNames: string[]): Promise<Tag[]> {
-    const exists = await this.productsRepository.count({ where: { id: productId } });
+    const exists = await this.productsRepository.count({
+      where: { id: productId },
+    });
     if (!exists) throw new NotFoundException('Product not found');
     await this.applyTagsToProduct(productId, tagNames);
     void this.syncProductToIndex(productId);
@@ -185,7 +193,9 @@ export class ProductsService {
    * Creates the tag (and a background AI concept) if it doesn't exist yet.
    */
   async addProductTagByName(productId: number, tagName: string): Promise<Tag> {
-    const exists = await this.productsRepository.count({ where: { id: productId } });
+    const exists = await this.productsRepository.count({
+      where: { id: productId },
+    });
     if (!exists) throw new NotFoundException('Product not found');
     const tag = await this.tagsService.findOrCreate(tagName);
     await this.productsRepository
@@ -201,7 +211,9 @@ export class ProductsService {
    * Remove a single tag (by its numeric ID) from a product.
    */
   async removeProductTag(productId: number, tagId: number): Promise<void> {
-    const exists = await this.productsRepository.count({ where: { id: productId } });
+    const exists = await this.productsRepository.count({
+      where: { id: productId },
+    });
     if (!exists) throw new NotFoundException('Product not found');
     await this.productsRepository
       .createQueryBuilder()
@@ -216,7 +228,10 @@ export class ProductsService {
    * Creates missing tags (and fires background AI concept generation).
    * Uses addAndRemove to update the junction table atomically.
    */
-  private async applyTagsToProduct(productId: number, tagNames: string[]): Promise<void> {
+  private async applyTagsToProduct(
+    productId: number,
+    tagNames: string[],
+  ): Promise<void> {
     const normalizedNames = [
       ...new Set(tagNames.map((n) => n.toLowerCase().trim()).filter(Boolean)),
     ];
@@ -234,7 +249,9 @@ export class ProductsService {
       relations: ['tags'],
     } as any);
 
-    const currentIds: number[] = ((current as any)?.tags ?? []).map((t: any) => t.id);
+    const currentIds: number[] = ((current as any)?.tags ?? []).map(
+      (t: any) => t.id,
+    );
     const newIds = resolvedTags.map((t) => t.id);
 
     await this.productsRepository
@@ -293,53 +310,70 @@ export class ProductsService {
     generateAiConcepts = false,
   ): Promise<void> {
     try {
-      const [product, productCategories, priceGroups, stockRows, mediaRows, variants, productWithTags] =
-        await Promise.all([
-          this.productsRepository.findOne({
-            where: { id: productId },
-            relations: ['brand', 'category', 'vendor'],
-          }),
-          this.productCategoriesRepository.find({
-            where: { product_id: productId },
-            relations: ['category'],
-          }),
-          this.dataSource.getRepository(ProductPriceGroup).find({
-            where: { product_id: productId },
-            relations: ['groupValues', 'groupValues.attribute', 'groupValues.attributeValue'],
-          }),
-          this.dataSource.getRepository(ProductStock).find({
-            where: { product_id: productId },
-          }),
-          this.dataSource.getRepository(Media).find({
-            where: { product_id: productId },
-            order: { is_primary: 'DESC' },
-          }),
-          this.dataSource.getRepository(ProductVariant).find({
-            where: { product_id: productId },
-            relations: [
-              'combinations',
-              'combinations.attribute_value',
-              'combinations.attribute_value.attribute',
-            ],
-          }),
-          this.productsRepository.findOne({
-            where: { id: productId },
-            relations: ['tags', 'tags.concepts'],
-          } as any),
-        ]);
+      const [
+        product,
+        productCategories,
+        priceGroups,
+        stockRows,
+        mediaRows,
+        variants,
+        productWithTags,
+      ] = await Promise.all([
+        this.productsRepository.findOne({
+          where: { id: productId },
+          relations: ['brand', 'category', 'vendor'],
+        }),
+        this.productCategoriesRepository.find({
+          where: { product_id: productId },
+          relations: ['category'],
+        }),
+        this.dataSource.getRepository(ProductPriceGroup).find({
+          where: { product_id: productId },
+          relations: [
+            'groupValues',
+            'groupValues.attribute',
+            'groupValues.attributeValue',
+          ],
+        }),
+        this.dataSource.getRepository(ProductStock).find({
+          where: { product_id: productId },
+        }),
+        this.dataSource.getRepository(Media).find({
+          where: { product_id: productId },
+          order: { is_primary: 'DESC' },
+        }),
+        this.dataSource.getRepository(ProductVariant).find({
+          where: { product_id: productId },
+          relations: [
+            'combinations',
+            'combinations.attribute_value',
+            'combinations.attribute_value.attribute',
+          ],
+        }),
+        this.productsRepository.findOne({
+          where: { id: productId },
+          relations: ['tags', 'tags.concepts'],
+        } as any),
+      ]);
 
       if (!product) return;
 
       // ── Tags: collect all search terms from APPROVED concepts ─────────────
-      const tagIds: number[] = ((productWithTags as any)?.tags ?? []).map((t: any) => t.id);
+      const tagIds: number[] = ((productWithTags as any)?.tags ?? []).map(
+        (t: any) => t.id,
+      );
       const searchTags = await this.tagsService.getSearchTermsForTags(tagIds);
 
       // ── Pricing: min/max across all groups ───────────────────────────────
       const effectivePrices = priceGroups.map((g) =>
         parseFloat(String(g.sale_price ?? g.price ?? 0)),
       );
-      const priceMin = effectivePrices.length ? Math.min(...effectivePrices) : 0;
-      const priceMax = effectivePrices.length ? Math.max(...effectivePrices) : 0;
+      const priceMin = effectivePrices.length
+        ? Math.min(...effectivePrices)
+        : 0;
+      const priceMax = effectivePrices.length
+        ? Math.max(...effectivePrices)
+        : 0;
 
       const sortedByPrice = [...priceGroups].sort(
         (a, b) =>
@@ -349,7 +383,10 @@ export class ProductsService {
       const bestGroup = sortedByPrice[0];
 
       // ── Stock ────────────────────────────────────────────────────────────
-      const totalStock = stockRows.reduce((sum, s) => sum + (s.quantity ?? 0), 0);
+      const totalStock = stockRows.reduce(
+        (sum, s) => sum + (s.quantity ?? 0),
+        0,
+      );
       const inStock = stockRows.some((s) => !s.is_out_of_stock);
 
       // ── Media ────────────────────────────────────────────────────────────
@@ -358,7 +395,7 @@ export class ProductsService {
       // ── Category resolution ───────────────────────────────────────────────
       const allCategories = productCategories
         .map((pc) => pc.category)
-        .filter(Boolean) as Category[];
+        .filter(Boolean);
 
       if (allCategories.length === 0 && (product as any).category) {
         allCategories.push((product as any).category);
@@ -375,18 +412,25 @@ export class ProductsService {
         ]),
       ];
 
-      const categoryNamesEn = [...new Set(allCategories.map((c) => c.name_en).filter(Boolean))];
-      const categoryNamesAr = [...new Set(allCategories.map((c) => c.name_ar).filter(Boolean))];
+      const categoryNamesEn = [
+        ...new Set(allCategories.map((c) => c.name_en).filter(Boolean)),
+      ];
+      const categoryNamesAr = [
+        ...new Set(allCategories.map((c) => c.name_ar).filter(Boolean)),
+      ];
 
       // ── Brand data ────────────────────────────────────────────────────────
-      const brand = (product as any).brand as
-        | { id?: number; name_en: string; name_ar?: string }
-        | null;
+      const brand = (product as any).brand as {
+        id?: number;
+        name_en: string;
+        name_ar?: string;
+      } | null;
 
       // ── Vendor data ───────────────────────────────────────────────────────
-      const vendor = (product as any).vendor as
-        | { name_en?: string; name_ar?: string }
-        | null;
+      const vendor = (product as any).vendor as {
+        name_en?: string;
+        name_ar?: string;
+      } | null;
 
       // ── Attribute pairs for multi-attr filtering ─────────────────────────
       // Build "AttributeName:Value" pairs from all price group values.
@@ -415,15 +459,17 @@ export class ProductsService {
       const attrPairs = attrPairSet.size ? [...attrPairSet] : undefined;
 
       // ── Descriptions ─────────────────────────────────────────────────────
-      const descriptionEn = [
-        product.short_description_en,
-        product.long_description_en,
-      ].filter(Boolean).join(' ').trim() || undefined;
+      const descriptionEn =
+        [product.short_description_en, product.long_description_en]
+          .filter(Boolean)
+          .join(' ')
+          .trim() || undefined;
 
-      const descriptionAr = [
-        product.short_description_ar,
-        product.long_description_ar,
-      ].filter(Boolean).join(' ').trim() || undefined;
+      const descriptionAr =
+        [product.short_description_ar, product.long_description_ar]
+          .filter(Boolean)
+          .join(' ')
+          .trim() || undefined;
 
       // ── Tags ─────────────────────────────────────────────────────────────
       // searchTags contains: tag names + all terms from APPROVED concepts.
@@ -440,7 +486,8 @@ export class ProductsService {
       );
       const tags = searchTags.length > 0 ? searchTags : legacyTags;
 
-      const isAvailable = product.status === ProductStatus.ACTIVE && product.visible;
+      const isAvailable =
+        product.status === ProductStatus.ACTIVE && product.visible;
 
       const doc: IndexableProduct = {
         // ── Identity ────────────────────────────────────────────────────
@@ -469,10 +516,12 @@ export class ProductsService {
         category_ids: categoryIds.length ? categoryIds : undefined,
 
         // ── Pricing ─────────────────────────────────────────────────────
-        price: bestGroup?.price != null ? parseFloat(String(bestGroup.price)) : 0,
-        sale_price: bestGroup?.sale_price != null
-          ? parseFloat(String(bestGroup.sale_price))
-          : undefined,
+        price:
+          bestGroup?.price != null ? parseFloat(String(bestGroup.price)) : 0,
+        sale_price:
+          bestGroup?.sale_price != null
+            ? parseFloat(String(bestGroup.sale_price))
+            : undefined,
         price_min: priceMin,
         price_max: priceMax,
 
@@ -508,20 +557,20 @@ export class ProductsService {
 
       // ── Fire-and-forget: generate AI synonym concepts (new products only) ──
       if (generateAiConcepts)
-      void this.synonymConceptService.generateAndSaveConceptsForProduct({
-        name_en: product.name_en,
-        name_ar: product.name_ar,
-        category_names_en: categoryNamesEn,
-        category_names_ar: categoryNamesAr,
-        brand_en: brand?.name_en,
-        brand_ar: brand?.name_ar,
-        vendor_en: vendor?.name_en,
-        vendor_ar: vendor?.name_ar,
-        short_description_en: product.short_description_en ?? undefined,
-        short_description_ar: product.short_description_ar ?? undefined,
-        long_description_en: product.long_description_en ?? undefined,
-        long_description_ar: product.long_description_ar ?? undefined,
-      });
+        void this.synonymConceptService.generateAndSaveConceptsForProduct({
+          name_en: product.name_en,
+          name_ar: product.name_ar,
+          category_names_en: categoryNamesEn,
+          category_names_ar: categoryNamesAr,
+          brand_en: brand?.name_en,
+          brand_ar: brand?.name_ar,
+          vendor_en: vendor?.name_en,
+          vendor_ar: vendor?.name_ar,
+          short_description_en: product.short_description_en ?? undefined,
+          short_description_ar: product.short_description_ar ?? undefined,
+          long_description_en: product.long_description_en ?? undefined,
+          long_description_ar: product.long_description_ar ?? undefined,
+        });
     } catch (err) {
       this.logger.warn(
         `Failed to sync product ${productId} to search index: ${err?.message}`,
@@ -573,14 +622,16 @@ export class ProductsService {
 
       for (const product of batch) {
         try {
-          const productCategories = await this.productCategoriesRepository.find({
-            where: { product_id: product.id },
-            relations: ['category'],
-          });
+          const productCategories = await this.productCategoriesRepository.find(
+            {
+              where: { product_id: product.id },
+              relations: ['category'],
+            },
+          );
 
           const allCategories = productCategories
             .map((pc) => pc.category)
-            .filter(Boolean) as Category[];
+            .filter(Boolean);
 
           if (allCategories.length === 0 && (product as any).category) {
             allCategories.push((product as any).category);
@@ -593,13 +644,15 @@ export class ProductsService {
             ...new Set(allCategories.map((c) => c.name_ar).filter(Boolean)),
           ];
 
-          const brand = (product as any).brand as
-            | { name_en: string; name_ar?: string }
-            | null;
+          const brand = (product as any).brand as {
+            name_en: string;
+            name_ar?: string;
+          } | null;
 
-          const vendorData = (product as any).vendor as
-            | { name_en?: string; name_ar?: string }
-            | null;
+          const vendorData = (product as any).vendor as {
+            name_en?: string;
+            name_ar?: string;
+          } | null;
 
           await this.synonymConceptService.generateAndSaveConceptsForProduct({
             name_en: product.name_en,
@@ -618,9 +671,7 @@ export class ProductsService {
 
           processed++;
         } catch (err: any) {
-          errors.push(
-            `Product ${product.id}: ${err?.message ?? String(err)}`,
-          );
+          errors.push(`Product ${product.id}: ${err?.message ?? String(err)}`);
         }
       }
 
@@ -674,7 +725,9 @@ export class ProductsService {
       }
     }
 
-    this.logger.log(`✅ Reindex complete — ${indexed}/${ids.length} products indexed, ${errors.length} failed`);
+    this.logger.log(
+      `✅ Reindex complete — ${indexed}/${ids.length} products indexed, ${errors.length} failed`,
+    );
     if (errors.length) {
       this.logger.warn(`Reindex errors: ${errors.slice(0, 5).join(' | ')}`);
     }
@@ -938,11 +991,25 @@ export class ProductsService {
       }
 
       // Handle Stocks and Variants (Batch Insert)
-      const hasVariants = (dto as any).variants && (dto as any).variants.length > 0;
-      const hasComboStocks = dto.stocks && dto.stocks.some(s => s.combination && Object.keys(s.combination).length > 0);
-      const hasComboPrices = dto.prices && dto.prices.some(p => p.combination && Object.keys(p.combination).length > 0);
-      const hasComboWeights = dto.weights && dto.weights.some(w => w.combination && Object.keys(w.combination).length > 0);
-      const shouldCreateVariants = hasVariants || hasComboStocks || hasComboPrices || hasComboWeights;
+      const hasVariants =
+        (dto as any).variants && (dto as any).variants.length > 0;
+      const hasComboStocks =
+        dto.stocks &&
+        dto.stocks.some(
+          (s) => s.combination && Object.keys(s.combination).length > 0,
+        );
+      const hasComboPrices =
+        dto.prices &&
+        dto.prices.some(
+          (p) => p.combination && Object.keys(p.combination).length > 0,
+        );
+      const hasComboWeights =
+        dto.weights &&
+        dto.weights.some(
+          (w) => w.combination && Object.keys(w.combination).length > 0,
+        );
+      const shouldCreateVariants =
+        hasVariants || hasComboStocks || hasComboPrices || hasComboWeights;
 
       if (dto.stocks && dto.stocks.length > 0) {
         const simpleStocks = dto.stocks.filter(
@@ -964,7 +1031,9 @@ export class ProductsService {
         const runBatchVariantsAndStocks = async () => {
           // 1. Create Variants
           const variantRepo = this.dataSource.getRepository(ProductVariant);
-          const variantComboRepo = this.dataSource.getRepository(ProductVariantCombination);
+          const variantComboRepo = this.dataSource.getRepository(
+            ProductVariantCombination,
+          );
           const stockRepo = this.dataSource.getRepository(ProductStock);
           const variantMap = new Map<string, number>();
 
@@ -991,7 +1060,9 @@ export class ProductsService {
           };
 
           if ((dto as any).variants && (dto as any).variants.length > 0) {
-            (dto as any).variants.forEach((v: any) => addCombination(v.combination, v.is_active ?? true));
+            (dto as any).variants.forEach((v: any) =>
+              addCombination(v.combination, v.is_active ?? true),
+            );
           }
           if (dto.stocks && dto.stocks.length > 0) {
             dto.stocks.forEach((s) => addCombination(s.combination, true));
@@ -1004,7 +1075,8 @@ export class ProductsService {
           }
 
           const variantsToCreate = Array.from(uniqueCombinations.values()).map(
-            (val) => variantRepo.create({ product_id: id, is_active: val.is_active }),
+            (val) =>
+              variantRepo.create({ product_id: id, is_active: val.is_active }),
           );
 
           const savedVariants = await variantRepo.save(variantsToCreate);
@@ -1019,13 +1091,13 @@ export class ProductsService {
               combosToSave.push(
                 variantComboRepo.create({
                   variant_id: variant.id,
-                  attribute_value_id: valId as number,
+                  attribute_value_id: valId,
                 }),
               );
             });
             i++;
           }
-          
+
           await variantComboRepo.save(combosToSave);
 
           // 2. Create Stocks
@@ -1033,7 +1105,7 @@ export class ProductsService {
             const combinationStocks = dto.stocks.filter(
               (s) => s.combination && Object.keys(s.combination).length > 0,
             );
-            
+
             const stocksToSave = combinationStocks.map((s) => {
               const key = Object.entries(s.combination!)
                 .sort(([a], [b]) => Number(a) - Number(b))
@@ -1137,12 +1209,18 @@ export class ProductsService {
       baseQuery.andWhere('product.visible = :visible', { visible });
     }
 
-    // Filter by single category (backward compat)
+    // Filter by single category (backward compat or "none")
     if (categoryId) {
-      baseQuery.andWhere(
-        'EXISTS (SELECT 1 FROM product_categories pc WHERE pc.product_id = product.id AND pc.category_id = :categoryId)',
-        { categoryId },
-      );
+      if (categoryId === 'none') {
+        baseQuery.andWhere(
+          'NOT EXISTS (SELECT 1 FROM product_categories pc WHERE pc.product_id = product.id)'
+        );
+      } else {
+        baseQuery.andWhere(
+          'EXISTS (SELECT 1 FROM product_categories pc WHERE pc.product_id = product.id AND pc.category_id = :categoryId)',
+          { categoryId },
+        );
+      }
     }
 
     // Filter by multiple categories (OR logic — product must belong to at least one)
@@ -1160,7 +1238,9 @@ export class ProductsService {
 
     // Filter by multiple vendors
     if (vendor_ids && vendor_ids.length > 0) {
-      baseQuery.andWhere('product.vendor_id IN (:...vendor_ids)', { vendor_ids });
+      baseQuery.andWhere('product.vendor_id IN (:...vendor_ids)', {
+        vendor_ids,
+      });
     }
 
     // Filter by single brand (backward compat)
@@ -1175,7 +1255,9 @@ export class ProductsService {
 
     // Filter by creator
     if (created_by && created_by.length > 0) {
-      baseQuery.andWhere('product.created_by IN (:...created_by)', { created_by });
+      baseQuery.andWhere('product.created_by IN (:...created_by)', {
+        created_by,
+      });
     }
 
     // Filter by price range (against the cheapest price group of each product)
@@ -1439,7 +1521,9 @@ export class ProductsService {
 
     let categories: any[] = [];
     if (productCategories && productCategories.length > 0) {
-      categories = productCategories.map((pc: any) => pc.category).filter(Boolean);
+      categories = productCategories
+        .map((pc: any) => pc.category)
+        .filter(Boolean);
     } else if (category) {
       categories = [category];
     }
@@ -1475,7 +1559,7 @@ export class ProductsService {
 
     const processAttributeRecursive = (val: any) => {
       if (!val) return;
-      
+
       if (val.attribute) {
         addAttributeValue(val.attribute, val);
       }
@@ -1488,7 +1572,7 @@ export class ProductsService {
     variants?.forEach((v: any) => {
       v.combinations?.forEach((c: any) => {
         if (c.attribute_value) {
-           processAttributeRecursive(c.attribute_value);
+          processAttributeRecursive(c.attribute_value);
         }
       });
     });
@@ -1573,7 +1657,11 @@ export class ProductsService {
         media: mediaList
           .sort((a: any, b: any) => {
             // First use sort_order if provided and different
-            if (a.sort_order !== undefined && b.sort_order !== undefined && a.sort_order !== b.sort_order) {
+            if (
+              a.sort_order !== undefined &&
+              b.sort_order !== undefined &&
+              a.sort_order !== b.sort_order
+            ) {
               return a.sort_order - b.sort_order;
             }
             if (a.id === mainDisplay.id) return -1;
@@ -1670,8 +1758,13 @@ export class ProductsService {
       price_groups: priceGroupsMap,
       weight_groups: weightGroupsMap,
       variants: variantsList,
-      ...(isAdmin && simpleProductQuantity !== undefined && { quantity: simpleProductQuantity }),
-      ...(simpleProductIsOutOfStock !== undefined && { is_out_of_stock: simpleProductIsOutOfStock }),
+      ...(isAdmin &&
+        simpleProductQuantity !== undefined && {
+          quantity: simpleProductQuantity,
+        }),
+      ...(simpleProductIsOutOfStock !== undefined && {
+        is_out_of_stock: simpleProductIsOutOfStock,
+      }),
       ...(isAdmin && { created_by: creatorInfo }),
     };
   }
@@ -1780,7 +1873,11 @@ export class ProductsService {
     const transformedMedia =
       media
         ?.sort((a: any, b: any) => {
-          if (a.sort_order !== undefined && b.sort_order !== undefined && a.sort_order !== b.sort_order) {
+          if (
+            a.sort_order !== undefined &&
+            b.sort_order !== undefined &&
+            a.sort_order !== b.sort_order
+          ) {
             return a.sort_order - b.sort_order;
           }
           if (a.is_primary) return -1;
@@ -1806,7 +1903,9 @@ export class ProductsService {
     // Transform productCategories to a clean categories array
     let categories: any[] = [];
     if (productCategories && productCategories.length > 0) {
-      categories = productCategories.map((pc: any) => pc.category).filter(Boolean);
+      categories = productCategories
+        .map((pc: any) => pc.category)
+        .filter(Boolean);
     } else if (category) {
       categories = [category];
     }
@@ -1867,31 +1966,35 @@ export class ProductsService {
 
     try {
       // 1. Validate and update categories
-      if (dto.category_ids && dto.category_ids.length > 0) {
-        const categories = await this.categoriesRepository.find({
-          where: { id: In(dto.category_ids), status: CategoryStatus.ACTIVE },
-        });
-        if (categories.length !== dto.category_ids.length) {
-          throw new BadRequestException(
-            'One or more categories not found or are archived',
-          );
+      if (dto.category_ids !== undefined) {
+        if (dto.category_ids.length > 0) {
+          const categories = await this.categoriesRepository.find({
+            where: { id: In(dto.category_ids), status: CategoryStatus.ACTIVE },
+          });
+          if (categories.length !== dto.category_ids.length) {
+            throw new BadRequestException(
+              'One or more categories not found or are archived',
+            );
+          }
         }
 
         // Delete existing product-category relationships
         await queryRunner.manager.delete(ProductCategory, { product_id: id });
 
-        // Create new product-category relationships
-        const productCategories = dto.category_ids.map((categoryId) =>
-          this.productCategoriesRepository.create({
-            product_id: id,
-            category_id: categoryId,
-          }),
-        );
-        await queryRunner.manager.save(ProductCategory, productCategories);
+        if (dto.category_ids.length > 0) {
+          // Create new product-category relationships
+          const productCategories = dto.category_ids.map((categoryId) =>
+            this.productCategoriesRepository.create({
+              product_id: id,
+              category_id: categoryId,
+            }),
+          );
+          await queryRunner.manager.save(ProductCategory, productCategories);
+        }
 
         // Update primary category (first in the list)
         await queryRunner.manager.update(Product, id, {
-          category_id: dto.category_ids[0],
+          category_id: dto.category_ids.length > 0 ? dto.category_ids[0] : null,
         });
       }
 
@@ -1970,7 +2073,9 @@ export class ProductsService {
 
       // 2. Delete Prices, Weights, Stocks (Independent groups)
       if (dto.prices !== undefined) {
-        cleanupTasks.push(this.priceGroupService.deletePriceGroupsForProduct(id));
+        cleanupTasks.push(
+          this.priceGroupService.deletePriceGroupsForProduct(id),
+        );
       }
       if (dto.weights !== undefined) {
         cleanupTasks.push(
@@ -2346,7 +2451,9 @@ export class ProductsService {
     void this.indexingService
       .deleteProduct(String(id))
       .catch((err) =>
-        this.logger.warn(`Failed to remove product ${id} from index: ${err?.message}`),
+        this.logger.warn(
+          `Failed to remove product ${id} from index: ${err?.message}`,
+        ),
       );
 
     return { message: `Product "${product.name_en}" archived successfully` };
@@ -2421,7 +2528,9 @@ export class ProductsService {
 
     // Re-add to search index (fire-and-forget)
     void this.syncProductToIndex(id).catch((err) =>
-      this.logger.warn(`Failed to re-index restored product ${id}: ${err?.message}`),
+      this.logger.warn(
+        `Failed to re-index restored product ${id}: ${err?.message}`,
+      ),
     );
 
     return { message: `Product "${product.name_en}" restored successfully` };

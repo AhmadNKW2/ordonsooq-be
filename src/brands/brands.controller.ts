@@ -81,7 +81,10 @@ export class BrandsController {
   }
 
   @Get('slug/:slug')
-  findOneBySlug(@Param('slug') slug: string, @Query() filterDto: FilterProductDto) {
+  findOneBySlug(
+    @Param('slug') slug: string,
+    @Query() filterDto: FilterProductDto,
+  ) {
     return this.brandsService.findOneBySlug(slug, filterDto);
   }
 

@@ -48,12 +48,15 @@ ${JSON.stringify(profile, null, 2)}
 -------------------------------
 `;
     console.log(logMessage);
-    console.log('📘 ✅ Facebook auth user prepared:', JSON.stringify({
-      email: user.email,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      picture: user.picture,
-    }));
+    console.log(
+      '📘 ✅ Facebook auth user prepared:',
+      JSON.stringify({
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        picture: user.picture,
+      }),
+    );
 
     done(null, user);
   }

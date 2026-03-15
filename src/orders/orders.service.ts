@@ -93,7 +93,11 @@ export class OrdersService {
           lock: { mode: 'pessimistic_write' },
         });
 
-        if (!stock || stock.is_out_of_stock || stock.quantity < itemDto.quantity) {
+        if (
+          !stock ||
+          stock.is_out_of_stock ||
+          stock.quantity < itemDto.quantity
+        ) {
           throw new BadRequestException(
             `Insufficient stock for product ${product.name_en}`,
           );
@@ -327,10 +331,13 @@ export class OrdersService {
 
     // Handle normal transitions
     order.status = status;
-    
+
     // If delivering, maybe handle COD payment?
-    if (status === OrderStatus.DELIVERED && order.paymentMethod === PaymentMethod.COD) {
-        order.paymentStatus = PaymentStatus.PAID;
+    if (
+      status === OrderStatus.DELIVERED &&
+      order.paymentMethod === PaymentMethod.COD
+    ) {
+      order.paymentStatus = PaymentStatus.PAID;
     }
 
     return this.ordersRepository.save(order);

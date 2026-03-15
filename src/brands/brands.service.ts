@@ -168,7 +168,10 @@ export class BrandsService {
     return brand;
   }
 
-  async findOneBySlug(slug: string, productFilter?: FilterProductDto): Promise<Brand> {
+  async findOneBySlug(
+    slug: string,
+    productFilter?: FilterProductDto,
+  ): Promise<Brand> {
     const brand = await this.brandsRepository.findOne({
       where: { slug },
     });

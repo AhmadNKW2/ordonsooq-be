@@ -58,7 +58,8 @@ export class CreateVendorDto {
 
   @IsOptional()
   @Transform(({ value }) => {
-    if (value === '' || value === undefined || value === null) return [];
+    if (value === undefined) return undefined;
+    if (value === '' || value === null) return [];
     if (typeof value === 'string') {
       try {
         const parsed = JSON.parse(value);

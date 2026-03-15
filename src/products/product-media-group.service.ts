@@ -362,7 +362,10 @@ export class ProductMediaGroupService {
           const g = await this.createSimpleMediaGroup(product_id);
           groupId = g.id;
         } else {
-          const g = await this.findOrCreateMediaGroup(product_id, item.combination!);
+          const g = await this.findOrCreateMediaGroup(
+            product_id,
+            item.combination!,
+          );
           groupId = g.id;
         }
         combinationKeyToGroupId.set(key, groupId);

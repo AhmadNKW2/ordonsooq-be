@@ -26,7 +26,7 @@ function toUtcPlus6(value: unknown): unknown {
   }
   if (value !== null && typeof value === 'object') {
     const result: Record<string, unknown> = {};
-    for (const key of Object.keys(value as object)) {
+    for (const key of Object.keys(value)) {
       result[key] = toUtcPlus6((value as Record<string, unknown>)[key]);
     }
     return result;
@@ -46,7 +46,6 @@ export class ResponseInterceptor<T> implements NestInterceptor<
     const now = toUtcPlus6(new Date()) as string;
 
     return next.handle().pipe(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       map((data): any => {
         // If data already has the response structure, return it
         if (data && typeof data === 'object' && 'success' in data) {
