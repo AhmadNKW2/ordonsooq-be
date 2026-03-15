@@ -1315,6 +1315,7 @@ export class ProductsService {
     ] = await Promise.all([
       this.productsRepository
         .createQueryBuilder('product')
+        .leftJoinAndSelect('product.category', 'category')
         .leftJoinAndSelect('product.brand', 'brand')
         .leftJoinAndSelect('product.vendor', 'vendor')
         .leftJoinAndSelect('product.createdByUser', 'createdByUser')
