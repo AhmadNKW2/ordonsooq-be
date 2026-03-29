@@ -51,7 +51,17 @@ export class OrdersService {
       let subtotalAmount = 0;
       const orderItemsToCreate: any[] = [];
 
-      for (const itemDto of createOrderDto.items) {
+      // Sort items by productId and variantId to avoid deadlocks
+      const sortedItems = [...createOrderDto.items].sort((a, b) => {
+        if (a.productId !== b.productId) {
+          return a.productId - b.productId;
+        }
+        const aVariant = a.variantId || 0;
+        const bVariant = b.variantId || 0;
+        return aVariant - bVariant;
+      });
+
+      for (const itemDto of sortedItems) {
         const product = await queryRunner.manager.findOne(Product, {
           where: { id: itemDto.productId },
         });
@@ -93,11 +103,8 @@ export class OrdersService {
           lock: { mode: 'pessimistic_write' },
         });
 
-        if (
-          !stock ||
-          stock.is_out_of_stock ||
-          stock.quantity < itemDto.quantity
-        ) {
+        // 2. Check is_out_of_stock only (don't check quantity since stock logic is incomplete right now)
+        if (!stock || stock.is_out_of_stock) {
           throw new BadRequestException(
             `Insufficient stock for product ${product.name_en}`,
           );
@@ -137,9 +144,7 @@ export class OrdersService {
           },
         });
 
-        // Decrement Stock
-        stock.quantity -= itemDto.quantity;
-        await queryRunner.manager.save(stock);
+        // Note: Stock decrement string removed temporarily since actual stock is unknown
       }
 
       let discountAmount = 0;

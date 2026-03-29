@@ -26,7 +26,7 @@ export class OrderItem {
   @JoinColumn({ name: 'productId' })
   product: Product;
 
-  @Column()
+  @Column({ nullable: true })
   productId: number;
 
   @ManyToOne(() => ProductVariant, { nullable: true })
