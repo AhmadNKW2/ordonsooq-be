@@ -28,7 +28,7 @@ export class FilterCategoryDto {
 
   @IsOptional()
   @Type(() => Number)
-  limit?: number = 10;
+  limit?: number = 100;
 
   @IsOptional()
   @IsEnum(CategorySortBy)

@@ -175,7 +175,7 @@ export class CategoriesService {
   async findAll(filterDto?: FilterCategoryDto) {
     const {
       page = 1,
-      limit = 10,
+      limit = 100,
       sortBy = 'sortOrder',
       sortOrder = 'ASC',
       visible,
