@@ -5,13 +5,11 @@ import {
   IsBoolean,
   IsArray,
   ValidateNested,
-  IsHexColor,
   IsInt,
-  IsNumber,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
-export class AttributeValueDto {
+export class SpecificationValueDto {
   @IsString()
   @IsNotEmpty()
   value_en: string;
@@ -19,14 +17,6 @@ export class AttributeValueDto {
   @IsString()
   @IsNotEmpty()
   value_ar: string;
-
-  @IsOptional()
-  @IsHexColor()
-  color_code?: string;
-
-  @IsOptional()
-  @IsString()
-  image_url?: string;
 
   @IsOptional()
   @IsInt()
@@ -37,7 +27,7 @@ export class AttributeValueDto {
   is_active?: boolean;
 }
 
-export class CreateAttributeDto {
+export class CreateSpecificationDto {
   @IsString()
   @IsNotEmpty()
   name_en: string;
@@ -64,10 +54,6 @@ export class CreateAttributeDto {
 
   @IsBoolean()
   @IsOptional()
-  is_color?: boolean;
-
-  @IsBoolean()
-  @IsOptional()
   list_separately?: boolean;
 
   @IsBoolean()
@@ -76,7 +62,7 @@ export class CreateAttributeDto {
 
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => AttributeValueDto)
+  @Type(() => SpecificationValueDto)
   @IsOptional()
-  values?: AttributeValueDto[];
+  values?: SpecificationValueDto[];
 }

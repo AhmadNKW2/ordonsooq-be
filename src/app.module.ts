@@ -32,6 +32,7 @@ import { BullModule } from '@nestjs/bullmq';
 import typesenseConfig from './config/typesense.config';
 import { LoggingMiddleware } from './common/middleware/logging.middleware';
 import { NotesModule } from './notes/notes.module';
+import { SpecificationsModule } from './specifications/specifications.module';
 
 @Module({
   imports: [
@@ -90,6 +91,7 @@ import { NotesModule } from './notes/notes.module';
     CartModule,
     SearchModule,
     NotesModule,
+    SpecificationsModule,
   ],
 })
 export class AppModule implements NestModule {

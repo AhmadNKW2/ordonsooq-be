@@ -9,12 +9,12 @@ import {
   JoinColumn,
   Index,
 } from 'typeorm';
-import { AttributeValue } from './attribute-value.entity';
+import { SpecificationValue } from './specification-value.entity';
 
-@Entity('attributes')
-@Index('idx_attributes_is_active', ['is_active'])
-@Index('idx_attributes_parent_id', ['parent_id'])
-export class Attribute {
+@Entity('specifications')
+@Index('idx_specifications_is_active', ['is_active'])
+@Index('idx_specifications_parent_id', ['parent_id'])
+export class Specification {
   @PrimaryGeneratedColumn()
   id: number;
 
@@ -33,27 +33,21 @@ export class Attribute {
   @Column({ nullable: true })
   parent_id: number;
 
-  @ManyToOne(() => Attribute, (attribute) => attribute.children, {
+  @ManyToOne(() => Specification, (spec) => spec.children, {
     onDelete: 'SET NULL',
   })
   @JoinColumn({ name: 'parent_id' })
-  parent: Attribute;
+  parent: Specification;
 
   @Column({ nullable: true })
   parent_value_id: number;
 
-  @ManyToOne(() => AttributeValue, { onDelete: 'SET NULL' })
+  @ManyToOne(() => SpecificationValue, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'parent_value_id' })
-  parent_value: AttributeValue;
+  parent_value: SpecificationValue;
 
-  @OneToMany(() => Attribute, (attribute) => attribute.parent)
-  children: Attribute[];
-
-  @Column({ default: 'text' })
-  type: string; // 'color', 'size', 'text', 'image'
-
-  @Column({ default: false })
-  is_color: boolean;
+  @OneToMany(() => Specification, (spec) => spec.parent)
+  children: Specification[];
 
   @Column({ nullable: true, default: false })
   list_separately?: boolean;
@@ -64,10 +58,10 @@ export class Attribute {
   @Column({ default: true })
   is_active: boolean;
 
-  @OneToMany(() => AttributeValue, (value) => value.attribute, {
+  @OneToMany(() => SpecificationValue, (value) => value.specification, {
     cascade: true,
   })
-  values: AttributeValue[];
+  values: SpecificationValue[];
 
   @CreateDateColumn()
   created_at: Date;
@@ -75,6 +69,5 @@ export class Attribute {
   @UpdateDateColumn()
   updated_at: Date;
 
-  // Virtual property to store the depth level (0 = root)
   level?: number;
 }

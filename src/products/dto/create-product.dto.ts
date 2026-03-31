@@ -177,6 +177,10 @@ export class CreateProductDto {
   @IsString()
   long_description_ar: string;
 
+  @IsString()
+  @IsOptional()
+  reference_link?: string;
+
   @IsArray()
   @IsNumber({}, { each: true })
   category_ids: number[];

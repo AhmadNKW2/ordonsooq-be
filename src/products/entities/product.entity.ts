@@ -25,10 +25,13 @@ import { ProductMediaGroup } from './product-media-group.entity';
 import { ProductStock } from './product-stock.entity';
 import { ProductAttribute } from './product-attribute.entity';
 import { ProductCategory } from './product-category.entity';
+import { ProductSpecificationValue } from './product-specification-value.entity';
 
 export enum ProductStatus {
   ACTIVE = 'active',
   ARCHIVED = 'archived',
+  UPDATED = 'updated',
+  REVIEW = 'review',
 }
 
 @Entity('products')
@@ -78,6 +81,9 @@ export class Product {
 
   @Column('text')
   long_description_ar: string;
+
+  @Column({ type: 'text', nullable: true })
+  reference_link: string | null;
 
   @Column({
     type: 'enum',
@@ -153,6 +159,9 @@ export class Product {
   @OneToMany(() => ProductAttribute, (attr) => attr.product, { cascade: true })
   attributes: ProductAttribute[];
 
+  // Product specifications relationship
+  @OneToMany(() => ProductSpecificationValue, (spec) => spec.product, { cascade: true })
+  specifications: ProductSpecificationValue[];
   // Tags relationship (many-to-many, drives search term expansion)
   @ManyToMany('Tag', (tag: any) => tag.products, { eager: false })
   @JoinTable({

@@ -28,6 +28,7 @@ import { ProductPriceGroup } from './entities/product-price-group.entity';
 import { ProductWeightGroup } from './entities/product-weight-group.entity';
 import { ProductStock } from './entities/product-stock.entity';
 import { ProductAttribute } from './entities/product-attribute.entity';
+import { ProductSpecificationValue } from './entities/product-specification-value.entity';
 import { CartItem } from '../cart/entities/cart-item.entity';
 import { IndexingService, IndexableProduct } from '../search/indexing.service';
 import { SynonymConceptService } from '../search/synonym-concept.service';
@@ -826,6 +827,7 @@ export class ProductsService {
         short_description_ar: dto.short_description_ar,
         long_description_en: dto.long_description_en,
         long_description_ar: dto.long_description_ar,
+        reference_link: dto.reference_link ?? null,
         category_id: dto.category_ids?.[0],
         vendor_id: dto.vendor_id,
         brand_id: dto.brand_id,
@@ -1394,6 +1396,7 @@ export class ProductsService {
       priceGroups,
       weightGroups,
       attributes,
+      specifications,
     ] = await Promise.all([
       this.productsRepository
         .createQueryBuilder('product')
@@ -1439,6 +1442,17 @@ export class ProductsService {
         where: { product_id: In(ids) },
         relations: ['attribute'],
       }),
+      this.dataSource.getRepository(ProductSpecificationValue).find({
+        where: { product_id: In(ids) },
+        relations: [
+          'specification_value',
+          'specification_value.specification',
+          'specification_value.parent_value',
+          'specification_value.parent_value.specification',
+          'specification_value.parent_value.parent_value',
+          'specification_value.parent_value.parent_value.specification',
+        ],
+      }),
     ]);
 
     // Attach relations to products
@@ -1463,6 +1477,9 @@ export class ProductsService {
       );
       (product as any).attributes = attributes.filter(
         (a) => a.product_id === product.id,
+      );
+      (product as any).specifications = specifications.filter(
+        (s) => s.product_id === product.id,
       );
     });
 
@@ -1496,6 +1513,7 @@ export class ProductsService {
       productCategories,
       category, // Ensure we extract category relation
       attributes: productAttributes,
+      specifications: productSpecifications,
       createdByUser,
       ...rest
     } = product as any;
@@ -1541,7 +1559,6 @@ export class ProductsService {
           name_ar: attr.name_ar,
           unit_en: attr.unit_en,
           unit_ar: attr.unit_ar,
-          attribute_type: attr.attribute_type,
           list_separately: attr.list_separately,
           values: {},
         };
@@ -1584,7 +1601,6 @@ export class ProductsService {
           attributesMap[attrId] = {
             name_en: pa.attribute.name_en,
             name_ar: pa.attribute.name_ar,
-            attribute_type: pa.attribute.attribute_type,
             list_separately: pa.attribute.list_separately,
             controls_pricing: pa.controls_pricing,
             controls_media: pa.controls_media,
@@ -1592,12 +1608,55 @@ export class ProductsService {
             values: {},
           };
         } else {
-          attributesMap[attrId].attribute_type = pa.attribute.attribute_type;
           attributesMap[attrId].list_separately = pa.attribute.list_separately;
           attributesMap[attrId].controls_pricing = pa.controls_pricing;
           attributesMap[attrId].controls_media = pa.controls_media;
           attributesMap[attrId].controls_weight = pa.controls_weight;
         }
+      }
+    });
+
+    const specificationsMap: Record<string, any> = {};
+
+    const addSpecificationValue = (spec: any, val: any) => {
+      if (!spec || !val) return;
+
+      const specId = String(spec.id);
+      if (!specificationsMap[specId]) {
+        specificationsMap[specId] = {
+          name_en: spec.name_en,
+          name_ar: spec.name_ar,
+          unit_en: spec.unit_en,
+          unit_ar: spec.unit_ar,
+          list_separately: spec.list_separately,
+          values: {},
+        };
+      }
+
+      const valId = String(val.id);
+      if (!specificationsMap[specId].values[valId]) {
+        specificationsMap[specId].values[valId] = {
+          name_en: val.value_en,
+          name_ar: val.value_ar,
+        };
+      }
+    };
+
+    const processSpecificationRecursive = (val: any) => {
+      if (!val) return;
+
+      if (val.specification) {
+        addSpecificationValue(val.specification, val);
+      }
+
+      if (val.parent_value) {
+        processSpecificationRecursive(val.parent_value);
+      }
+    };
+
+    productSpecifications?.forEach((ps: any) => {
+      if (ps.specification_value) {
+        processSpecificationRecursive(ps.specification_value);
       }
     });
 
@@ -1754,6 +1813,7 @@ export class ProductsService {
       brand: brandInfo,
       categories,
       attributes: attributesMap,
+      specifications: specificationsMap,
       media_groups: mediaGroupsMap,
       price_groups: priceGroupsMap,
       weight_groups: weightGroupsMap,
@@ -1779,6 +1839,7 @@ export class ProductsService {
       stock,
       variants,
       attributes,
+      specifications,
     ] = await Promise.all([
       this.productsRepository.findOne({
         where: { id },
@@ -1819,6 +1880,17 @@ export class ProductsService {
         where: { product_id: id },
         relations: ['attribute'],
       }),
+      this.dataSource.getRepository(ProductSpecificationValue).find({
+        where: { product_id: id },
+        relations: [
+          'specification_value',
+          'specification_value.specification',
+          'specification_value.parent_value',
+          'specification_value.parent_value.specification',
+          'specification_value.parent_value.parent_value',
+          'specification_value.parent_value.parent_value.specification',
+        ],
+      }),
     ]);
 
     if (!productBase) {
@@ -1832,6 +1904,7 @@ export class ProductsService {
     productBase.stock = stock;
     productBase.variants = variants;
     productBase.attributes = attributes;
+    productBase.specifications = specifications;
 
     // Return detailed product structure
     return this.transformProductDetail(productBase, isAdmin);
@@ -2021,6 +2094,7 @@ export class ProductsService {
         'short_description_ar',
         'long_description_en',
         'long_description_ar',
+        'reference_link',
         'vendor_id',
         'brand_id',
         'status',
