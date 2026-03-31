@@ -7,10 +7,17 @@ import { CategoryUrl } from './entities/category-url.entity';
 import { Product } from '../products/entities/product.entity';
 import { ProductCategory } from '../products/entities/product-category.entity';
 import { ProductsModule } from '../products/products.module';
+import { Vendor } from '../vendors/entities/vendor.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Category, CategoryUrl, Product, ProductCategory]),
+    TypeOrmModule.forFeature([
+      Category,
+      CategoryUrl,
+      Product,
+      ProductCategory,
+      Vendor,
+    ]),
     ProductsModule,
   ],
   controllers: [CategoriesController],

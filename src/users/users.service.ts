@@ -13,6 +13,8 @@ import { FilterUserDto } from './dto/filter-user.dto';
 import { Wishlist } from '../wishlist/entities/wishlist.entity';
 import { Product, ProductStatus } from '../products/entities/product.entity';
 
+type SanitizedUser = Omit<User, 'password'>;
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -23,6 +25,11 @@ export class UsersService {
     @InjectRepository(Product)
     private productRepository: Repository<Product>,
   ) {}
+
+  sanitizeUser(user: User): SanitizedUser {
+    const { password, ...userWithoutPassword } = user;
+    return userWithoutPassword;
+  }
 
   async create(createUserDto: CreateUserDto): Promise<User> {
     const { product_ids, ...userData } = createUserDto;
@@ -231,7 +238,7 @@ export class UsersService {
     });
 
     // Exclude password from response
-    const { password, ...userWithoutPassword } = user;
+    const userWithoutPassword = this.sanitizeUser(user);
 
     return {
       ...userWithoutPassword,

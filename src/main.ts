@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, NestApplicationOptions } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -110,8 +111,51 @@ async function bootstrap() {
   // Set global prefix for all routes
   app.setGlobalPrefix('api');
 
+  const swaggerConfig = new DocumentBuilder()
+    .setTitle('Ordonsooq API')
+    .setDescription('API documentation for the Ordonsooq backend.')
+    .setVersion(process.env.APP_VERSION ?? '0.0.1')
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        description: 'JWT access token for bearer-protected endpoints.',
+      },
+      'bearer',
+    )
+    .addCookieAuth(
+      'access_token',
+      {
+        type: 'apiKey',
+        in: 'cookie',
+        description: 'HTTP-only access token cookie set by auth endpoints.',
+      },
+      'cookieAuth',
+    )
+    .build();
+
+  const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig, {
+    deepScanRoutes: true,
+  });
+
+  SwaggerModule.setup('docs', app, swaggerDocument, {
+    customSiteTitle: 'Ordonsooq API Docs',
+    jsonDocumentUrl: 'docs-json',
+    yamlDocumentUrl: 'docs-yaml',
+    swaggerOptions: {
+      persistAuthorization: true,
+      withCredentials: true,
+    },
+  });
+
   const port = process.env.PORT || 3000;
   await app.listen(port);
-  console.log(`Application is running on: http://localhost:${port}/api`);
+
+  const appUrl = await app.getUrl();
+  console.log(`Application is running on: ${appUrl}/api`);
+  console.log(`Swagger UI is available at: ${appUrl}/docs`);
+  console.log(`OpenAPI JSON is available at: ${appUrl}/docs-json`);
+  console.log(`OpenAPI YAML is available at: ${appUrl}/docs-yaml`);
 }
 bootstrap();

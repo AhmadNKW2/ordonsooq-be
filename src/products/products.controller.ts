@@ -16,6 +16,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { ApiBody, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { IsArray, IsNotEmpty, IsString } from 'class-validator';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
@@ -39,6 +40,7 @@ class AddProductTagDto {
   name: string;
 }
 
+@ApiTags('Products')
 @Controller('products')
 export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
@@ -116,6 +118,77 @@ export class ProductsController {
   @Post()
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @ApiOperation({ summary: 'Create a product' })
+  @ApiBody({
+    type: CreateProductDto,
+    examples: {
+      with_specifications: {
+        summary: 'Simple product with specifications',
+        value: {
+          name_en: 'LG UltraGear WOLED Gaming Monitor 39-inch',
+          name_ar: 'LG UltraGear WOLED Gaming Monitor 39-inch',
+          short_description_en: 'Gaming monitor with OLED panel',
+          short_description_ar: 'Gaming monitor with OLED panel',
+          long_description_en: 'Detailed product description',
+          long_description_ar: 'Detailed product description',
+          category_ids: [9],
+          vendor_id: 2,
+          brand_id: 34,
+          visible: true,
+          specifications: [
+            { specification_id: 1, specification_value_ids: [60] },
+            { specification_id: 4, specification_value_ids: [7, 8, 39] },
+            { specification_id: 8, specification_value_ids: [50] },
+            { specification_id: 9, specification_value_ids: [49] },
+            { specification_id: 10, specification_value_ids: [35] },
+            { specification_id: 11, specification_value_ids: [67] },
+          ],
+          prices: [{ price: 1585.9 }],
+        },
+      },
+      variant_with_attributes_and_specifications: {
+        summary: 'Variant product with attributes and specifications',
+        value: {
+          name_en: 'Gaming Mouse Pro',
+          name_ar: 'Gaming Mouse Pro',
+          short_description_en: 'Wireless gaming mouse',
+          short_description_ar: 'Wireless gaming mouse',
+          long_description_en: 'Detailed gaming mouse description',
+          long_description_ar: 'Detailed gaming mouse description',
+          category_ids: [9],
+          vendor_id: 2,
+          brand_id: 34,
+          visible: true,
+          attributes: [
+            {
+              attribute_id: 21,
+              controls_pricing: true,
+              controls_media: false,
+              controls_weight: false,
+            },
+            {
+              attribute_id: 22,
+              controls_pricing: false,
+              controls_media: true,
+              controls_weight: false,
+            },
+          ],
+          specifications: [
+            { specification_id: 4, specification_value_ids: [39] },
+            { specification_id: 11, specification_value_ids: [67] },
+          ],
+          prices: [
+            { combination: { '21': 101 }, price: 129.9 },
+            { combination: { '21': 102 }, price: 139.9 },
+          ],
+          stocks: [
+            { combination: { '21': 101 }, quantity: 10 },
+            { combination: { '21': 102 }, quantity: 8 },
+          ],
+        },
+      },
+    },
+  })
   create(@Body() createProductDto: CreateProductDto, @Req() req: any) {
     return this.productsService.create(createProductDto, req.user?.id);
   }
@@ -127,6 +200,24 @@ export class ProductsController {
       req.user?.role === UserRole.ADMIN ||
       req.user?.role === UserRole.CATALOG_MANAGER;
     return this.productsService.findAll(filterDto, isAdmin);
+  }
+
+  @Get('reference-link')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({ summary: 'Get a product by reference link' })
+  @ApiQuery({
+    name: 'reference_link',
+    required: true,
+    example: 'https://example.com/products/lg-ultragear-39gx90sa',
+  })
+  findOneByReferenceLink(
+    @Query('reference_link') referenceLink: string,
+    @Req() req: any,
+  ) {
+    const isAdmin =
+      req.user?.role === UserRole.ADMIN ||
+      req.user?.role === UserRole.CATALOG_MANAGER;
+    return this.productsService.findOneByReferenceLink(referenceLink, isAdmin);
   }
 
   @Get(':id')
@@ -150,6 +241,67 @@ export class ProductsController {
   @Put(':id')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @ApiOperation({ summary: 'Replace a product' })
+  @ApiBody({
+    type: UpdateProductDto,
+    examples: {
+      replace_specifications: {
+        summary: 'Replace product fields including specifications',
+        value: {
+          name_en: 'LG UltraGear WOLED Gaming Monitor 39-inch',
+          name_ar: 'LG UltraGear WOLED Gaming Monitor 39-inch',
+          short_description_en: 'Gaming monitor with OLED panel',
+          short_description_ar: 'Gaming monitor with OLED panel',
+          long_description_en: 'Detailed product description',
+          long_description_ar: 'Detailed product description',
+          category_ids: [9],
+          vendor_id: 2,
+          brand_id: 34,
+          visible: true,
+          specifications: [
+            { specification_id: 1, specification_value_ids: [60] },
+            { specification_id: 4, specification_value_ids: [7, 39] },
+            { specification_id: 8, specification_value_ids: [50] },
+            { specification_id: 9, specification_value_ids: [49] },
+            { specification_id: 10, specification_value_ids: [35] },
+            { specification_id: 11, specification_value_ids: [67] },
+          ],
+          prices: [{ price: 1585.9 }],
+        },
+      },
+      replace_attributes_and_specifications: {
+        summary: 'Replace attributes and specifications together',
+        value: {
+          name_en: 'Gaming Mouse Pro',
+          name_ar: 'Gaming Mouse Pro',
+          short_description_en: 'Wireless gaming mouse',
+          short_description_ar: 'Wireless gaming mouse',
+          long_description_en: 'Detailed gaming mouse description',
+          long_description_ar: 'Detailed gaming mouse description',
+          category_ids: [9],
+          vendor_id: 2,
+          brand_id: 34,
+          visible: true,
+          attributes: [
+            {
+              attribute_id: 21,
+              controls_pricing: true,
+              controls_media: false,
+              controls_weight: false,
+            },
+          ],
+          specifications: [
+            { specification_id: 4, specification_value_ids: [39] },
+            { specification_id: 11, specification_value_ids: [67] },
+          ],
+          prices: [
+            { combination: { '21': 101 }, price: 129.9 },
+            { combination: { '21': 102 }, price: 139.9 },
+          ],
+        },
+      },
+    },
+  })
   update(@Param('id') id: string, @Body() updateProductDto: UpdateProductDto) {
     return this.productsService.update(+id, updateProductDto);
   }
@@ -157,6 +309,48 @@ export class ProductsController {
   @Patch(':id')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @ApiOperation({ summary: 'Partially update a product' })
+  @ApiBody({
+    type: PatchProductDto,
+    examples: {
+      only_specifications: {
+        summary: 'Update only product specifications',
+        value: {
+          specifications: [
+            { specification_id: 1, specification_value_ids: [60] },
+            { specification_id: 4, specification_value_ids: [7, 8, 39] },
+            { specification_id: 8, specification_value_ids: [50] },
+            { specification_id: 9, specification_value_ids: [49] },
+            { specification_id: 10, specification_value_ids: [35] },
+            { specification_id: 11, specification_value_ids: [67] },
+          ],
+        },
+      },
+      attributes_and_specifications: {
+        summary: 'Update attributes and specifications together',
+        value: {
+          attributes: [
+            {
+              attribute_id: 21,
+              controls_pricing: true,
+              controls_media: false,
+              controls_weight: false,
+            },
+          ],
+          specifications: [
+            { specification_id: 4, specification_value_ids: [39] },
+            { specification_id: 11, specification_value_ids: [67] },
+          ],
+        },
+      },
+      clear_specifications: {
+        summary: 'Remove all product specifications',
+        value: {
+          specifications: [],
+        },
+      },
+    },
+  })
   patch(@Param('id') id: string, @Body() patchProductDto: PatchProductDto) {
     return this.productsService.update(
       +id,

@@ -14,9 +14,23 @@ import {
   Put,
   Req,
   Query,
+  ParseIntPipe,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthGuard } from '@nestjs/passport';
+import {
+  ApiBadRequestResponse,
+  ApiBearerAuth,
+  ApiBody,
+  ApiConflictResponse,
+  ApiCookieAuth,
+  ApiForbiddenResponse,
+  ApiNotFoundResponse,
+  ApiOperation,
+  ApiParam,
+  ApiTags,
+  ApiUnauthorizedResponse,
+} from '@nestjs/swagger';
 import { memoryStorage } from 'multer';
 import { CategoriesService } from './categories.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
@@ -27,13 +41,28 @@ import {
   RestoreCategoryDto,
   PermanentDeleteCategoryDto,
 } from './dto/archive-category.dto';
+import { CreateCategoryUrlDto } from './dto/create-category-url.dto';
+import { UpdateCategoryUrlDto } from './dto/update-category-url.dto';
+import { FilterCategoryUrlDto } from './dto/filter-category-url.dto';
 import { ReorderCategoriesDto } from './dto/reorder-categories.dto';
 import { AssignProductsToCategoryDto } from './dto/assign-products.dto';
 import { Roles, UserRole } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { imageFileFilter } from '../common/utils/file-upload.util';
 import { R2StorageService } from '../common/services/r2-storage.service';
+import { ApiErrorResponseDto } from '../common/swagger/api-response.dto';
 
+@ApiTags('Categories')
+@ApiBearerAuth('bearer')
+@ApiCookieAuth('cookieAuth')
+@ApiUnauthorizedResponse({
+  description: 'Authentication is required.',
+  type: ApiErrorResponseDto,
+})
+@ApiForbiddenResponse({
+  description: 'The current user does not have access to this operation.',
+  type: ApiErrorResponseDto,
+})
 @Controller('categories')
 export class CategoriesController {
   constructor(
@@ -116,6 +145,137 @@ export class CategoriesController {
   @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   findArchived(@Body() filterDto?: FilterCategoryDto) {
     return this.categoriesService.findArchived(filterDto);
+  }
+
+  // ========== CATEGORY URLS ==========
+
+  @Post('urls')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @ApiOperation({ summary: 'Create a category URL mapping' })
+  @ApiBody({
+    type: CreateCategoryUrlDto,
+    examples: {
+      vendor_category_url: {
+        summary: 'Map one vendor to one category URL',
+        value: {
+          url: 'https://vendor.example.com/monitors/gaming-monitors',
+          category_id: 9,
+          vendor_id: 2,
+        },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Validation error.',
+    type: ApiErrorResponseDto,
+  })
+  @ApiConflictResponse({
+    description: 'A category URL already exists for this category and vendor.',
+    type: ApiErrorResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Category or vendor not found.',
+    type: ApiErrorResponseDto,
+  })
+  createCategoryUrl(@Body() createCategoryUrlDto: CreateCategoryUrlDto) {
+    return this.categoriesService.createCategoryUrl(createCategoryUrlDto);
+  }
+
+  @Get('urls')
+  @ApiOperation({ summary: 'List category URL mappings' })
+  @ApiBadRequestResponse({
+    description: 'Invalid query parameters.',
+    type: ApiErrorResponseDto,
+  })
+  findAllCategoryUrls(@Query() filterDto: FilterCategoryUrlDto) {
+    return this.categoriesService.findAllCategoryUrls(filterDto);
+  }
+
+  @Get('urls/:urlId')
+  @ApiOperation({ summary: 'Get a category URL mapping by id' })
+  @ApiParam({ name: 'urlId', example: 12 })
+  @ApiNotFoundResponse({
+    description: 'Category URL not found.',
+    type: ApiErrorResponseDto,
+  })
+  findOneCategoryUrl(@Param('urlId', ParseIntPipe) urlId: number) {
+    return this.categoriesService.findOneCategoryUrl(urlId);
+  }
+
+  @Patch('urls/:urlId')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @ApiOperation({ summary: 'Update a category URL mapping' })
+  @ApiParam({ name: 'urlId', example: 12 })
+  @ApiBody({
+    type: UpdateCategoryUrlDto,
+    examples: {
+      update_url_only: {
+        summary: 'Update only the vendor URL',
+        value: {
+          url: 'https://vendor.example.com/displays/oled-monitors',
+        },
+      },
+      move_to_another_vendor: {
+        summary: 'Move the URL mapping to another vendor',
+        value: {
+          vendor_id: 5,
+        },
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Validation error.',
+    type: ApiErrorResponseDto,
+  })
+  @ApiConflictResponse({
+    description: 'A category URL already exists for this category and vendor.',
+    type: ApiErrorResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Category URL, category, or vendor not found.',
+    type: ApiErrorResponseDto,
+  })
+  updateCategoryUrl(
+    @Param('urlId', ParseIntPipe) urlId: number,
+    @Body() updateCategoryUrlDto: UpdateCategoryUrlDto,
+  ) {
+    return this.categoriesService.updateCategoryUrl(
+      urlId,
+      updateCategoryUrlDto,
+    );
+  }
+
+  @Delete('urls/:urlId')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @ApiOperation({ summary: 'Delete a category URL mapping' })
+  @ApiParam({ name: 'urlId', example: 12 })
+  @ApiNotFoundResponse({
+    description: 'Category URL not found.',
+    type: ApiErrorResponseDto,
+  })
+  removeCategoryUrl(@Param('urlId', ParseIntPipe) urlId: number) {
+    return this.categoriesService.removeCategoryUrl(urlId);
+  }
+
+  @Get(':id/urls')
+  @ApiOperation({ summary: 'List category URL mappings for one category' })
+  @ApiParam({ name: 'id', example: 9, description: 'Category id' })
+  @ApiBadRequestResponse({
+    description: 'Invalid query parameters.',
+    type: ApiErrorResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Category not found.',
+    type: ApiErrorResponseDto,
+  })
+  findCategoryUrlsByCategory(
+    @Param('id', ParseIntPipe) id: number,
+    @Query() filterDto: FilterCategoryUrlDto,
+  ) {
+    return this.categoriesService.findCategoryUrlsByCategory(id, filterDto);
   }
 
   @Get(':id')

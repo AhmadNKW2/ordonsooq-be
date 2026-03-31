@@ -1,3 +1,4 @@
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsString,
   IsNumber,
@@ -12,6 +13,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ProductStatus } from '../entities/product.entity';
+import { ProductSpecificationInputDto } from './product-specification.dto';
 
 // Product attribute DTO
 class ProductAttributeInput {
@@ -218,11 +220,51 @@ export class CreateProductDto {
   /**
    * Attributes to add to the product (for variant products)
    */
+  @ApiPropertyOptional({
+    type: [ProductAttributeInput],
+    example: [
+      {
+        attribute_id: 21,
+        controls_pricing: true,
+        controls_media: false,
+        controls_weight: false,
+      },
+      {
+        attribute_id: 22,
+        controls_pricing: false,
+        controls_media: true,
+        controls_weight: false,
+      },
+    ],
+  })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ProductAttributeInput)
   @IsOptional()
   attributes?: ProductAttributeInput[];
+
+  // ============== Specifications ==============
+
+  /**
+   * Specifications to assign to the product.
+   * Each item links one specification to one or more specification values.
+   */
+  @ApiPropertyOptional({
+    type: [ProductSpecificationInputDto],
+    example: [
+      { specification_id: 1, specification_value_ids: [60] },
+      { specification_id: 4, specification_value_ids: [7, 8, 39] },
+      { specification_id: 8, specification_value_ids: [50] },
+      { specification_id: 9, specification_value_ids: [49] },
+      { specification_id: 10, specification_value_ids: [35] },
+      { specification_id: 11, specification_value_ids: [67] },
+    ],
+  })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProductSpecificationInputDto)
+  @IsOptional()
+  specifications?: ProductSpecificationInputDto[];
 
   // ============== Pricing ==============
 

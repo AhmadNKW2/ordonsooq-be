@@ -7,11 +7,13 @@ import {
   ManyToOne,
   JoinColumn,
   Index,
+  Unique,
 } from 'typeorm';
 import { Category } from './category.entity';
 import { Vendor } from '../../vendors/entities/vendor.entity';
 
 @Entity('category_urls')
+@Unique('uq_category_urls_category_vendor', ['category_id', 'vendor_id'])
 @Index('idx_category_urls_category_id', ['category_id'])
 @Index('idx_category_urls_vendor_id', ['vendor_id'])
 export class CategoryUrl {

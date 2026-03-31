@@ -8,9 +8,13 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, Like } from 'typeorm';
 import { Category, CategoryStatus } from './entities/category.entity';
+import { CategoryUrl } from './entities/category-url.entity';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { FilterCategoryDto } from './dto/filter-category.dto';
+import { CreateCategoryUrlDto } from './dto/create-category-url.dto';
+import { UpdateCategoryUrlDto } from './dto/update-category-url.dto';
+import { FilterCategoryUrlDto } from './dto/filter-category-url.dto';
 import { FilterProductDto } from '../products/dto/filter-product.dto';
 import {
   RestoreCategoryDto,
@@ -21,6 +25,7 @@ import {
 import { Product, ProductStatus } from '../products/entities/product.entity';
 import { ProductCategory } from '../products/entities/product-category.entity';
 import { ProductsService } from '../products/products.service';
+import { Vendor } from '../vendors/entities/vendor.entity';
 import { VendorStatus } from '../vendors/entities/vendor.entity';
 import { R2StorageService } from '../common/services/r2-storage.service';
 
@@ -31,13 +36,156 @@ export class CategoriesService {
   constructor(
     @InjectRepository(Category)
     private categoriesRepository: Repository<Category>,
+    @InjectRepository(CategoryUrl)
+    private categoryUrlsRepository: Repository<CategoryUrl>,
     @InjectRepository(Product)
     private productsRepository: Repository<Product>,
     @InjectRepository(ProductCategory)
     private productCategoriesRepository: Repository<ProductCategory>,
+    @InjectRepository(Vendor)
+    private vendorsRepository: Repository<Vendor>,
     private r2StorageService: R2StorageService,
     private productsService: ProductsService,
   ) {}
+
+  private async validateCategoryUrlReferences(
+    categoryId: number,
+    vendorId: number,
+  ): Promise<void> {
+    const [categoryExists, vendorExists] = await Promise.all([
+      this.categoriesRepository.exist({ where: { id: categoryId } }),
+      this.vendorsRepository.exist({ where: { id: vendorId } }),
+    ]);
+
+    if (!categoryExists) {
+      throw new NotFoundException('Category not found');
+    }
+
+    if (!vendorExists) {
+      throw new NotFoundException('Vendor not found');
+    }
+  }
+
+  private async ensureCategoryUrlPairIsUnique(
+    categoryId: number,
+    vendorId: number,
+    currentId?: number,
+  ): Promise<void> {
+    const existing = await this.categoryUrlsRepository.findOne({
+      where: {
+        category_id: categoryId,
+        vendor_id: vendorId,
+      },
+    });
+
+    if (existing && existing.id !== currentId) {
+      throw new ConflictException(
+        'A category URL already exists for this category and vendor',
+      );
+    }
+  }
+
+  async createCategoryUrl(
+    createCategoryUrlDto: CreateCategoryUrlDto,
+  ): Promise<CategoryUrl> {
+    await this.validateCategoryUrlReferences(
+      createCategoryUrlDto.category_id,
+      createCategoryUrlDto.vendor_id,
+    );
+    await this.ensureCategoryUrlPairIsUnique(
+      createCategoryUrlDto.category_id,
+      createCategoryUrlDto.vendor_id,
+    );
+
+    const categoryUrl = this.categoryUrlsRepository.create(createCategoryUrlDto);
+    const savedCategoryUrl = await this.categoryUrlsRepository.save(categoryUrl);
+
+    return this.findOneCategoryUrl(savedCategoryUrl.id);
+  }
+
+  async findAllCategoryUrls(
+    filterDto?: FilterCategoryUrlDto,
+  ): Promise<CategoryUrl[]> {
+    const queryBuilder = this.categoryUrlsRepository
+      .createQueryBuilder('categoryUrl')
+      .leftJoinAndSelect('categoryUrl.category', 'category')
+      .leftJoinAndSelect('categoryUrl.vendor', 'vendor')
+      .orderBy('categoryUrl.id', 'ASC');
+
+    if (filterDto?.category_id !== undefined) {
+      queryBuilder.andWhere('categoryUrl.category_id = :categoryId', {
+        categoryId: filterDto.category_id,
+      });
+    }
+
+    if (filterDto?.vendor_id !== undefined) {
+      queryBuilder.andWhere('categoryUrl.vendor_id = :vendorId', {
+        vendorId: filterDto.vendor_id,
+      });
+    }
+
+    return queryBuilder.getMany();
+  }
+
+  async findCategoryUrlsByCategory(
+    categoryId: number,
+    filterDto?: FilterCategoryUrlDto,
+  ): Promise<CategoryUrl[]> {
+    const categoryExists = await this.categoriesRepository.exist({
+      where: { id: categoryId },
+    });
+
+    if (!categoryExists) {
+      throw new NotFoundException('Category not found');
+    }
+
+    return this.findAllCategoryUrls({
+      ...filterDto,
+      category_id: categoryId,
+    });
+  }
+
+  async findOneCategoryUrl(id: number): Promise<CategoryUrl> {
+    const categoryUrl = await this.categoryUrlsRepository.findOne({
+      where: { id },
+      relations: ['category', 'vendor'],
+    });
+
+    if (!categoryUrl) {
+      throw new NotFoundException('Category URL not found');
+    }
+
+    return categoryUrl;
+  }
+
+  async updateCategoryUrl(
+    id: number,
+    updateCategoryUrlDto: UpdateCategoryUrlDto,
+  ): Promise<CategoryUrl> {
+    const categoryUrl = await this.findOneCategoryUrl(id);
+
+    const nextCategoryId =
+      updateCategoryUrlDto.category_id ?? categoryUrl.category_id;
+    const nextVendorId = updateCategoryUrlDto.vendor_id ?? categoryUrl.vendor_id;
+
+    await this.validateCategoryUrlReferences(nextCategoryId, nextVendorId);
+    await this.ensureCategoryUrlPairIsUnique(nextCategoryId, nextVendorId, id);
+
+    Object.assign(categoryUrl, updateCategoryUrlDto, {
+      category_id: nextCategoryId,
+      vendor_id: nextVendorId,
+    });
+
+    await this.categoryUrlsRepository.save(categoryUrl);
+    return this.findOneCategoryUrl(id);
+  }
+
+  async removeCategoryUrl(id: number): Promise<{ message: string }> {
+    const categoryUrl = await this.findOneCategoryUrl(id);
+    await this.categoryUrlsRepository.remove(categoryUrl);
+
+    return { message: 'Category URL deleted successfully' };
+  }
 
   private slugify(text: string): string {
     return text

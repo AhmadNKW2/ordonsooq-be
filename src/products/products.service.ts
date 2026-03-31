@@ -29,6 +29,7 @@ import { ProductWeightGroup } from './entities/product-weight-group.entity';
 import { ProductStock } from './entities/product-stock.entity';
 import { ProductAttribute } from './entities/product-attribute.entity';
 import { ProductSpecificationValue } from './entities/product-specification-value.entity';
+import { SpecificationValue } from '../specifications/entities/specification-value.entity';
 import { CartItem } from '../cart/entities/cart-item.entity';
 import { IndexingService, IndexableProduct } from '../search/indexing.service';
 import { SynonymConceptService } from '../search/synonym-concept.service';
@@ -38,6 +39,7 @@ import { Tag } from '../search/entities/tag.entity';
 import { ProductVariantCombination } from './entities/product-variant-combination.entity';
 import { ProductPriceGroupValue } from './entities/product-price-group-value.entity';
 import { ProductWeightGroupValue } from './entities/product-weight-group-value.entity';
+import { ProductSpecificationInputDto } from './dto/product-specification.dto';
 
 import { Like, Not } from 'typeorm';
 
@@ -791,6 +793,131 @@ export class ProductsService {
     return finalSlug;
   }
 
+  private normalizeProductSpecifications(
+    specifications: ProductSpecificationInputDto[],
+  ): ProductSpecificationInputDto[] {
+    const seenSpecificationIds = new Set<number>();
+
+    return specifications.map((specification) => {
+      if (seenSpecificationIds.has(specification.specification_id)) {
+        throw new BadRequestException(
+          `Duplicate specification_id ${specification.specification_id} in payload`,
+        );
+      }
+
+      seenSpecificationIds.add(specification.specification_id);
+
+      return {
+        specification_id: specification.specification_id,
+        specification_value_ids: [
+          ...new Set(specification.specification_value_ids.map(Number)),
+        ],
+      };
+    });
+  }
+
+  private async resolveProductSpecificationValueIds(
+    specifications: ProductSpecificationInputDto[],
+  ): Promise<number[]> {
+    const normalizedSpecifications = this.normalizeProductSpecifications(
+      specifications,
+    );
+    const requestedValueIds = [
+      ...new Set(
+        normalizedSpecifications.flatMap(
+          (specification) => specification.specification_value_ids,
+        ),
+      ),
+    ];
+
+    if (requestedValueIds.length === 0) {
+      return [];
+    }
+
+    const specificationValues = await this.dataSource
+      .getRepository(SpecificationValue)
+      .find({
+        where: { id: In(requestedValueIds) },
+        relations: ['specification'],
+      });
+
+    if (specificationValues.length !== requestedValueIds.length) {
+      throw new BadRequestException(
+        'One or more specification values were not found',
+      );
+    }
+
+    const specificationValueMap = new Map(
+      specificationValues.map((value) => [value.id, value]),
+    );
+
+    for (const specification of normalizedSpecifications) {
+      for (const valueId of specification.specification_value_ids) {
+        const specificationValue = specificationValueMap.get(valueId);
+
+        if (!specificationValue) {
+          throw new BadRequestException(
+            `Specification value ${valueId} was not found`,
+          );
+        }
+
+        if (!specificationValue.is_active) {
+          throw new BadRequestException(
+            `Specification value ${valueId} is inactive`,
+          );
+        }
+
+        if (!specificationValue.specification?.is_active) {
+          throw new BadRequestException(
+            `Specification ${specification.specification_id} is inactive`,
+          );
+        }
+
+        if (
+          specificationValue.specification_id !==
+          specification.specification_id
+        ) {
+          throw new BadRequestException(
+            `Specification value ${valueId} does not belong to specification ${specification.specification_id}`,
+          );
+        }
+      }
+    }
+
+    return requestedValueIds;
+  }
+
+  private async syncProductSpecifications(
+    productId: number,
+    specifications: ProductSpecificationInputDto[],
+  ): Promise<void> {
+    const productSpecificationRepository = this.dataSource.getRepository(
+      ProductSpecificationValue,
+    );
+
+    await productSpecificationRepository.delete({ product_id: productId });
+
+    if (!specifications.length) {
+      return;
+    }
+
+    const specificationValueIds =
+      await this.resolveProductSpecificationValueIds(specifications);
+
+    if (!specificationValueIds.length) {
+      return;
+    }
+
+    await productSpecificationRepository.save(
+      specificationValueIds.map((specificationValueId) =>
+        productSpecificationRepository.create({
+          product_id: productId,
+          specification_value_id: specificationValueId,
+        }),
+      ),
+    );
+  }
+
   async create(dto: CreateProductDto, userId?: number): Promise<any> {
     try {
       // Validate categories exist and are active
@@ -872,6 +999,13 @@ export class ProductsService {
       if (dto.media && dto.media.length > 0) {
         creationTasks.push(
           this.mediaGroupService.syncProductMedia(id, dto.media),
+        );
+      }
+
+      // Handle Specifications
+      if (dto.specifications && dto.specifications.length > 0) {
+        creationTasks.push(
+          this.syncProductSpecifications(id, dto.specifications),
         );
       }
 
@@ -1923,6 +2057,30 @@ export class ProductsService {
     return this.findOne(product.id, isAdmin);
   }
 
+  async findOneByReferenceLink(
+    referenceLink: string,
+    isAdmin = false,
+  ): Promise<any> {
+    const normalizedReferenceLink = referenceLink?.trim();
+
+    if (!normalizedReferenceLink) {
+      throw new BadRequestException('reference_link query parameter is required');
+    }
+
+    const product = await this.productsRepository.findOne({
+      where: { reference_link: normalizedReferenceLink },
+      select: ['id'],
+    });
+
+    if (!product) {
+      throw new NotFoundException(
+        `Product with reference link ${normalizedReferenceLink} not found`,
+      );
+    }
+
+    return this.findOne(product.id, isAdmin);
+  }
+
   /**
    * Transform product response:
    * - Rename priceGroups to prices
@@ -2142,6 +2300,13 @@ export class ProductsService {
       if (dto.media !== undefined) {
         cleanupTasks.push(
           this.mediaGroupService.syncProductMedia(id, dto.media || []),
+        );
+      }
+
+      // 1.1 Sync Specifications
+      if (dto.specifications !== undefined) {
+        cleanupTasks.push(
+          this.syncProductSpecifications(id, dto.specifications || []),
         );
       }
 
