@@ -24,7 +24,7 @@ export interface TokenPayload {
   email: string;
   role: string;
   jti: string;
-  type: 'access' | 'refresh';
+  type: 'access' | 'refresh' | 'static_access';
 }
 
 export interface AuthTokens {
@@ -32,6 +32,8 @@ export interface AuthTokens {
   refreshToken: string;
   accessTokenExpiry: Date;
   refreshTokenExpiry: Date;
+  accessTokenExpiresInSeconds: number | null;
+  isStaticAccessToken: boolean;
 }
 
 export interface RequestMetadata {
@@ -44,6 +46,7 @@ export class AuthService {
   private readonly accessTokenExpiresIn: number;
   private readonly refreshTokenExpiresIn: number;
   private readonly refreshTokenMaxAge: number;
+  private readonly staticAccessTokenCookieMaxAge = 60 * 60 * 24 * 365 * 5;
 
   constructor(
     private usersService: UsersService,
@@ -67,6 +70,10 @@ export class AuthService {
       this.configService.get<number>('REFRESH_TOKEN_MAX_AGE') || 2592000;
   }
 
+  private isStaticAccessRole(role: string): boolean {
+    return role === UserRole.CONSTANT_TOKEN_ADMIN || role === 'products_api';
+  }
+
   /**
    * Generate access and refresh tokens
    */
@@ -76,11 +83,18 @@ export class AuthService {
     role: string,
     metadata?: RequestMetadata,
   ): Promise<AuthTokens> {
-    const accessTokenJti = crypto.randomUUID();
+    const isStaticAccessToken = this.isStaticAccessRole(role);
+    const accessTokenJti = isStaticAccessToken
+      ? `static-access-${userId}`
+      : crypto.randomUUID();
     const refreshTokenJti = crypto.randomUUID();
 
     const accessTokenExpiry = new Date(
-      Date.now() + this.accessTokenExpiresIn * 1000,
+      Date.now() +
+        (isStaticAccessToken
+          ? this.staticAccessTokenCookieMaxAge
+          : this.accessTokenExpiresIn) *
+          1000,
     );
     const refreshTokenExpiry = new Date(
       Date.now() + this.refreshTokenExpiresIn * 1000,
@@ -92,11 +106,15 @@ export class AuthService {
       email,
       role,
       jti: accessTokenJti,
-      type: 'access',
+      type: isStaticAccessToken ? 'static_access' : 'access',
     };
-    const accessToken = this.jwtService.sign(accessPayload, {
-      expiresIn: this.accessTokenExpiresIn,
-    });
+    const accessToken = isStaticAccessToken
+      ? this.jwtService.sign(accessPayload, {
+          noTimestamp: true,
+        })
+      : this.jwtService.sign(accessPayload, {
+          expiresIn: this.accessTokenExpiresIn,
+        });
 
     // Generate refresh token
     const refreshPayload: TokenPayload = {
@@ -125,6 +143,10 @@ export class AuthService {
       refreshToken,
       accessTokenExpiry,
       refreshTokenExpiry,
+      accessTokenExpiresInSeconds: isStaticAccessToken
+        ? null
+        : this.accessTokenExpiresIn,
+      isStaticAccessToken,
     };
   }
 
@@ -133,16 +155,20 @@ export class AuthService {
    * HTTPS context: secure=true, sameSite=none (cross-site fetch is allowed)
    * HTTP context: secure=false, sameSite=lax (local development)
    */
-  getCookieOptions(isSecureContext: boolean) {
+  getCookieOptions(isSecureContext: boolean, isStaticAccessToken = false) {
     const isSecure = isSecureContext;
     const sameSiteValue: 'none' | 'lax' = isSecureContext ? 'none' : 'lax';
+    const accessMaxAge =
+      (isStaticAccessToken
+        ? this.staticAccessTokenCookieMaxAge
+        : this.accessTokenExpiresIn) * 1000;
 
     return {
       access: {
         httpOnly: true,
         secure: isSecure,
         sameSite: sameSiteValue,
-        maxAge: this.accessTokenExpiresIn * 1000,
+        maxAge: accessMaxAge,
         path: '/',
       },
       refresh: {
@@ -232,21 +258,15 @@ export class AuthService {
       }
     }
 
-    const { accessToken, refreshToken, accessTokenExpiry, refreshTokenExpiry } =
-      await this.generateTokens(
-        existingUser.id,
-        existingUser.email,
-        existingUser.role,
-        metadata,
-      );
+    const tokens = await this.generateTokens(
+      existingUser.id,
+      existingUser.email,
+      existingUser.role,
+      metadata,
+    );
 
     return {
-      tokens: {
-        accessToken,
-        refreshToken,
-        accessTokenExpiry,
-        refreshTokenExpiry,
-      },
+      tokens,
       user: {
         id: existingUser.id,
         email: existingUser.email,
@@ -284,21 +304,15 @@ export class AuthService {
       } as any);
     }
 
-    const { accessToken, refreshToken, accessTokenExpiry, refreshTokenExpiry } =
-      await this.generateTokens(
-        existingUser.id,
-        existingUser.email,
-        existingUser.role,
-        metadata,
-      );
+    const tokens = await this.generateTokens(
+      existingUser.id,
+      existingUser.email,
+      existingUser.role,
+      metadata,
+    );
 
     return {
-      tokens: {
-        accessToken,
-        refreshToken,
-        accessTokenExpiry,
-        refreshTokenExpiry,
-      },
+      tokens,
       user: {
         id: existingUser.id,
         email: existingUser.email,
@@ -348,21 +362,15 @@ export class AuthService {
       } as any);
     }
 
-    const { accessToken, refreshToken, accessTokenExpiry, refreshTokenExpiry } =
-      await this.generateTokens(
-        existingUser.id,
-        existingUser.email,
-        existingUser.role,
-        metadata,
-      );
+    const tokens = await this.generateTokens(
+      existingUser.id,
+      existingUser.email,
+      existingUser.role,
+      metadata,
+    );
 
     return {
-      tokens: {
-        accessToken,
-        refreshToken,
-        accessTokenExpiry,
-        refreshTokenExpiry,
-      },
+      tokens,
       user: {
         id: existingUser.id,
         email: existingUser.email,
@@ -491,7 +499,11 @@ export class AuthService {
     try {
       // Blacklist access token
       const accessPayload = this.jwtService.decode<TokenPayload>(accessToken);
-      if (accessPayload && accessPayload.jti) {
+      if (
+        accessPayload &&
+        accessPayload.jti &&
+        accessPayload.type !== 'static_access'
+      ) {
         const accessExpiry = new Date((accessPayload as any).exp * 1000);
         await this.tokenBlacklistRepository.save({
           jti: accessPayload.jti,
@@ -596,7 +608,10 @@ export class AuthService {
    */
   async validateToken(payload: TokenPayload) {
     // Check if token is blacklisted
-    if (await this.isTokenBlacklisted(payload.jti)) {
+    if (
+      payload.type !== 'static_access' &&
+      (await this.isTokenBlacklisted(payload.jti))
+    ) {
       throw new UnauthorizedException('Token has been revoked');
     }
 

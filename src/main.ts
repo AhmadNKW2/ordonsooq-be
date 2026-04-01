@@ -74,6 +74,10 @@ async function bootstrap() {
     'http://localhost:3002',
     'https://appleid.apple.com',
   ];
+  const isLocalDevOrigin = (origin: string) =>
+    /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(
+      origin,
+    );
 
   console.log('CORS Configuration:');
   console.log('- IS_PRODUCTION:', isProduction);
@@ -87,7 +91,9 @@ async function bootstrap() {
       }
 
       // Check if origin is in allowed list
-      const isAllowed = allowedOrigins.includes(origin);
+      const isAllowed =
+        allowedOrigins.includes(origin) ||
+        (!isProduction && isLocalDevOrigin(origin));
 
       if (isAllowed) {
         return callback(null, true);

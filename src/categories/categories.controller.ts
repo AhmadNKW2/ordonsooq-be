@@ -52,6 +52,12 @@ import { imageFileFilter } from '../common/utils/file-upload.util';
 import { R2StorageService } from '../common/services/r2-storage.service';
 import { ApiErrorResponseDto } from '../common/swagger/api-response.dto';
 
+const CATEGORY_URL_MANAGER_ROLES = [
+  UserRole.ADMIN,
+  UserRole.CATALOG_MANAGER,
+  UserRole.CONSTANT_TOKEN_ADMIN,
+] as const;
+
 @ApiTags('Categories')
 @ApiBearerAuth('bearer')
 @ApiCookieAuth('cookieAuth')
@@ -151,7 +157,7 @@ export class CategoriesController {
 
   @Post('urls')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @Roles(...CATEGORY_URL_MANAGER_ROLES)
   @ApiOperation({ summary: 'Create a category URL mapping' })
   @ApiBody({
     type: CreateCategoryUrlDto,
@@ -205,7 +211,7 @@ export class CategoriesController {
 
   @Patch('urls/:urlId')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @Roles(...CATEGORY_URL_MANAGER_ROLES)
   @ApiOperation({ summary: 'Update a category URL mapping' })
   @ApiParam({ name: 'urlId', example: 12 })
   @ApiBody({
@@ -249,7 +255,7 @@ export class CategoriesController {
 
   @Delete('urls/:urlId')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @Roles(...CATEGORY_URL_MANAGER_ROLES)
   @ApiOperation({ summary: 'Delete a category URL mapping' })
   @ApiParam({ name: 'urlId', example: 12 })
   @ApiNotFoundResponse({

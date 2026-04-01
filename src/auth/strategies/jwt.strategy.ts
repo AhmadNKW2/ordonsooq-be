@@ -48,7 +48,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   async validate(payload: TokenPayload) {
     // Ensure this is an access token, not a refresh token
-    if (payload.type && payload.type !== 'access') {
+    if (
+      payload.type &&
+      payload.type !== 'access' &&
+      payload.type !== 'static_access'
+    ) {
       throw new UnauthorizedException('Invalid token type');
     }
 

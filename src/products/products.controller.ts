@@ -40,6 +40,12 @@ class AddProductTagDto {
   name: string;
 }
 
+const PRODUCTS_MANAGER_ROLES = [
+  UserRole.ADMIN,
+  UserRole.CATALOG_MANAGER,
+  UserRole.CONSTANT_TOKEN_ADMIN,
+] as const;
+
 @ApiTags('Products')
 @Controller('products')
 export class ProductsController {
@@ -117,7 +123,7 @@ export class ProductsController {
 
   @Post()
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @Roles(...PRODUCTS_MANAGER_ROLES)
   @ApiOperation({ summary: 'Create a product' })
   @ApiBody({
     type: CreateProductDto,
@@ -146,44 +152,128 @@ export class ProductsController {
           prices: [{ price: 1585.9 }],
         },
       },
-      variant_with_attributes_and_specifications: {
-        summary: 'Variant product with attributes and specifications',
+      full_variant_payload: {
+        summary: 'Variant product using the provided real payload',
         value: {
-          name_en: 'Gaming Mouse Pro',
-          name_ar: 'Gaming Mouse Pro',
-          short_description_en: 'Wireless gaming mouse',
-          short_description_ar: 'Wireless gaming mouse',
-          long_description_en: 'Detailed gaming mouse description',
-          long_description_ar: 'Detailed gaming mouse description',
-          category_ids: [9],
+          name_en: 'asd',
+          name_ar: 'asd',
+          status: 'active',
+          short_description_en: '<p>asd</p>',
+          short_description_ar: '<p>asd</p>',
+          long_description_en: '<p>asd</p>',
+          long_description_ar: '<p>asd</p>',
+          category_ids: [35],
+          reference_link: 'https://mcc-jo.com/category/mouse',
           vendor_id: 2,
           brand_id: 34,
           visible: true,
-          attributes: [
+          specifications: [
             {
-              attribute_id: 21,
-              controls_pricing: true,
-              controls_media: false,
-              controls_weight: false,
+              specification_id: 11,
+              specification_value_ids: [65, 64],
             },
             {
-              attribute_id: 22,
+              specification_id: 1,
+              specification_value_ids: [57],
+            },
+          ],
+          attributes: [
+            {
+              attribute_id: 3,
               controls_pricing: false,
               controls_media: true,
               controls_weight: false,
             },
+            {
+              attribute_id: 10,
+              controls_pricing: false,
+              controls_media: false,
+              controls_weight: false,
+            },
+            {
+              attribute_id: 11,
+              controls_pricing: false,
+              controls_media: false,
+              controls_weight: false,
+            },
+            {
+              attribute_id: 12,
+              controls_pricing: false,
+              controls_media: false,
+              controls_weight: false,
+            },
           ],
-          specifications: [
-            { specification_id: 4, specification_value_ids: [39] },
-            { specification_id: 11, specification_value_ids: [67] },
-          ],
-          prices: [
-            { combination: { '21': 101 }, price: 129.9 },
-            { combination: { '21': 102 }, price: 139.9 },
-          ],
+          prices: [{ price: 50 }],
           stocks: [
-            { combination: { '21': 101 }, quantity: 10 },
-            { combination: { '21': 102 }, quantity: 8 },
+            {
+              combination: {
+                '3': 6,
+                '10': 29,
+                '11': 30,
+                '12': 40,
+              },
+              quantity: 0,
+              is_out_of_stock: false,
+            },
+            {
+              combination: {
+                '3': 7,
+                '10': 29,
+                '11': 30,
+                '12': 40,
+              },
+              quantity: 0,
+              is_out_of_stock: false,
+            },
+          ],
+          variants: [
+            {
+              combination: {
+                '3': 6,
+                '10': 29,
+                '11': 30,
+                '12': 40,
+              },
+              is_active: true,
+            },
+            {
+              combination: {
+                '3': 7,
+                '10': 29,
+                '11': 30,
+                '12': 40,
+              },
+              is_active: true,
+            },
+          ],
+          media: [
+            {
+              media_id: 3172,
+              is_primary: true,
+              is_group_primary: true,
+              sort_order: 0,
+              combination: {
+                '3': 6,
+              },
+            },
+            {
+              media_id: 3173,
+              is_primary: false,
+              is_group_primary: false,
+              sort_order: 1,
+              combination: {
+                '3': 6,
+              },
+            },
+            {
+              media_id: 3174,
+              is_primary: false,
+              is_group_primary: true,
+              sort_order: 0,
+              combination: {
+                '3': 7,
+              },
+            },
           ],
         },
       },
@@ -198,7 +288,9 @@ export class ProductsController {
   findAll(@Query() filterDto: FilterProductDto, @Req() req: any) {
     const isAdmin =
       req.user?.role === UserRole.ADMIN ||
-      req.user?.role === UserRole.CATALOG_MANAGER;
+      req.user?.role === UserRole.CATALOG_MANAGER ||
+      req.user?.role === UserRole.CONSTANT_TOKEN_ADMIN ||
+      req.user?.role === 'products_api';
     return this.productsService.findAll(filterDto, isAdmin);
   }
 
@@ -216,7 +308,9 @@ export class ProductsController {
   ) {
     const isAdmin =
       req.user?.role === UserRole.ADMIN ||
-      req.user?.role === UserRole.CATALOG_MANAGER;
+      req.user?.role === UserRole.CATALOG_MANAGER ||
+      req.user?.role === UserRole.CONSTANT_TOKEN_ADMIN ||
+      req.user?.role === 'products_api';
     return this.productsService.findOneByReferenceLink(referenceLink, isAdmin);
   }
 
@@ -225,7 +319,9 @@ export class ProductsController {
   findOne(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
     const isAdmin =
       req.user?.role === UserRole.ADMIN ||
-      req.user?.role === UserRole.CATALOG_MANAGER;
+      req.user?.role === UserRole.CATALOG_MANAGER ||
+      req.user?.role === UserRole.CONSTANT_TOKEN_ADMIN ||
+      req.user?.role === 'products_api';
     return this.productsService.findOne(id, isAdmin);
   }
 
@@ -234,13 +330,15 @@ export class ProductsController {
   findOneBySlug(@Param('slug') slug: string, @Req() req: any) {
     const isAdmin =
       req.user?.role === UserRole.ADMIN ||
-      req.user?.role === UserRole.CATALOG_MANAGER;
+      req.user?.role === UserRole.CATALOG_MANAGER ||
+      req.user?.role === UserRole.CONSTANT_TOKEN_ADMIN ||
+      req.user?.role === 'products_api';
     return this.productsService.findOneBySlug(slug, isAdmin);
   }
 
   @Put(':id')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @Roles(...PRODUCTS_MANAGER_ROLES)
   @ApiOperation({ summary: 'Replace a product' })
   @ApiBody({
     type: UpdateProductDto,
@@ -308,7 +406,7 @@ export class ProductsController {
 
   @Patch(':id')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @Roles(...PRODUCTS_MANAGER_ROLES)
   @ApiOperation({ summary: 'Partially update a product' })
   @ApiBody({
     type: PatchProductDto,
@@ -362,21 +460,21 @@ export class ProductsController {
 
   @Post(':id/archive')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @Roles(...PRODUCTS_MANAGER_ROLES)
   archive(@Param('id') id: string, @Req() req: any) {
     return this.productsService.archive(+id, req.user.id);
   }
 
   @Post(':id/restore')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @Roles(...PRODUCTS_MANAGER_ROLES)
   restore(@Param('id') id: string, @Body() dto: RestoreProductDto) {
     return this.productsService.restore(+id, dto.newCategoryId);
   }
 
   @Get('archive/list')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @Roles(...PRODUCTS_MANAGER_ROLES)
   findArchived(@Query() filterDto: FilterProductDto) {
     return this.productsService.findArchived(filterDto);
   }
@@ -392,7 +490,7 @@ export class ProductsController {
 
   @Post('assign/category/:categoryId')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @Roles(...PRODUCTS_MANAGER_ROLES)
   assignToCategory(
     @Param('categoryId') categoryId: string,
     @Body() dto: AssignProductsDto,
@@ -405,7 +503,7 @@ export class ProductsController {
 
   @Delete('assign/category/:categoryId')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @Roles(...PRODUCTS_MANAGER_ROLES)
   removeFromCategory(
     @Param('categoryId') categoryId: string,
     @Body() dto: AssignProductsDto,
@@ -418,7 +516,7 @@ export class ProductsController {
 
   @Post('assign/vendor/:vendorId')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @Roles(...PRODUCTS_MANAGER_ROLES)
   assignToVendor(
     @Param('vendorId') vendorId: string,
     @Body() dto: AssignProductsDto,
@@ -431,7 +529,7 @@ export class ProductsController {
 
   @Delete('assign/vendor/:vendorId')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @Roles(...PRODUCTS_MANAGER_ROLES)
   removeFromVendor(
     @Param('vendorId') vendorId: string,
     @Body() dto: AssignProductsDto,
@@ -450,7 +548,7 @@ export class ProductsController {
    */
   @Get(':id/tags')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @Roles(...PRODUCTS_MANAGER_ROLES)
   getProductTags(@Param('id', ParseIntPipe) id: number) {
     return this.productsService.getProductTags(id);
   }
@@ -463,7 +561,7 @@ export class ProductsController {
    */
   @Put(':id/tags')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @Roles(...PRODUCTS_MANAGER_ROLES)
   setProductTags(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: SetProductTagsDto,
@@ -478,7 +576,7 @@ export class ProductsController {
    */
   @Post(':id/tags')
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @Roles(...PRODUCTS_MANAGER_ROLES)
   addProductTag(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: AddProductTagDto,
@@ -493,7 +591,7 @@ export class ProductsController {
   @Delete(':id/tags/:tagId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @UseGuards(AuthGuard('jwt'), RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @Roles(...PRODUCTS_MANAGER_ROLES)
   removeProductTag(
     @Param('id', ParseIntPipe) id: number,
     @Param('tagId', ParseIntPipe) tagId: number,

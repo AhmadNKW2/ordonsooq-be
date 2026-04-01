@@ -6,6 +6,27 @@ import { ROLES_KEY, UserRole } from '../decorators/roles.decorator';
 export class RolesGuard implements CanActivate {
   constructor(private reflector: Reflector) {}
 
+  private getEffectiveRoles(role?: string): Set<string> {
+    const effectiveRoles = new Set<string>();
+
+    if (!role) {
+      return effectiveRoles;
+    }
+
+    effectiveRoles.add(role);
+
+    if (
+      role === UserRole.CONSTANT_TOKEN_ADMIN ||
+      role === 'products_api'
+    ) {
+      effectiveRoles.add(UserRole.ADMIN);
+      effectiveRoles.add(UserRole.CATALOG_MANAGER);
+      effectiveRoles.add(UserRole.CONSTANT_TOKEN_ADMIN);
+    }
+
+    return effectiveRoles;
+  }
+
   canActivate(context: ExecutionContext): boolean {
     const requiredRoles = this.reflector.getAllAndOverride<UserRole[]>(
       ROLES_KEY,
@@ -17,6 +38,7 @@ export class RolesGuard implements CanActivate {
     }
 
     const { user } = context.switchToHttp().getRequest();
-    return requiredRoles.some((role) => user.role === role);
+    const effectiveRoles = this.getEffectiveRoles(user?.role);
+    return requiredRoles.some((role) => effectiveRoles.has(role));
   }
 }
