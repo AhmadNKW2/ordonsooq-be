@@ -16,6 +16,8 @@ import { ProductVariant } from './entities/product-variant.entity';
 import { ProductVariantCombination } from './entities/product-variant-combination.entity';
 import { ProductCategory } from './entities/product-category.entity';
 import { ProductSpecificationValue } from './entities/product-specification-value.entity';
+import { ProductGroup } from './entities/product-group.entity';
+import { GroupProduct } from './entities/group-product.entity';
 import { AttributesModule } from '../attributes/attributes.module';
 import { ProductVariantsService } from './product-variants.service';
 import { ProductPriceGroupService } from './product-price-group.service';
@@ -47,6 +49,8 @@ import { Tag } from '../search/entities/tag.entity';
       ProductVariantCombination,
       ProductCategory,
       ProductSpecificationValue,
+      ProductGroup,
+      GroupProduct,
       AttributeValue,
       Attribute,
       Media,

@@ -26,6 +26,7 @@ import { ProductStock } from './product-stock.entity';
 import { ProductAttribute } from './product-attribute.entity';
 import { ProductCategory } from './product-category.entity';
 import { ProductSpecificationValue } from './product-specification-value.entity';
+import { GroupProduct } from './group-product.entity';
 
 export enum ProductStatus {
   ACTIVE = 'active',
@@ -162,6 +163,10 @@ export class Product {
   // Product specifications relationship
   @OneToMany(() => ProductSpecificationValue, (spec) => spec.product, { cascade: true })
   specifications: ProductSpecificationValue[];
+
+  @OneToMany(() => GroupProduct, (groupProduct) => groupProduct.product)
+  groupProducts: GroupProduct[];
+
   // Tags relationship (many-to-many, drives search term expansion)
   @ManyToMany('Tag', (tag: any) => tag.products, { eager: false })
   @JoinTable({

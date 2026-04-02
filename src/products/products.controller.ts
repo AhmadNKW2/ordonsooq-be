@@ -23,6 +23,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { PatchProductDto } from './dto/patch-product.dto';
 import { FilterProductDto, AssignProductsDto } from './dto/filter-product.dto';
+import { SyncLinkedProductsDto } from './dto/sync-linked-products.dto';
 import { Roles, UserRole } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { RestoreProductDto } from './dto/restore-product.dto';
@@ -281,6 +282,14 @@ export class ProductsController {
   })
   create(@Body() createProductDto: CreateProductDto, @Req() req: any) {
     return this.productsService.create(createProductDto, req.user?.id);
+  }
+
+  @Put('linked-products')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(...PRODUCTS_MANAGER_ROLES)
+  @ApiOperation({ summary: 'Sync a linked products group' })
+  syncLinkedProducts(@Body() dto: SyncLinkedProductsDto) {
+    return this.productsService.syncProductsGroup(dto.product_ids);
   }
 
   @Get()

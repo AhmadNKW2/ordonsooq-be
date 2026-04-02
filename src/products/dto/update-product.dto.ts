@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsBoolean,
   IsArray,
+  ArrayUnique,
   ValidateNested,
   MaxLength,
   Min,
@@ -339,6 +340,19 @@ export class UpdateProductDto {
   @Type(() => VariantDto)
   @IsOptional()
   variants?: VariantDto[];
+
+  @ApiPropertyOptional({
+    type: [Number],
+    example: [12, 18, 27],
+    description:
+      'Existing product IDs to keep linked with this product. Use an empty array to clear links.',
+  })
+  @IsArray()
+  @ArrayUnique()
+  @Type(() => Number)
+  @IsNumber({}, { each: true })
+  @IsOptional()
+  linked_product_ids?: number[];
 
   // ============== Tags ==============
 

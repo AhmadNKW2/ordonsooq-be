@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, DataSource } from 'typeorm';
+import { Repository, In, DataSource, EntityManager } from 'typeorm';
 import { Product, ProductStatus } from './entities/product.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
@@ -40,6 +40,8 @@ import { ProductVariantCombination } from './entities/product-variant-combinatio
 import { ProductPriceGroupValue } from './entities/product-price-group-value.entity';
 import { ProductWeightGroupValue } from './entities/product-weight-group-value.entity';
 import { ProductSpecificationInputDto } from './dto/product-specification.dto';
+import { ProductGroup } from './entities/product-group.entity';
+import { GroupProduct } from './entities/group-product.entity';
 
 import { Like, Not } from 'typeorm';
 
@@ -138,6 +140,10 @@ export class ProductsService {
   constructor(
     @InjectRepository(Product)
     private productsRepository: Repository<Product>,
+    @InjectRepository(ProductGroup)
+    private productGroupsRepository: Repository<ProductGroup>,
+    @InjectRepository(GroupProduct)
+    private groupProductsRepository: Repository<GroupProduct>,
     @InjectRepository(Category)
     private categoriesRepository: Repository<Category>,
     @InjectRepository(ProductCategory)
@@ -155,6 +161,294 @@ export class ProductsService {
     private readonly synonymConceptService: SynonymConceptService,
     private readonly tagsService: TagsService,
   ) {}
+
+  private normalizeProductIds(productIds: number[] | undefined): number[] {
+    return [
+      ...new Set(
+        (productIds ?? [])
+          .map((productId) => Number(productId))
+          .filter(
+            (productId) => Number.isInteger(productId) && productId > 0,
+          ),
+      ),
+    ];
+  }
+
+  private async ensureProductsExist(
+    productIds: number[],
+    manager: EntityManager = this.dataSource.manager,
+  ): Promise<void> {
+    if (!productIds.length) {
+      return;
+    }
+
+    const existingProducts = await manager.find(Product, {
+      where: { id: In(productIds) },
+      select: ['id'],
+    });
+
+    const existingIds = new Set(existingProducts.map((product) => product.id));
+    const missingProductIds = productIds.filter(
+      (productId) => !existingIds.has(productId),
+    );
+
+    if (missingProductIds.length > 0) {
+      throw new BadRequestException(
+        `Linked products not found: ${missingProductIds.join(', ')}`,
+      );
+    }
+  }
+
+  private toLinkedProductSummary(product: Product) {
+    return {
+      id: product.id,
+      name_en: product.name_en,
+      name_ar: product.name_ar,
+      slug: product.slug,
+      sku: product.sku,
+    };
+  }
+
+  private async getLinkedProductsState(productId: number): Promise<{
+    linked_group_id: number | null;
+    linked_product_ids: number[];
+    linked_products: Array<{
+      id: number;
+      name_en: string;
+      name_ar: string;
+      slug: string;
+      sku: string;
+    }>;
+  }> {
+    const membership = await this.groupProductsRepository.findOne({
+      where: { product_id: productId },
+      relations: ['group', 'group.groupProducts', 'group.groupProducts.product'],
+    });
+
+    if (!membership?.group) {
+      return {
+        linked_group_id: null,
+        linked_product_ids: [],
+        linked_products: [],
+      };
+    }
+
+    const linkedProducts = (membership.group.groupProducts ?? [])
+      .map((groupProduct) => groupProduct.product)
+      .filter((product): product is Product => !!product && product.id !== productId)
+      .sort((left, right) => left.id - right.id)
+      .map((product) => this.toLinkedProductSummary(product));
+
+    return {
+      linked_group_id: membership.group_id,
+      linked_product_ids: linkedProducts.map((product) => product.id),
+      linked_products: linkedProducts,
+    };
+  }
+
+  private async cleanupOrphanedProductGroups(
+    manager: EntityManager,
+    groupIds: number[],
+  ): Promise<void> {
+    const uniqueGroupIds = [...new Set(groupIds)].filter(Boolean);
+
+    if (!uniqueGroupIds.length) {
+      return;
+    }
+
+    const existingGroupProducts = await manager.find(GroupProduct, {
+      where: { group_id: In(uniqueGroupIds) },
+    });
+
+    const groupProductsByGroupId = new Map<number, GroupProduct[]>();
+    uniqueGroupIds.forEach((groupId) => groupProductsByGroupId.set(groupId, []));
+
+    existingGroupProducts.forEach((groupProduct) => {
+      const memberships = groupProductsByGroupId.get(groupProduct.group_id) ?? [];
+      memberships.push(groupProduct);
+      groupProductsByGroupId.set(groupProduct.group_id, memberships);
+    });
+
+    const groupProductIdsToDelete: number[] = [];
+    const groupIdsToDelete: number[] = [];
+
+    groupProductsByGroupId.forEach((memberships, groupId) => {
+      if (memberships.length < 2) {
+        groupProductIdsToDelete.push(...memberships.map((membership) => membership.id));
+        groupIdsToDelete.push(groupId);
+      }
+    });
+
+    if (groupProductIdsToDelete.length > 0) {
+      await manager.delete(GroupProduct, groupProductIdsToDelete);
+    }
+
+    if (groupIdsToDelete.length > 0) {
+      await manager.delete(ProductGroup, groupIdsToDelete);
+    }
+  }
+
+  private async syncProductGroupMemberships(
+    productIds: number[],
+  ): Promise<number | null> {
+    const normalizedProductIds = this.normalizeProductIds(productIds);
+
+    if (!normalizedProductIds.length) {
+      return null;
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const existingMemberships = await queryRunner.manager.find(GroupProduct, {
+        where: { product_id: In(normalizedProductIds) },
+      });
+      const touchedGroupIds = existingMemberships.map(
+        (membership) => membership.group_id,
+      );
+
+      await queryRunner.manager.delete(GroupProduct, {
+        product_id: In(normalizedProductIds),
+      });
+
+      let linkedGroupId: number | null = null;
+
+      if (normalizedProductIds.length > 1) {
+        const createdGroup = await queryRunner.manager.save(
+          ProductGroup,
+          queryRunner.manager.create(ProductGroup, { name: null }),
+        );
+
+        linkedGroupId = createdGroup.id;
+
+        const groupProducts = normalizedProductIds.map((currentProductId) =>
+          queryRunner.manager.create(GroupProduct, {
+            group_id: createdGroup.id,
+            product_id: currentProductId,
+          }),
+        );
+
+        await queryRunner.manager.save(GroupProduct, groupProducts);
+      }
+
+      await this.cleanupOrphanedProductGroups(
+        queryRunner.manager,
+        touchedGroupIds,
+      );
+
+      await queryRunner.commitTransaction();
+      return linkedGroupId;
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
+  async syncProductsGroup(productIds: number[]): Promise<{
+    linked_group_id: number | null;
+    product_ids: number[];
+    products: Array<{
+      id: number;
+      name_en: string;
+      name_ar: string;
+      slug: string;
+      sku: string;
+    }>;
+    message: string;
+  }> {
+    const normalizedProductIds = this.normalizeProductIds(productIds);
+
+    if (!normalizedProductIds.length) {
+      throw new BadRequestException(
+        'product_ids must contain at least one valid product id',
+      );
+    }
+
+    await this.ensureProductsExist(normalizedProductIds);
+
+    try {
+      const linkedGroupId = await this.syncProductGroupMemberships(
+        normalizedProductIds,
+      );
+      const products = await this.productsRepository.find({
+        where: { id: In(normalizedProductIds) },
+        select: ['id', 'name_en', 'name_ar', 'slug', 'sku'],
+      });
+      const sortedProducts = products
+        .sort((left, right) => left.id - right.id)
+        .map((product) => this.toLinkedProductSummary(product));
+
+      return {
+        linked_group_id: linkedGroupId,
+        product_ids: sortedProducts.map((product) => product.id),
+        products: sortedProducts,
+        message:
+          sortedProducts.length > 1
+            ? 'Product links synced successfully.'
+            : 'Product links cleared successfully.',
+      };
+    } catch (error) {
+      throw new BadRequestException(
+        `Failed to sync linked products group: ${error.message}`,
+      );
+    }
+  }
+
+  async syncLinkedProducts(
+    productId: number,
+    linkedProductIds: number[],
+  ): Promise<{
+    product_id: number;
+    linked_group_id: number | null;
+    linked_product_ids: number[];
+    linked_products: Array<{
+      id: number;
+      name_en: string;
+      name_ar: string;
+      slug: string;
+      sku: string;
+    }>;
+    message: string;
+  }> {
+    const product = await this.productsRepository.findOne({
+      where: { id: productId },
+      select: ['id'],
+    });
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    const normalizedLinkedProductIds = this.normalizeProductIds(
+      linkedProductIds,
+    ).filter((linkedProductId) => linkedProductId !== productId);
+
+    const targetProductIds = [productId, ...normalizedLinkedProductIds];
+    await this.ensureProductsExist(targetProductIds);
+
+    try {
+      await this.syncProductGroupMemberships(targetProductIds);
+    } catch (error) {
+      throw new BadRequestException(
+        `Failed to sync linked products: ${error.message}`,
+      );
+    }
+
+    const linkedProductsState = await this.getLinkedProductsState(productId);
+
+    return {
+      product_id: productId,
+      ...linkedProductsState,
+      message:
+        linkedProductsState.linked_product_ids.length > 0
+          ? 'Linked products synced successfully.'
+          : 'Linked products cleared successfully.',
+    };
+  }
 
   /**
    * Public proxy used by SearchProcessor to reindex a product from a BullMQ job.
@@ -1270,6 +1564,10 @@ export class ProductsService {
         await this.applyTagsToProduct(savedProduct.id, dto.tags);
       }
 
+      if (dto.linked_product_ids !== undefined) {
+        await this.syncLinkedProducts(savedProduct.id, dto.linked_product_ids);
+      }
+
       // Return the complete product
       const result = await this.findOne(savedProduct.id);
 
@@ -1974,6 +2272,7 @@ export class ProductsService {
       variants,
       attributes,
       specifications,
+      linkedProductsState,
     ] = await Promise.all([
       this.productsRepository.findOne({
         where: { id },
@@ -2025,6 +2324,7 @@ export class ProductsService {
           'specification_value.parent_value.parent_value.specification',
         ],
       }),
+      this.getLinkedProductsState(id),
     ]);
 
     if (!productBase) {
@@ -2041,7 +2341,10 @@ export class ProductsService {
     productBase.specifications = specifications;
 
     // Return detailed product structure
-    return this.transformProductDetail(productBase, isAdmin);
+    return {
+      ...this.transformProductDetail(productBase, isAdmin),
+      ...linkedProductsState,
+    };
   }
 
   async findOneBySlug(slug: string, isAdmin = false): Promise<any> {
@@ -2629,6 +2932,10 @@ export class ProductsService {
       // Update tags if explicitly provided in the DTO (pass [] to clear all tags)
       if (dto.tags !== undefined) {
         await this.applyTagsToProduct(id, dto.tags);
+      }
+
+      if (dto.linked_product_ids !== undefined) {
+        await this.syncLinkedProducts(id, dto.linked_product_ids);
       }
 
       // Return updated product

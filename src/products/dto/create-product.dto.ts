@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsBoolean,
   IsArray,
+  ArrayUnique,
   ValidateNested,
   MaxLength,
   IsObject,
@@ -316,6 +317,19 @@ export class CreateProductDto {
   @Type(() => VariantInput)
   @IsOptional()
   variants?: VariantInput[];
+
+  @ApiPropertyOptional({
+    type: [Number],
+    example: [12, 18, 27],
+    description:
+      'Existing product IDs to link with the new product in a shared group.',
+  })
+  @IsArray()
+  @ArrayUnique()
+  @Type(() => Number)
+  @IsNumber({}, { each: true })
+  @IsOptional()
+  linked_product_ids?: number[];
 
   // ============== Tags ==============
 
