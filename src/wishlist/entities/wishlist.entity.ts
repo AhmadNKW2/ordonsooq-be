@@ -42,7 +42,7 @@ export class Wishlist {
   @JoinColumn({ name: 'variant_id' })
   variant: ProductVariant | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int', nullable: true })
   variant_id: number | null;
 
   @CreateDateColumn()

@@ -6,7 +6,7 @@ export class ProductGroup {
   @PrimaryGeneratedColumn('increment')
   id: number;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   name: string | null;
 
   @OneToMany(() => GroupProduct, (groupProduct) => groupProduct.group)

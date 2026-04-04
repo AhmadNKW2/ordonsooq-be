@@ -67,7 +67,7 @@ export class Category {
   @JoinColumn({ name: 'parent_id' })
   parent: Category | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int', nullable: true })
   parent_id: number | null;
 
   // Children categories

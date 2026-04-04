@@ -15,7 +15,7 @@ export class Note {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int', nullable: true })
   user_id: number | null;
 
   @ManyToOne(() => User, { onDelete: 'CASCADE', nullable: true })

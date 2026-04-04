@@ -58,14 +58,14 @@ export class Media {
 
   // ===== Product Linking =====
 
-  @Column({ nullable: true })
+  @Column({ type: 'int', nullable: true })
   product_id: number | null;
 
   @ManyToOne('Product', 'media', { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'product_id' })
   product: any;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int', nullable: true })
   media_group_id: number | null;
 
   @ManyToOne('ProductMediaGroup', 'media', {

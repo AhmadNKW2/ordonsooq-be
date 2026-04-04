@@ -38,7 +38,7 @@ export class ProductStock {
   /**
    * NULL for simple products, references ProductVariant for variant products
    */
-  @Column({ nullable: true })
+  @Column({ type: 'int', nullable: true })
   variant_id: number | null;
 
   @ManyToOne(() => ProductVariant, { onDelete: 'CASCADE', nullable: true })

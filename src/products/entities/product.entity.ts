@@ -105,7 +105,7 @@ export class Product {
   @JoinColumn({ name: 'category_id' })
   category: Category;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int', nullable: true })
   category_id: number | null;
 
   // Vendor relationship
