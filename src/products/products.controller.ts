@@ -128,53 +128,10 @@ export class ProductsController {
   @ApiOperation({ summary: 'Create a product' })
   @ApiBody({
     type: CreateProductDto,
+    description: 'Full product payload having everything',
     examples: {
-      with_specifications: {
-        summary: 'Simple product with specifications',
-        value: {
-          name_en: 'LG UltraGear WOLED Gaming Monitor 39-inch',
-          name_ar: 'LG UltraGear WOLED Gaming Monitor 39-inch',
-          short_description_en: 'Gaming monitor with OLED panel',
-          short_description_ar: 'Gaming monitor with OLED panel',
-          long_description_en: 'Detailed product description',
-          long_description_ar: 'Detailed product description',
-          category_ids: [9],
-          vendor_id: 2,
-          brand_id: 34,
-          visible: true,
-          cost: 1200,
-          price: 1585.9,
-          sale_price: 1499.9,
-          weight: 10.5,
-          length: 93.5,
-          width: 28.4,
-          height: 61.2,
-          quantity: 12,
-          low_stock_threshold: 3,
-          is_out_of_stock: false,
-          meta_title_en: 'LG UltraGear WOLED Gaming Monitor 39-inch | Ordonsooq',
-          meta_title_ar: 'شاشة LG UltraGear WOLED مقاس 39 بوصة | أوردون سوق',
-          meta_description_en:
-            'Buy the LG UltraGear 39-inch WOLED gaming monitor with premium display performance.',
-          meta_description_ar:
-            'اشترِ شاشة LG UltraGear WOLED مقاس 39 بوصة بأداء عرض مميز للألعاب.',
-          media: [
-            { media_id: 3172, is_primary: true, sort_order: 0 },
-            { media_id: 3173, is_primary: false, sort_order: 1 },
-          ],
-          specifications: [
-            { specification_id: 1, specification_value_ids: [60] },
-            { specification_id: 4, specification_value_ids: [7, 8, 39] },
-            { specification_id: 8, specification_value_ids: [50] },
-            { specification_id: 9, specification_value_ids: [49] },
-            { specification_id: 10, specification_value_ids: [35] },
-            { specification_id: 11, specification_value_ids: [67] },
-          ],
-          tags: ['monitor', 'oled', 'gaming'],
-        },
-      },
-      full_variant_payload: {
-        summary: 'Full product payload using the current DTO',
+      default: {
+        summary: 'Full payload example',
         value: {
           name_en: 'ASD Gaming Mouse',
           name_ar: 'ماوس ألعاب ASD',
@@ -247,8 +204,8 @@ export class ProductsController {
           ],
           linked_product_ids: [41, 42],
           tags: ['gaming', 'mouse', 'rgb'],
-        },
-      },
+        }
+      }
     },
   })
   create(@Body() createProductDto: CreateProductDto, @Req() req: any) {
@@ -343,6 +300,7 @@ export class ProductsController {
           long_description_en: 'Detailed product description',
           long_description_ar: 'Detailed product description',
           category_ids: [9],
+          reference_link: 'https://mcc-jo.com/category/monitors',
           vendor_id: 2,
           brand_id: 34,
           visible: true,
@@ -374,6 +332,7 @@ export class ProductsController {
             { specification_id: 10, specification_value_ids: [35] },
             { specification_id: 11, specification_value_ids: [67] },
           ],
+          linked_product_ids: [50, 51],
           tags: ['monitor', 'oled', 'gaming'],
         },
       },
@@ -387,6 +346,7 @@ export class ProductsController {
           long_description_en: 'Detailed gaming mouse description',
           long_description_ar: 'Detailed gaming mouse description',
           category_ids: [9],
+          reference_link: 'https://mcc-jo.com/category/gaming-mice',
           vendor_id: 2,
           brand_id: 34,
           visible: true,
@@ -453,6 +413,7 @@ export class ProductsController {
       attributes_and_specifications: {
         summary: 'Update attributes and specifications together',
         value: {
+          reference_link: 'https://mcc-jo.com/category/gaming-mice',
           attributes: [
             {
               attribute_id: 21,
@@ -475,6 +436,8 @@ export class ProductsController {
           width: 6.5,
           height: 4,
           is_out_of_stock: false,
+          linked_product_ids: [12, 18, 27],
+          tags: ['gaming', 'mouse', 'wireless'],
         },
       },
       clear_specifications: {
