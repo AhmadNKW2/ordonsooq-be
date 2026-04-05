@@ -2441,17 +2441,21 @@ export class ProductsService {
   }
 
   /**
-   * Permanently delete a product (only if archived)
+   * Permanently delete a product (only if archived or in review)
    * This is irreversible
    */
   async permanentDelete(id: number): Promise<{ message: string }> {
     const product = await this.productsRepository.findOne({
-      where: { id, status: ProductStatus.ARCHIVED },
+      where: { id },
     });
 
-    if (!product) {
+    if (
+      !product ||
+      (product.status !== ProductStatus.ARCHIVED &&
+        product.status !== ProductStatus.REVIEW)
+    ) {
       throw new NotFoundException(
-        'Product not found or not archived. Only archived products can be permanently deleted.',
+        'Product not found or cannot be permanently deleted. Only archived or in-review products can be permanently deleted.',
       );
     }
 
