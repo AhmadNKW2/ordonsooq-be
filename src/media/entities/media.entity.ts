@@ -26,7 +26,6 @@ export enum MediaType {
  */
 @Entity('media')
 @Index('idx_media_product_id', ['product_id'])
-@Index('idx_media_media_group_id', ['media_group_id'])
 @Index('idx_media_type', ['type'])
 @Index('idx_media_created_at', ['created_at'])
 @Index('idx_media_product_sort', ['product_id', 'sort_order'])
@@ -65,24 +64,11 @@ export class Media {
   @JoinColumn({ name: 'product_id' })
   product: any;
 
-  @Column({ type: 'int', nullable: true })
-  media_group_id: number | null;
-
-  @ManyToOne('ProductMediaGroup', 'media', {
-    onDelete: 'SET NULL',
-    nullable: true,
-  })
-  @JoinColumn({ name: 'media_group_id' })
-  mediaGroup: any;
-
   @Column({ default: 0 })
   sort_order: number;
 
   @Column({ default: false })
   is_primary: boolean;
-
-  @Column({ default: false })
-  is_group_primary: boolean;
 
   @CreateDateColumn()
   created_at: Date;

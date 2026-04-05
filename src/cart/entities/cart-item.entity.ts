@@ -9,7 +9,6 @@ import {
 } from 'typeorm';
 import { Cart } from './cart.entity';
 import { Product } from '../../products/entities/product.entity';
-import { ProductVariant } from '../../products/entities/product-variant.entity';
 
 @Entity('cart_items')
 export class CartItem {
@@ -32,10 +31,6 @@ export class CartItem {
 
   @Column({ nullable: true })
   variant_id: number;
-
-  @ManyToOne(() => ProductVariant)
-  @JoinColumn({ name: 'variant_id' })
-  variant: ProductVariant;
 
   @Column({ type: 'int', default: 1 })
   quantity: number;

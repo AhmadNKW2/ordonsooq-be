@@ -11,10 +11,6 @@ import { Product, ProductStatus } from './entities/product.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { FilterProductDto } from './dto/filter-product.dto';
-import { ProductVariantsService } from './product-variants.service';
-import { ProductPriceGroupService } from './product-price-group.service';
-import { ProductMediaGroupService } from './product-media-group.service';
-import { ProductWeightGroupService } from './product-weight-group.service';
 import {
   Category,
   CategoryStatus,
@@ -23,11 +19,8 @@ import { ProductCategory } from './entities/product-category.entity';
 import { Vendor, VendorStatus } from '../vendors/entities/vendor.entity';
 import { Brand, BrandStatus } from '../brands/entities/brand.entity';
 import { Media } from '../media/entities/media.entity';
-import { ProductVariant } from './entities/product-variant.entity';
-import { ProductPriceGroup } from './entities/product-price-group.entity';
-import { ProductWeightGroup } from './entities/product-weight-group.entity';
-import { ProductStock } from './entities/product-stock.entity';
 import { ProductAttribute } from './entities/product-attribute.entity';
+import { ProductAttributeValue } from './entities/product-attribute-value.entity';
 import { ProductSpecificationValue } from './entities/product-specification-value.entity';
 import { SpecificationValue } from '../specifications/entities/specification-value.entity';
 import { CartItem } from '../cart/entities/cart-item.entity';
@@ -36,10 +29,8 @@ import { SynonymConceptService } from '../search/synonym-concept.service';
 import { TagsService } from '../search/tags.service';
 import { Tag } from '../search/entities/tag.entity';
 
-import { ProductVariantCombination } from './entities/product-variant-combination.entity';
-import { ProductPriceGroupValue } from './entities/product-price-group-value.entity';
-import { ProductWeightGroupValue } from './entities/product-weight-group-value.entity';
 import { ProductSpecificationInputDto } from './dto/product-specification.dto';
+import { ProductAttributeInputDto } from './dto/product-attribute.dto';
 import { ProductGroup } from './entities/product-group.entity';
 import { GroupProduct } from './entities/group-product.entity';
 
@@ -152,10 +143,6 @@ export class ProductsService {
     private brandsRepository: Repository<Brand>,
     @InjectRepository(CartItem)
     private cartItemsRepository: Repository<CartItem>,
-    private variantsService: ProductVariantsService,
-    private priceGroupService: ProductPriceGroupService,
-    private mediaGroupService: ProductMediaGroupService,
-    private weightGroupService: ProductWeightGroupService,
     private dataSource: DataSource,
     private readonly indexingService: IndexingService,
     private readonly synonymConceptService: SynonymConceptService,
@@ -610,10 +597,7 @@ export class ProductsService {
       const [
         product,
         productCategories,
-        priceGroups,
-        stockRows,
         mediaRows,
-        variants,
         productWithTags,
       ] = await Promise.all([
         this.productsRepository.findOne({
@@ -624,28 +608,9 @@ export class ProductsService {
           where: { product_id: productId },
           relations: ['category'],
         }),
-        this.dataSource.getRepository(ProductPriceGroup).find({
-          where: { product_id: productId },
-          relations: [
-            'groupValues',
-            'groupValues.attribute',
-            'groupValues.attributeValue',
-          ],
-        }),
-        this.dataSource.getRepository(ProductStock).find({
-          where: { product_id: productId },
-        }),
         this.dataSource.getRepository(Media).find({
           where: { product_id: productId },
           order: { is_primary: 'DESC' },
-        }),
-        this.dataSource.getRepository(ProductVariant).find({
-          where: { product_id: productId },
-          relations: [
-            'combinations',
-            'combinations.attribute_value',
-            'combinations.attribute_value.attribute',
-          ],
         }),
         this.productsRepository.findOne({
           where: { id: productId },
@@ -661,30 +626,14 @@ export class ProductsService {
       );
       const searchTags = await this.tagsService.getSearchTermsForTags(tagIds);
 
-      // ── Pricing: min/max across all groups ───────────────────────────────
-      const effectivePrices = priceGroups.map((g) =>
-        parseFloat(String(g.sale_price ?? g.price ?? 0)),
+      // ── Pricing: direct from product ────────────────────────────────────
+      const effectivePrice = parseFloat(
+        String(product.sale_price ?? product.price ?? 0),
       );
-      const priceMin = effectivePrices.length
-        ? Math.min(...effectivePrices)
-        : 0;
-      const priceMax = effectivePrices.length
-        ? Math.max(...effectivePrices)
-        : 0;
-
-      const sortedByPrice = [...priceGroups].sort(
-        (a, b) =>
-          parseFloat(String(a.sale_price ?? a.price ?? 0)) -
-          parseFloat(String(b.sale_price ?? b.price ?? 0)),
-      );
-      const bestGroup = sortedByPrice[0];
 
       // ── Stock ────────────────────────────────────────────────────────────
-      const totalStock = stockRows.reduce(
-        (sum, s) => sum + (s.quantity ?? 0),
-        0,
-      );
-      const inStock = stockRows.some((s) => !s.is_out_of_stock);
+      const totalStock = product.quantity ?? 0;
+      const inStock = !product.is_out_of_stock;
 
       // ── Media ────────────────────────────────────────────────────────────
       const images = mediaRows.map((m) => m.url).filter(Boolean);
@@ -729,31 +678,8 @@ export class ProductsService {
         name_ar?: string;
       } | null;
 
-      // ── Attribute pairs for multi-attr filtering ─────────────────────────
-      // Build "AttributeName:Value" pairs from all price group values.
-      // Both EN and AR variants indexed so filtering works in both languages.
-      const attrPairSet = new Set<string>();
-      for (const group of priceGroups) {
-        for (const gv of group.groupValues ?? []) {
-          const attrEn = gv.attribute?.name_en;
-          const valEn = gv.attributeValue?.value_en;
-          const valAr = gv.attributeValue?.value_ar;
-          if (attrEn && valEn) attrPairSet.add(`${attrEn}:${valEn}`);
-          if (attrEn && valAr) attrPairSet.add(`${attrEn}:${valAr}`);
-        }
-      }
-      // Also source attr_pairs from variant combinations (covers products where
-      // pricing is NOT per-attribute-group but variants carry the attribute values).
-      for (const variant of variants) {
-        for (const combo of variant.combinations ?? []) {
-          const attrEn = combo.attribute_value?.attribute?.name_en;
-          const valEn = combo.attribute_value?.value_en;
-          const valAr = combo.attribute_value?.value_ar;
-          if (attrEn && valEn) attrPairSet.add(`${attrEn}:${valEn}`);
-          if (attrEn && valAr) attrPairSet.add(`${attrEn}:${valAr}`);
-        }
-      }
-      const attrPairs = attrPairSet.size ? [...attrPairSet] : undefined;
+      // ── Attribute pairs — no longer variant-based ───────────────────────
+      const attrPairs: string[] | undefined = undefined;
 
       // ── Descriptions ─────────────────────────────────────────────────────
       const descriptionEn =
@@ -813,14 +739,13 @@ export class ProductsService {
         category_ids: categoryIds.length ? categoryIds : undefined,
 
         // ── Pricing ─────────────────────────────────────────────────────
-        price:
-          bestGroup?.price != null ? parseFloat(String(bestGroup.price)) : 0,
+        price: product.price != null ? parseFloat(String(product.price)) : 0,
         sale_price:
-          bestGroup?.sale_price != null
-            ? parseFloat(String(bestGroup.sale_price))
+          product.sale_price != null
+            ? parseFloat(String(product.sale_price))
             : undefined,
-        price_min: priceMin,
-        price_max: priceMax,
+        price_min: effectivePrice,
+        price_max: effectivePrice,
 
         // ── Availability ─────────────────────────────────────────────────
         stock_quantity: totalStock,
@@ -1181,6 +1106,99 @@ export class ProductsService {
     return requestedValueIds;
   }
 
+  private async syncProductMedia(
+    productId: number,
+    mediaItems: { media_id: number; is_primary?: boolean; sort_order?: number }[],
+  ): Promise<void> {
+    const mediaRepo = this.dataSource.getRepository(Media);
+
+    // Validate: only one primary image allowed
+    const primaryCount = mediaItems.filter((m) => m.is_primary).length;
+    if (primaryCount > 1) {
+      throw new BadRequestException(
+        `Product can only have one primary image. Found ${primaryCount} items marked as primary.`,
+      );
+    }
+
+    // Get existing product media
+    const existingMedia = await mediaRepo.find({ where: { product_id: productId } });
+    const existingMap = new Map(existingMedia.map((m) => [m.id, m]));
+    const payloadIds = new Set<number>();
+
+    // Link / update media in payload
+    await Promise.all(
+      mediaItems.map(async (item, index) => {
+        payloadIds.add(item.media_id);
+        const existing = existingMap.get(item.media_id);
+        if (existing) {
+          existing.is_primary = item.is_primary ?? false;
+          existing.sort_order = item.sort_order ?? index;
+          await mediaRepo.save(existing);
+        } else {
+          const media = await mediaRepo.findOne({ where: { id: item.media_id } });
+          if (!media) {
+            throw new NotFoundException(`Media with ID ${item.media_id} not found`);
+          }
+          media.product_id = productId;
+          media.is_primary = item.is_primary ?? false;
+          media.sort_order = item.sort_order ?? index;
+          await mediaRepo.save(media);
+        }
+      }),
+    );
+
+    // Unlink media not in payload
+    await Promise.all(
+      existingMedia
+        .filter((m) => !payloadIds.has(m.id))
+        .map(async (m) => {
+          m.product_id = null;
+          m.is_primary = false;
+          m.sort_order = 0;
+          await mediaRepo.save(m);
+        }),
+    );
+  }
+
+  private async syncProductAttributes(
+    productId: number,
+    attributes: ProductAttributeInputDto[],
+  ): Promise<void> {
+    const productAttributeRepository = this.dataSource.getRepository(ProductAttribute);
+    const productAttributeValueRepository = this.dataSource.getRepository(ProductAttributeValue);
+
+    await productAttributeRepository.delete({ product_id: productId });
+    await productAttributeValueRepository.delete({ product_id: productId });
+
+    if (!attributes.length) {
+      return;
+    }
+
+    const uniqueAttributeIds = [...new Set(attributes.map(a => a.attribute_id))];
+    await productAttributeRepository.save(
+      uniqueAttributeIds.map(attribute_id =>
+        productAttributeRepository.create({
+          product_id: productId,
+          attribute_id,
+        })
+      )
+    );
+
+    const attributeValueIds = attributes.flatMap(a => a.attribute_value_ids || []);
+    const uniqueAttributeValueIds = [...new Set(attributeValueIds)];
+
+    if (uniqueAttributeValueIds.length > 0) {
+      await productAttributeValueRepository.save(
+        uniqueAttributeValueIds.map(attribute_value_id =>
+          productAttributeValueRepository.create({
+            product_id: productId,
+            attribute_value_id,
+          })
+        )
+      );
+    }
+  }
+
   private async syncProductSpecifications(
     productId: number,
     specifications: ProductSpecificationInputDto[],
@@ -1255,6 +1273,16 @@ export class ProductsService {
         status: dto.status ?? ProductStatus.ACTIVE,
         visible: dto.visible ?? true,
         created_by: userId ?? null,
+        cost: dto.cost ?? 0,
+        price: dto.price ?? 0,
+        sale_price: dto.sale_price ?? null,
+        weight: dto.weight ?? null,
+        length: dto.length ?? null,
+        width: dto.width ?? null,
+        height: dto.height ?? null,
+        quantity: dto.quantity ?? 0,
+        low_stock_threshold: dto.low_stock_threshold ?? 10,
+        is_out_of_stock: dto.is_out_of_stock ?? true,
       });
       const savedProduct = await this.productsRepository.save(product);
 
@@ -1269,31 +1297,18 @@ export class ProductsService {
         await this.productCategoriesRepository.save(productCategories);
       }
 
-      // Determine if this is a variant product based on attributes
-      const isVariantProduct = dto.attributes && dto.attributes.length > 0;
-
-      // 3. Add attributes if provided
-      if (dto.attributes && dto.attributes.length > 0) {
-        await this.variantsService.addProductAttributes(
-          savedProduct.id,
-          dto.attributes.map((attr) => ({
-            attribute_id: attr.attribute_id,
-            controls_pricing: attr.controls_pricing,
-            controls_media: attr.controls_media,
-            controls_weight: attr.controls_weight,
-          })),
-        );
-      }
-
       // 4. Parallel Creation of Children
       const creationTasks: Promise<any>[] = [];
       const id = savedProduct.id;
 
+      // 3. Add attributes if provided
+      if (dto.attributes && dto.attributes.length > 0) {
+        creationTasks.push(this.syncProductAttributes(id, dto.attributes));
+      }
+
       // Handle Media
       if (dto.media && dto.media.length > 0) {
-        creationTasks.push(
-          this.mediaGroupService.syncProductMedia(id, dto.media),
-        );
+        creationTasks.push(this.syncProductMedia(id, dto.media));
       }
 
       // Handle Specifications
@@ -1301,260 +1316,6 @@ export class ProductsService {
         creationTasks.push(
           this.syncProductSpecifications(id, dto.specifications),
         );
-      }
-
-      // Handle Prices (Batch Insert)
-      if (dto.prices && dto.prices.length > 0) {
-        const simplePrices = dto.prices.filter(
-          (p) => !p.combination || Object.keys(p.combination).length === 0,
-        );
-        const combinationPrices = dto.prices.filter(
-          (p) => p.combination && Object.keys(p.combination).length > 0,
-        );
-
-        if (simplePrices.length > 0) {
-          creationTasks.push(
-            this.priceGroupService.createSimplePriceGroup(id, {
-              cost: simplePrices[0].cost ?? 0,
-              price: simplePrices[0].price,
-              sale_price: simplePrices[0].sale_price,
-            }),
-          );
-        }
-
-        if (combinationPrices.length > 0) {
-          const runBatchPrices = async () => {
-            const priceRepo = this.dataSource.getRepository(ProductPriceGroup);
-            const priceValueRepo = this.dataSource.getRepository(
-              ProductPriceGroupValue,
-            );
-
-            const groupsToSave = combinationPrices.map((p) =>
-              priceRepo.create({
-                product_id: id,
-                cost: p.cost ?? 0,
-                price: p.price,
-                sale_price: p.sale_price,
-              }),
-            );
-
-            const savedGroups = await priceRepo.save(groupsToSave);
-
-            const valuesToSave: any[] = [];
-            combinationPrices.forEach((p, index) => {
-              const groupId = savedGroups[index].id;
-              Object.entries(p.combination!).forEach(([attrId, valId]) => {
-                valuesToSave.push(
-                  priceValueRepo.create({
-                    price_group_id: groupId,
-                    attribute_id: Number(attrId),
-                    attribute_value_id: valId,
-                  }),
-                );
-              });
-            });
-
-            await priceValueRepo.save(valuesToSave);
-          };
-          creationTasks.push(runBatchPrices());
-        }
-      }
-
-      // Handle Weights (Batch Insert)
-      if (dto.weights && dto.weights.length > 0) {
-        const simpleWeights = dto.weights.filter(
-          (w) => !w.combination || Object.keys(w.combination).length === 0,
-        );
-        const combinationWeights = dto.weights.filter(
-          (w) => w.combination && Object.keys(w.combination).length > 0,
-        );
-
-        if (simpleWeights.length > 0) {
-          creationTasks.push(
-            this.weightGroupService.createSimpleWeightGroup(id, {
-              weight: simpleWeights[0].weight ?? 0,
-              length: simpleWeights[0].length,
-              width: simpleWeights[0].width,
-              height: simpleWeights[0].height,
-            }),
-          );
-        }
-
-        if (combinationWeights.length > 0) {
-          const runBatchWeights = async () => {
-            const weightRepo =
-              this.dataSource.getRepository(ProductWeightGroup);
-            const weightValueRepo = this.dataSource.getRepository(
-              ProductWeightGroupValue,
-            );
-
-            const groupsToSave = combinationWeights.map((w) =>
-              weightRepo.create({
-                product_id: id,
-                weight: w.weight,
-                length: w.length,
-                width: w.width,
-                height: w.height,
-              }),
-            );
-
-            const savedGroups = await weightRepo.save(groupsToSave);
-
-            const valuesToSave: any[] = [];
-            combinationWeights.forEach((w, index) => {
-              const groupId = savedGroups[index].id;
-              Object.entries(w.combination!).forEach(([attrId, valId]) => {
-                valuesToSave.push(
-                  weightValueRepo.create({
-                    weight_group_id: groupId,
-                    attribute_id: Number(attrId),
-                    attribute_value_id: valId,
-                  }),
-                );
-              });
-            });
-
-            await weightValueRepo.save(valuesToSave);
-          };
-          creationTasks.push(runBatchWeights());
-        }
-      }
-
-      // Handle Stocks and Variants (Batch Insert)
-      const hasVariants =
-        (dto as any).variants && (dto as any).variants.length > 0;
-      const hasComboStocks =
-        dto.stocks &&
-        dto.stocks.some(
-          (s) => s.combination && Object.keys(s.combination).length > 0,
-        );
-      const hasComboPrices =
-        dto.prices &&
-        dto.prices.some(
-          (p) => p.combination && Object.keys(p.combination).length > 0,
-        );
-      const hasComboWeights =
-        dto.weights &&
-        dto.weights.some(
-          (w) => w.combination && Object.keys(w.combination).length > 0,
-        );
-      const shouldCreateVariants =
-        hasVariants || hasComboStocks || hasComboPrices || hasComboWeights;
-
-      if (dto.stocks && dto.stocks.length > 0) {
-        const simpleStocks = dto.stocks.filter(
-          (s) => !s.combination || Object.keys(s.combination).length === 0,
-        );
-
-        if (simpleStocks.length > 0) {
-          creationTasks.push(
-            this.variantsService.setSimpleStock(
-              id,
-              simpleStocks[0].quantity,
-              simpleStocks[0].is_out_of_stock,
-            ),
-          );
-        }
-      }
-
-      if (shouldCreateVariants) {
-        const runBatchVariantsAndStocks = async () => {
-          // 1. Create Variants
-          const variantRepo = this.dataSource.getRepository(ProductVariant);
-          const variantComboRepo = this.dataSource.getRepository(
-            ProductVariantCombination,
-          );
-          const stockRepo = this.dataSource.getRepository(ProductStock);
-          const variantMap = new Map<string, number>();
-
-          // Deduplicate combinations from all relevant arrays to preserve variant active logic
-          const uniqueCombinations = new Map<
-            string,
-            { combination: Record<string, number>; is_active: boolean }
-          >();
-
-          const addCombination = (
-            combo: Record<string, number> | undefined,
-            is_active: boolean = true,
-          ) => {
-            if (!combo || Object.keys(combo).length === 0) return;
-            const key = Object.entries(combo)
-              .sort(([a], [b]) => Number(a) - Number(b))
-              .map(([k, v]) => `${k}:${v}`)
-              .join('|');
-            if (!uniqueCombinations.has(key)) {
-              uniqueCombinations.set(key, { combination: combo, is_active });
-            } else if (is_active === false) {
-              uniqueCombinations.get(key)!.is_active = false;
-            }
-          };
-
-          if ((dto as any).variants && (dto as any).variants.length > 0) {
-            (dto as any).variants.forEach((v: any) =>
-              addCombination(v.combination, v.is_active ?? true),
-            );
-          }
-          if (dto.stocks && dto.stocks.length > 0) {
-            dto.stocks.forEach((s) => addCombination(s.combination, true));
-          }
-          if (dto.prices && dto.prices.length > 0) {
-            dto.prices.forEach((p) => addCombination(p.combination, true));
-          }
-          if (dto.weights && dto.weights.length > 0) {
-            dto.weights.forEach((w) => addCombination(w.combination, true));
-          }
-
-          const variantsToCreate = Array.from(uniqueCombinations.values()).map(
-            (val) =>
-              variantRepo.create({ product_id: id, is_active: val.is_active }),
-          );
-
-          const savedVariants = await variantRepo.save(variantsToCreate);
-
-          const combosToSave: any[] = [];
-          let i = 0;
-          for (const [key, val] of uniqueCombinations) {
-            const variant = savedVariants[i];
-            variantMap.set(key, variant.id);
-
-            Object.values(val.combination).forEach((valId) => {
-              combosToSave.push(
-                variantComboRepo.create({
-                  variant_id: variant.id,
-                  attribute_value_id: valId,
-                }),
-              );
-            });
-            i++;
-          }
-
-          await variantComboRepo.save(combosToSave);
-
-          // 2. Create Stocks
-          if (dto.stocks && dto.stocks.length > 0) {
-            const combinationStocks = dto.stocks.filter(
-              (s) => s.combination && Object.keys(s.combination).length > 0,
-            );
-
-            const stocksToSave = combinationStocks.map((s) => {
-              const key = Object.entries(s.combination!)
-                .sort(([a], [b]) => Number(a) - Number(b))
-                .map(([k, v]) => `${k}:${v}`)
-                .join('|');
-              return stockRepo.create({
-                product_id: id,
-                variant_id: variantMap.get(key),
-                quantity: s.quantity ?? 0,
-                is_out_of_stock: s.is_out_of_stock ?? false,
-              });
-            });
-
-            if (stocksToSave.length > 0) {
-              await stockRepo.save(stocksToSave);
-            }
-          }
-        };
-        creationTasks.push(runBatchVariantsAndStocks());
       }
 
       await Promise.all(creationTasks);
@@ -1577,9 +1338,7 @@ export class ProductsService {
 
       return {
         product: result,
-        message: isVariantProduct
-          ? 'Product created successfully with variant configuration.'
-          : 'Product created successfully.',
+        message: 'Product created successfully.',
       };
     } catch (error) {
       throw new BadRequestException(
@@ -1694,30 +1453,26 @@ export class ProductsService {
       });
     }
 
-    // Filter by price range (against the cheapest price group of each product)
+    // Filter by price range (against product columns directly)
     if (minPrice !== undefined) {
       baseQuery.andWhere(
-        'EXISTS (SELECT 1 FROM product_price_groups ppg WHERE ppg.product_id = product.id AND COALESCE(ppg.sale_price, ppg.price) >= :minPrice)',
+        'COALESCE(product.sale_price, product.price) >= :minPrice',
         { minPrice },
       );
     }
     if (maxPrice !== undefined) {
       baseQuery.andWhere(
-        'EXISTS (SELECT 1 FROM product_price_groups ppg WHERE ppg.product_id = product.id AND COALESCE(ppg.sale_price, ppg.price) <= :maxPrice)',
+        'COALESCE(product.sale_price, product.price) <= :maxPrice',
         { maxPrice },
       );
     }
 
-    // Filter by sale (product must have at least one price group with a sale_price)
+    // Filter by sale
     if (has_sale !== undefined) {
       if (has_sale) {
-        baseQuery.andWhere(
-          'EXISTS (SELECT 1 FROM product_price_groups ppg WHERE ppg.product_id = product.id AND ppg.sale_price IS NOT NULL)',
-        );
+        baseQuery.andWhere('product.sale_price IS NOT NULL');
       } else {
-        baseQuery.andWhere(
-          'NOT EXISTS (SELECT 1 FROM product_price_groups ppg WHERE ppg.product_id = product.id AND ppg.sale_price IS NOT NULL)',
-        );
+        baseQuery.andWhere('product.sale_price IS NULL');
       }
     }
 
@@ -1732,13 +1487,9 @@ export class ProductsService {
     // Filter by stock
     if (in_stock !== undefined) {
       if (in_stock) {
-        baseQuery.andWhere(
-          'EXISTS (SELECT 1 FROM product_stock ps WHERE ps.product_id = product.id AND ps.is_out_of_stock = false)',
-        );
+        baseQuery.andWhere('product.is_out_of_stock = false');
       } else {
-        baseQuery.andWhere(
-          'EXISTS (SELECT 1 FROM product_stock ps WHERE ps.product_id = product.id AND ps.is_out_of_stock = true)',
-        );
+        baseQuery.andWhere('product.is_out_of_stock = true');
       }
     }
 
@@ -1786,9 +1537,9 @@ export class ProductsService {
     const pageQuery = baseQuery.clone().select('product.id', 'id');
 
     if (sortBy === 'price') {
-      // Sort by the minimum effective price across all price groups
+      // Sort by the effective price (sale_price if present, else price)
       pageQuery.addSelect(
-        '(SELECT MIN(COALESCE(ppg.sale_price, ppg.price)) FROM product_price_groups ppg WHERE ppg.product_id = product.id)',
+        'COALESCE(product.sale_price, product.price)',
         'effective_price',
       );
       pageQuery.orderBy('effective_price', sortOrder);
@@ -1818,16 +1569,12 @@ export class ProductsService {
     }
 
     // Load full relations only for products in this page
-    // OPTIMIZATION: Fetch relations in parallel to avoid Cartesian product explosion
     const [
       data,
       productCategories,
       medias,
-      stocks,
-      variants,
-      priceGroups,
-      weightGroups,
       attributes,
+      attributeValues,
       specifications,
     ] = await Promise.all([
       this.productsRepository
@@ -1845,34 +1592,14 @@ export class ProductsService {
       }),
       this.dataSource.getRepository(Media).find({
         where: { product_id: In(ids) },
-        relations: ['mediaGroup', 'mediaGroup.groupValues'],
-      }),
-      this.dataSource.getRepository(ProductStock).find({
-        where: { product_id: In(ids) },
-      }),
-      this.dataSource.getRepository(ProductVariant).find({
-        where: { product_id: In(ids) },
-        relations: [
-          'combinations',
-          'combinations.attribute_value',
-          'combinations.attribute_value.attribute',
-          'combinations.attribute_value.parent_value',
-          'combinations.attribute_value.parent_value.attribute',
-          'combinations.attribute_value.parent_value.parent_value',
-          'combinations.attribute_value.parent_value.parent_value.attribute',
-        ],
-      }),
-      this.dataSource.getRepository(ProductPriceGroup).find({
-        where: { product_id: In(ids) },
-        relations: ['groupValues'],
-      }),
-      this.dataSource.getRepository(ProductWeightGroup).find({
-        where: { product_id: In(ids) },
-        relations: ['groupValues'],
       }),
       this.dataSource.getRepository(ProductAttribute).find({
         where: { product_id: In(ids) },
         relations: ['attribute'],
+      }),
+      this.dataSource.getRepository(ProductAttributeValue).find({
+        where: { product_id: In(ids) },
+        relations: ['attribute_value', 'attribute_value.attribute'],
       }),
       this.dataSource.getRepository(ProductSpecificationValue).find({
         where: { product_id: In(ids) },
@@ -1895,20 +1622,11 @@ export class ProductsService {
       (product as any).media = medias.filter(
         (m) => m.product_id === product.id,
       );
-      (product as any).stock = stocks.filter(
-        (s) => s.product_id === product.id,
-      );
-      (product as any).variants = variants.filter(
-        (v) => v.product_id === product.id,
-      );
-      (product as any).priceGroups = priceGroups.filter(
-        (pg) => pg.product_id === product.id,
-      );
-      (product as any).weightGroups = weightGroups.filter(
-        (wg) => wg.product_id === product.id,
-      );
       (product as any).attributes = attributes.filter(
         (a) => a.product_id === product.id,
+      );
+      (product as any).attribute_values = attributeValues.filter(
+        (av) => av.product_id === product.id,
       );
       (product as any).specifications = specifications.filter(
         (s) => s.product_id === product.id,
@@ -1937,14 +1655,11 @@ export class ProductsService {
   private transformProductDetail(product: Product, isAdmin = false): any {
     const {
       media,
-      priceGroups,
-      weightGroups,
-      stock,
       brand,
-      variants,
       productCategories,
-      category, // Ensure we extract category relation
+      category,
       attributes: productAttributes,
+      attribute_values: productAttributeValues,
       specifications: productSpecifications,
       createdByUser,
       ...rest
@@ -1981,51 +1696,6 @@ export class ProductsService {
     // --- Attributes Map ---
     const attributesMap: Record<string, any> = {};
 
-    const addAttributeValue = (attr: any, val: any) => {
-      if (!attr || !val) return;
-      const attrId = String(attr.id);
-
-      if (!attributesMap[attrId]) {
-        attributesMap[attrId] = {
-          name_en: attr.name_en,
-          name_ar: attr.name_ar,
-          unit_en: attr.unit_en,
-          unit_ar: attr.unit_ar,
-          list_separately: attr.list_separately,
-          values: {},
-        };
-      }
-
-      const valId = String(val.id);
-      if (!attributesMap[attrId].values[valId]) {
-        attributesMap[attrId].values[valId] = {
-          name_en: val.value_en || val.value,
-          name_ar: val.value_ar,
-          color_code: val.color_code,
-        };
-      }
-    };
-
-    const processAttributeRecursive = (val: any) => {
-      if (!val) return;
-
-      if (val.attribute) {
-        addAttributeValue(val.attribute, val);
-      }
-
-      if (val.parent_value) {
-        processAttributeRecursive(val.parent_value);
-      }
-    };
-
-    variants?.forEach((v: any) => {
-      v.combinations?.forEach((c: any) => {
-        if (c.attribute_value) {
-          processAttributeRecursive(c.attribute_value);
-        }
-      });
-    });
-
     productAttributes?.forEach((pa: any) => {
       if (pa.attribute) {
         const attrId = String(pa.attribute.id);
@@ -2033,21 +1703,28 @@ export class ProductsService {
           attributesMap[attrId] = {
             name_en: pa.attribute.name_en,
             name_ar: pa.attribute.name_ar,
+            unit_en: pa.attribute.unit_en,
+            unit_ar: pa.attribute.unit_ar,
             list_separately: pa.attribute.list_separately,
-            controls_pricing: pa.controls_pricing,
-            controls_media: pa.controls_media,
-            controls_weight: pa.controls_weight,
             values: {},
           };
-        } else {
-          attributesMap[attrId].list_separately = pa.attribute.list_separately;
-          attributesMap[attrId].controls_pricing = pa.controls_pricing;
-          attributesMap[attrId].controls_media = pa.controls_media;
-          attributesMap[attrId].controls_weight = pa.controls_weight;
         }
       }
     });
 
+    productAttributeValues?.forEach((pav: any) => {
+      if (pav.attribute_value && pav.attribute_value.attribute) {
+        const attrId = String(pav.attribute_value.attribute.id);
+        if (attributesMap[attrId]) {
+          attributesMap[attrId].values[String(pav.attribute_value.id)] = {
+            name_en: pav.attribute_value.value_en,
+            name_ar: pav.attribute_value.value_ar,
+          };
+        }
+      }
+    });
+
+    // --- Specifications Map ---
     const specificationsMap: Record<string, any> = {};
 
     const addSpecificationValue = (spec: any, val: any) => {
@@ -2092,127 +1769,28 @@ export class ProductsService {
       }
     });
 
-    // Groups Maps
-    const priceGroupsMap: Record<string, any> = {};
-    const weightGroupsMap: Record<string, any> = {};
-    const mediaGroupsMap: Record<string, any> = {};
-
-    priceGroups?.forEach((pg: any) => {
-      priceGroupsMap[String(pg.id)] = {
-        price: pg.price,
-        sale_price: pg.sale_price,
-        ...(isAdmin && { cost: pg.cost }),
-      };
-    });
-
-    weightGroups?.forEach((wg: any) => {
-      weightGroupsMap[String(wg.id)] = {
-        weight: wg.weight,
-        dimensions: {
-          length: wg.length,
-          width: wg.width,
-          height: wg.height,
-        },
-      };
-    });
-
-    // Media Groups
-    const groupedMedia = new Map<number, any[]>();
-    media?.forEach((m: any) => {
-      if (m.mediaGroup) {
-        if (!groupedMedia.has(m.mediaGroup.id))
-          groupedMedia.set(m.mediaGroup.id, []);
-        groupedMedia.get(m.mediaGroup.id)!.push(m);
-      }
-    });
-
-    groupedMedia.forEach((mediaList, groupId) => {
-      const primaryProductImage = mediaList.find((m: any) => m.is_primary);
-      const groupPrimaryImage = mediaList.find((m: any) => m.is_group_primary);
-
-      // Fallback for sorting: prioritize primary, then group primary, then first
-      const mainDisplay =
-        primaryProductImage || groupPrimaryImage || mediaList[0];
-
-      const formatImage = (m: any) => ({
+    // --- Media (flat sorted array) ---
+    const mediaList = (media || [])
+      .sort((a: any, b: any) => {
+        if (
+          a.sort_order !== undefined &&
+          b.sort_order !== undefined &&
+          a.sort_order !== b.sort_order
+        ) {
+          return a.sort_order - b.sort_order;
+        }
+        if (a.is_primary) return -1;
+        if (b.is_primary) return 1;
+        return a.id - b.id;
+      })
+      .map((m: any) => ({
         id: m.id,
         url: m.url,
         type: m.type,
         alt_text: m.alt_text,
         is_primary: m.is_primary,
-        is_group_primary: m.is_group_primary,
         sort_order: m.sort_order,
-      });
-
-      mediaGroupsMap[String(groupId)] = {
-        media: mediaList
-          .sort((a: any, b: any) => {
-            // First use sort_order if provided and different
-            if (
-              a.sort_order !== undefined &&
-              b.sort_order !== undefined &&
-              a.sort_order !== b.sort_order
-            ) {
-              return a.sort_order - b.sort_order;
-            }
-            if (a.id === mainDisplay.id) return -1;
-            if (b.id === mainDisplay.id) return 1;
-            return a.id - b.id;
-          })
-          .map((m: any) => formatImage(m)),
-      };
-    });
-
-    // Variants Mapping
-    const variantsList =
-      variants
-        ?.map((v: any) => {
-          const stockItem = stock?.find((s: any) => s.variant_id === v.id);
-          const quantity = stockItem ? stockItem.quantity : 0;
-          const is_out_of_stock = stockItem ? stockItem.is_out_of_stock : false;
-
-          const attributeValues: Record<string, number> = {};
-          const variantValueIds = new Set<number>();
-          v.combinations?.forEach((c: any) => {
-            attributeValues[String(c.attribute_value?.attribute_id)] =
-              c.attribute_value_id;
-            variantValueIds.add(c.attribute_value_id);
-          });
-
-          const getGroupId = (groups: any[]) => {
-            const matches =
-              groups?.filter((g: any) => {
-                if (!g.groupValues || g.groupValues.length === 0) return true;
-                return g.groupValues.every((gv: any) =>
-                  variantValueIds.has(gv.attribute_value_id),
-                );
-              }) || [];
-            matches.sort(
-              (a: any, b: any) =>
-                (b.groupValues?.length || 0) - (a.groupValues?.length || 0),
-            );
-            return matches.length > 0 ? String(matches[0].id) : null;
-          };
-
-          const distinctMediaGroups = new Map();
-          media?.forEach((m: any) => {
-            if (m.mediaGroup)
-              distinctMediaGroups.set(m.mediaGroup.id, m.mediaGroup);
-          });
-          const mediaGroupsList = Array.from(distinctMediaGroups.values());
-
-          return {
-            id: v.id,
-            is_active: v.is_active,
-            ...(isAdmin && { quantity }),
-            is_out_of_stock,
-            attribute_values: attributeValues,
-            price_group_id: getGroupId(priceGroups),
-            media_group_id: getGroupId(mediaGroupsList),
-            weight_group_id: getGroupId(weightGroups),
-          };
-        })
-        .filter(Boolean) || [];
+      }));
 
     const {
       category_id,
@@ -2225,38 +1803,16 @@ export class ProductsService {
       ...cleanRest
     } = rest;
 
-    // Determine quantity for simple products
-    let simpleProductQuantity: number | undefined = undefined;
-    let simpleProductIsOutOfStock: boolean | undefined = undefined;
-    if (variantsList.length === 0) {
-      // If no variants, check for stock record associated directly with the product (where variant_id is null)
-      const simpleStock = stock?.find((s: any) => !s.variant_id);
-      if (simpleStock) {
-        simpleProductQuantity = simpleStock.quantity;
-        simpleProductIsOutOfStock = simpleStock.is_out_of_stock;
-      } else {
-        simpleProductQuantity = 0;
-        simpleProductIsOutOfStock = false;
-      }
-    }
-
     return {
       ...cleanRest,
       brand: brandInfo,
       categories,
       attributes: attributesMap,
       specifications: specificationsMap,
-      media_groups: mediaGroupsMap,
-      price_groups: priceGroupsMap,
-      weight_groups: weightGroupsMap,
-      variants: variantsList,
-      ...(isAdmin &&
-        simpleProductQuantity !== undefined && {
-          quantity: simpleProductQuantity,
-        }),
-      ...(simpleProductIsOutOfStock !== undefined && {
-        is_out_of_stock: simpleProductIsOutOfStock,
-      }),
+      media: mediaList,
+      ...(isAdmin && { cost: cleanRest.cost }),
+      ...(isAdmin && { quantity: cleanRest.quantity }),
+      is_out_of_stock: cleanRest.is_out_of_stock,
       ...(isAdmin && { created_by: creatorInfo }),
     };
   }
@@ -2266,11 +1822,8 @@ export class ProductsService {
       productBase,
       productCategories,
       media,
-      priceGroups,
-      weightGroups,
-      stock,
-      variants,
       attributes,
+      attributeValues,
       specifications,
       linkedProductsState,
     ] = await Promise.all([
@@ -2284,34 +1837,14 @@ export class ProductsService {
       }),
       this.dataSource.getRepository(Media).find({
         where: { product_id: id },
-        relations: ['mediaGroup', 'mediaGroup.groupValues'],
-      }),
-      this.dataSource.getRepository(ProductPriceGroup).find({
-        where: { product_id: id },
-        relations: ['groupValues'],
-      }),
-      this.dataSource.getRepository(ProductWeightGroup).find({
-        where: { product_id: id },
-        relations: ['groupValues'],
-      }),
-      this.dataSource.getRepository(ProductStock).find({
-        where: { product_id: id },
-      }),
-      this.dataSource.getRepository(ProductVariant).find({
-        where: { product_id: id },
-        relations: [
-          'combinations',
-          'combinations.attribute_value',
-          'combinations.attribute_value.attribute',
-          'combinations.attribute_value.parent_value',
-          'combinations.attribute_value.parent_value.attribute',
-          'combinations.attribute_value.parent_value.parent_value',
-          'combinations.attribute_value.parent_value.parent_value.attribute',
-        ],
       }),
       this.dataSource.getRepository(ProductAttribute).find({
         where: { product_id: id },
         relations: ['attribute'],
+      }),
+      this.dataSource.getRepository(ProductAttributeValue).find({
+        where: { product_id: id },
+        relations: ['attribute_value', 'attribute_value.attribute'],
       }),
       this.dataSource.getRepository(ProductSpecificationValue).find({
         where: { product_id: id },
@@ -2333,11 +1866,8 @@ export class ProductsService {
 
     productBase.productCategories = productCategories;
     productBase.media = media;
-    productBase.priceGroups = priceGroups;
-    productBase.weightGroups = weightGroups;
-    productBase.stock = stock;
-    productBase.variants = variants;
     productBase.attributes = attributes;
+    (productBase as any).attribute_values = attributeValues;
     productBase.specifications = specifications;
 
     // Return detailed product structure
@@ -2393,17 +1923,14 @@ export class ProductsService {
    */
   private transformProductResponse(product: Product): any {
     const {
-      priceGroups,
-      weightGroups,
       media,
       productCategories,
       category,
       brand,
-      variants,
       ...rest
     } = product as any;
 
-    // Transform media to include mediaGroup object and remove media_group_id
+    // Transform media — flat sorted array
     const transformedMedia =
       media
         ?.sort((a: any, b: any) => {
@@ -2418,21 +1945,14 @@ export class ProductsService {
           if (b.is_primary) return 1;
           return a.id - b.id;
         })
-        .map((m: any) => {
-          const { media_group_id, mediaGroup, ...mediaRest } = m;
-          return {
-            ...mediaRest,
-            media_group: mediaGroup
-              ? {
-                  id: mediaGroup.id,
-                  product_id: mediaGroup.product_id,
-                  groupValues: mediaGroup.groupValues,
-                  created_at: mediaGroup.created_at,
-                  updated_at: mediaGroup.updated_at,
-                }
-              : null,
-          };
-        }) || [];
+        .map((m: any) => ({
+          id: m.id,
+          url: m.url,
+          type: m.type,
+          alt_text: m.alt_text,
+          is_primary: m.is_primary,
+          sort_order: m.sort_order,
+        })) || [];
 
     // Transform productCategories to a clean categories array
     let categories: any[] = [];
@@ -2454,31 +1974,11 @@ export class ProductsService {
         }
       : null;
 
-    const variantsList =
-      variants?.map((v: any) => ({
-        id: v.id,
-        combinations:
-          v.combinations?.map((c: any) => ({
-            attribute_id: c.attribute_value?.attribute_id,
-            attribute_name: c.attribute_value?.attribute?.name_en || null,
-            attribute_name_ar: c.attribute_value?.attribute?.name_ar || null,
-            unit_en: c.attribute_value?.attribute?.unit_en || null,
-            unit_ar: c.attribute_value?.attribute?.unit_ar || null,
-            value_id: c.attribute_value_id,
-            value_name: c.attribute_value?.value || null,
-            value_name_ar: c.attribute_value?.value_ar || null,
-            color_code: c.attribute_value?.color_code || null,
-          })) || [],
-      })) || [];
-
     return {
       ...rest,
       brand: brandInfo,
       categories,
       media: transformedMedia,
-      prices: priceGroups || [],
-      weights: weightGroups || [],
-      variants: variantsList,
     };
   }
 
@@ -2560,6 +2060,16 @@ export class ProductsService {
         'brand_id',
         'status',
         'visible',
+        'cost',
+        'price',
+        'sale_price',
+        'weight',
+        'length',
+        'width',
+        'height',
+        'quantity',
+        'low_stock_threshold',
+        'is_out_of_stock',
       ];
       const basicInfoChanges: any = {};
 
@@ -2592,342 +2102,28 @@ export class ProductsService {
       await queryRunner.release();
     }
 
-    // Continue with other updates (outside transaction for now as services don't support it yet)
+    // Continue with other updates (outside transaction)
     try {
-      // =================================================================
-      // PHASE 1: CLEANUP & SYNC (Parallelized)
-      // =================================================================
-      const cleanupTasks: Promise<any>[] = [];
+      const syncTasks: Promise<any>[] = [];
 
-      // 1. Sync Media
+      // Sync Media
       if (dto.media !== undefined) {
-        cleanupTasks.push(
-          this.mediaGroupService.syncProductMedia(id, dto.media || []),
-        );
+        syncTasks.push(this.syncProductMedia(id, dto.media || []));
       }
 
-      // 1.1 Sync Specifications
+      // Sync Specifications
       if (dto.specifications !== undefined) {
-        cleanupTasks.push(
+        syncTasks.push(
           this.syncProductSpecifications(id, dto.specifications || []),
         );
       }
 
-      // 2. Delete Prices, Weights, Stocks (Independent groups)
-      if (dto.prices !== undefined) {
-        cleanupTasks.push(
-          this.priceGroupService.deletePriceGroupsForProduct(id),
-        );
-      }
-      if (dto.weights !== undefined) {
-        cleanupTasks.push(
-          this.weightGroupService.deleteWeightGroupsForProduct(id),
-        );
-      }
-      if (dto.stocks !== undefined) {
-        cleanupTasks.push(this.variantsService.deleteAllStocksForProduct(id));
+      // Sync Attributes
+      if (dto.attributes !== undefined) {
+        syncTasks.push(this.syncProductAttributes(id, dto.attributes || []));
       }
 
-      // 3. Variant Cleanup Chain (Cart -> Variants -> Attributes)
-      // We only rebuild variants and attributes if the relevant structures are provided
-      const rebuildVariants =
-        dto.attributes !== undefined ||
-        (dto as any).variants !== undefined ||
-        dto.prices !== undefined ||
-        dto.weights !== undefined ||
-        dto.stocks !== undefined;
-
-      if (rebuildVariants) {
-        const variantCleanupTask = async () => {
-          // Delete related cart items to avoid Foreign Key constraint violations
-          await this.dataSource
-            .getRepository(CartItem)
-            .delete({ product_id: id });
-
-          // Delete all existing variants
-          await this.variantsService.deleteAllVariantsForProduct(id);
-
-          // Delete all existing attributes
-          await this.variantsService.deleteAllAttributesForProduct(id);
-        };
-        cleanupTasks.push(variantCleanupTask());
-      }
-
-      // Execute all cleanup tasks in parallel
-      await Promise.all(cleanupTasks);
-
-      // =================================================================
-      // PHASE 2: REBUILD STRUCTURE (Attributes)
-      // =================================================================
-      // Attributes define the structure for variants/combinations, so they must be created first
-      if (dto.attributes && dto.attributes.length > 0) {
-        await this.variantsService.addProductAttributes(id, dto.attributes);
-      }
-
-      // =================================================================
-      // PHASE 3: REBUILD DATA (Optimized Batch Creation)
-      // =================================================================
-
-      // 1. Create Variants (Needed for mapping)
-      // We aggregate unique combinations from explicitly provided variants, as well as those found in stocks, prices, and weights.
-      const variantMap = new Map<string, number>(); // combinationKey -> variantId
-
-      const uniqueCombinations = new Map<
-        string,
-        { combination: Record<string, number>; is_active: boolean }
-      >();
-
-      const addCombination = (
-        combo: Record<string, number> | undefined,
-        is_active: boolean = true,
-      ) => {
-        if (!combo || Object.keys(combo).length === 0) return;
-        const key = Object.entries(combo)
-          .sort(([a], [b]) => Number(a) - Number(b))
-          .map(([k, v]) => `${k}:${v}`)
-          .join('|');
-
-        if (!uniqueCombinations.has(key)) {
-          uniqueCombinations.set(key, { combination: combo, is_active });
-        } else if (is_active === false) {
-          uniqueCombinations.get(key)!.is_active = false;
-        }
-      };
-
-      if ((dto as any).variants && (dto as any).variants.length > 0) {
-        (dto as any).variants.forEach((v: any) =>
-          addCombination(v.combination, v.is_active ?? true),
-        );
-      }
-      if (dto.stocks && dto.stocks.length > 0) {
-        dto.stocks.forEach((s) => addCombination(s.combination, true));
-      }
-      if (dto.prices && dto.prices.length > 0) {
-        dto.prices.forEach((p) => addCombination(p.combination, true));
-      }
-      if (dto.weights && dto.weights.length > 0) {
-        dto.weights.forEach((w) => addCombination(w.combination, true));
-      }
-
-      if (uniqueCombinations.size > 0) {
-        const variantRepo = this.dataSource.getRepository(ProductVariant);
-        const variantComboRepo = this.dataSource.getRepository(
-          ProductVariantCombination,
-        );
-
-        const variantsToCreate = Array.from(uniqueCombinations.values()).map(
-          (val) =>
-            variantRepo.create({
-              product_id: id,
-              is_active: val.is_active,
-            }),
-        );
-
-        const savedVariants = await variantRepo.save(variantsToCreate);
-
-        // Prepare combinations data
-        const combosToSave: any[] = [];
-        let i = 0;
-        for (const [key, val] of uniqueCombinations) {
-          const variant = savedVariants[i];
-          variantMap.set(key, variant.id);
-
-          const attributeValues = Object.values(val.combination);
-          attributeValues.forEach((valId) => {
-            combosToSave.push(
-              variantComboRepo.create({
-                variant_id: variant.id,
-                attribute_value_id: valId,
-              }),
-            );
-          });
-          i++;
-        }
-
-        await variantComboRepo.save(combosToSave);
-      }
-
-      const creationTasks: Promise<any>[] = [];
-
-      // 2. Rebuild Prices (Direct Insert - Skip Check)
-      if (dto.prices && dto.prices.length > 0) {
-        const simplePrices = dto.prices.filter(
-          (p) => !p.combination || Object.keys(p.combination).length === 0,
-        );
-        const combinationPrices = dto.prices.filter(
-          (p) => p.combination && Object.keys(p.combination).length > 0,
-        );
-
-        // Simple Prices
-        if (simplePrices.length > 0) {
-          creationTasks.push(
-            this.priceGroupService.createSimplePriceGroup(id, {
-              cost: simplePrices[0].cost ?? 0, // Take first valid simple price
-              price: simplePrices[0].price,
-              sale_price: simplePrices[0].sale_price,
-            }),
-          );
-        }
-
-        // Combination Prices - Use Direct Insert for speed
-        if (combinationPrices.length > 0) {
-          const runBatchPrices = async () => {
-            const priceRepo = this.dataSource.getRepository(ProductPriceGroup);
-            const priceValueRepo = this.dataSource.getRepository(
-              ProductPriceGroupValue,
-            );
-
-            const groupsToSave = combinationPrices.map((p) =>
-              priceRepo.create({
-                product_id: id,
-                cost: p.cost ?? 0,
-                price: p.price,
-                sale_price: p.sale_price,
-              }),
-            );
-
-            const savedGroups = await priceRepo.save(groupsToSave);
-
-            const valuesToSave: any[] = [];
-            combinationPrices.forEach((p, index) => {
-              const groupId = savedGroups[index].id;
-              Object.entries(p.combination!).forEach(([attrId, valId]) => {
-                valuesToSave.push(
-                  priceValueRepo.create({
-                    price_group_id: groupId,
-                    attribute_id: Number(attrId),
-                    attribute_value_id: valId,
-                  }),
-                );
-              });
-            });
-
-            await priceValueRepo.save(valuesToSave);
-          };
-          creationTasks.push(runBatchPrices());
-        }
-      }
-
-      // 3. Rebuild Weights (Direct Insert - Skip Check)
-      if (dto.weights && dto.weights.length > 0) {
-        const simpleWeights = dto.weights.filter(
-          (w) => !w.combination || Object.keys(w.combination).length === 0,
-        );
-        const combinationWeights = dto.weights.filter(
-          (w) => w.combination && Object.keys(w.combination).length > 0,
-        );
-
-        if (simpleWeights.length > 0) {
-          creationTasks.push(
-            this.weightGroupService.createSimpleWeightGroup(id, {
-              weight: simpleWeights[0].weight ?? 0,
-              length: simpleWeights[0].length,
-              width: simpleWeights[0].width,
-              height: simpleWeights[0].height,
-            }),
-          );
-        }
-
-        if (combinationWeights.length > 0) {
-          const runBatchWeights = async () => {
-            const weightRepo =
-              this.dataSource.getRepository(ProductWeightGroup);
-            const weightValueRepo = this.dataSource.getRepository(
-              ProductWeightGroupValue,
-            );
-
-            const groupsToSave = combinationWeights.map((w) =>
-              weightRepo.create({
-                product_id: id,
-                weight: w.weight,
-                length: w.length,
-                width: w.width,
-                height: w.height,
-              }),
-            );
-
-            const savedGroups = await weightRepo.save(groupsToSave);
-
-            const valuesToSave: any[] = [];
-            combinationWeights.forEach((w, index) => {
-              const groupId = savedGroups[index].id;
-              Object.entries(w.combination!).forEach(([attrId, valId]) => {
-                valuesToSave.push(
-                  weightValueRepo.create({
-                    weight_group_id: groupId,
-                    attribute_id: Number(attrId),
-                    attribute_value_id: valId,
-                  }),
-                );
-              });
-            });
-
-            await weightValueRepo.save(valuesToSave);
-          };
-          creationTasks.push(runBatchWeights());
-        }
-      }
-
-      // 4. Rebuild Stocks (Use Pre-created Variants)
-      if (dto.stocks && dto.stocks.length > 0) {
-        const simpleStocks = dto.stocks.filter(
-          (s) => !s.combination || Object.keys(s.combination).length === 0,
-        );
-        const combinationStocks = dto.stocks.filter(
-          (s) => s.combination && Object.keys(s.combination).length > 0,
-        );
-
-        if (simpleStocks.length > 0) {
-          creationTasks.push(
-            this.variantsService.setSimpleStock(
-              id,
-              simpleStocks[0].quantity,
-              simpleStocks[0].is_out_of_stock,
-            ),
-          );
-        }
-
-        if (combinationStocks.length > 0) {
-          const runBatchStocks = async () => {
-            const stockRepo = this.dataSource.getRepository(ProductStock);
-            const stocksToSave: any[] = [];
-
-            for (const s of combinationStocks) {
-              const key = Object.entries(s.combination!)
-                .sort(([a], [b]) => Number(a) - Number(b))
-                .map(([k, v]) => `${k}:${v}`)
-                .join('|');
-
-              const variantId = variantMap.get(key);
-              if (variantId) {
-                stocksToSave.push(
-                  stockRepo.create({
-                    product_id: id,
-                    variant_id: variantId,
-                    quantity: s.quantity ?? 0,
-                    is_out_of_stock: s.is_out_of_stock ?? false,
-                  }),
-                );
-              } else {
-                // Fallback (Should not happen if logic is correct): Create variant on fly
-                await this.variantsService.setStockByCombination(
-                  id,
-                  s.combination!,
-                  s.quantity ?? 0,
-                );
-              }
-            }
-
-            if (stocksToSave.length > 0) {
-              await stockRepo.save(stocksToSave);
-            }
-          };
-          creationTasks.push(runBatchStocks());
-        }
-      }
-
-      // Execute all creation tasks in parallel
-      await Promise.all(creationTasks);
+      await Promise.all(syncTasks);
 
       // Update tags if explicitly provided in the DTO (pass [] to clear all tags)
       if (dto.tags !== undefined) {

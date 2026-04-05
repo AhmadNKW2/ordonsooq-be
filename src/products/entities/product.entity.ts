@@ -17,12 +17,7 @@ import { Category } from '../../categories/entities/category.entity';
 import { Vendor } from '../../vendors/entities/vendor.entity';
 import { Brand } from '../../brands/entities/brand.entity';
 import { User } from '../../users/entities/user.entity';
-import { ProductVariant } from './product-variant.entity';
-import { ProductPriceGroup } from './product-price-group.entity';
-import { ProductWeightGroup } from './product-weight-group.entity';
 import { Media } from '../../media/entities/media.entity';
-import { ProductMediaGroup } from './product-media-group.entity';
-import { ProductStock } from './product-stock.entity';
 import { ProductAttribute } from './product-attribute.entity';
 import { ProductCategory } from './product-category.entity';
 import { ProductSpecificationValue } from './product-specification-value.entity';
@@ -124,37 +119,42 @@ export class Product {
   @Column({ nullable: true })
   brand_id: number;
 
-  // Variants relationship (for variant products)
-  @OneToMany(() => ProductVariant, (variant) => variant.product, {
-    cascade: true,
-  })
-  variants: ProductVariant[];
-
-  // Media relationship (unified - works for both simple and variant)
+  // Media relationship
   @OneToMany(() => Media, (media) => media.product, { cascade: true })
   media: Media[];
 
-  // Media groups relationship
-  @OneToMany(() => ProductMediaGroup, (group) => group.product, {
-    cascade: true,
-  })
-  mediaGroups: ProductMediaGroup[];
+  // ── Pricing (flat) ────────────────────────────────────────────
+  @Column('decimal', { precision: 10, scale: 2, default: 0 })
+  cost: number;
 
-  // Price groups relationship
-  @OneToMany(() => ProductPriceGroup, (group) => group.product, {
-    cascade: true,
-  })
-  priceGroups: ProductPriceGroup[];
+  @Column('decimal', { precision: 10, scale: 2, default: 0 })
+  price: number;
 
-  // Weight groups relationship
-  @OneToMany(() => ProductWeightGroup, (group) => group.product, {
-    cascade: true,
-  })
-  weightGroups: ProductWeightGroup[];
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  sale_price: number | null;
 
-  // Stock relationship (unified - works for both simple and variant)
-  @OneToMany(() => ProductStock, (stock) => stock.product, { cascade: true })
-  stock: ProductStock[];
+  // ── Weight / dimensions (flat) ────────────────────────────────
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  weight: number | null;
+
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  length: number | null;
+
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  width: number | null;
+
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  height: number | null;
+
+  // ── Stock (flat) ──────────────────────────────────────────────
+  @Column({ type: 'int', default: 0 })
+  quantity: number;
+
+  @Column({ type: 'int', default: 10 })
+  low_stock_threshold: number;
+
+  @Column({ type: 'boolean', default: true })
+  is_out_of_stock: boolean;
 
   // Product attributes relationship
   @OneToMany(() => ProductAttribute, (attr) => attr.product, { cascade: true })

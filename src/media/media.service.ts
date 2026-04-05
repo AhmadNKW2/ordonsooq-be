@@ -24,7 +24,24 @@ export class MediaService {
     file: Express.Multer.File,
     folder: string = 'products',
   ): Promise<Media> {
-    // Upload to R2
+    // Log the file details
+    this.logger.debug(`Checking if file ${file.originalname} already exists`);
+
+    // Check if media with the exact same original name and size exists
+    // (Size check to prevent collision if two different files are named "image.jpg")
+    const existingMedia = await this.mediaRepository.findOne({
+      where: {
+        original_name: file.originalname,
+        size: file.size,
+      },
+    });
+
+    if (existingMedia) {
+      this.logger.debug(`Found existing media with ID ${existingMedia.id}, returning it directly`);
+      return existingMedia;
+    }
+
+    // Unchanged part: Upload to R2
     const uploadResult = await this.r2StorageService.uploadFile(file, folder);
 
     // Determine media type

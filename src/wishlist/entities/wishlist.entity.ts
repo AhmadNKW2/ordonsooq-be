@@ -10,7 +10,6 @@ import {
 } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
 import { Product } from '../../products/entities/product.entity';
-import { ProductVariant } from '../../products/entities/product-variant.entity';
 
 @Entity('wishlists')
 @Unique('uq_wishlists_user_product_variant', [
@@ -37,10 +36,6 @@ export class Wishlist {
 
   @Column()
   product_id: number;
-
-  @ManyToOne(() => ProductVariant, { onDelete: 'CASCADE', nullable: true })
-  @JoinColumn({ name: 'variant_id' })
-  variant: ProductVariant | null;
 
   @Column({ type: 'int', nullable: true })
   variant_id: number | null;

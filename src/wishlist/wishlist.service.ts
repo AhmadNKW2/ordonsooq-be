@@ -8,7 +8,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, IsNull } from 'typeorm';
 import { Wishlist } from './entities/wishlist.entity';
 import { Product, ProductStatus } from '../products/entities/product.entity';
-import { ProductVariant } from '../products/entities/product-variant.entity';
 import { AddToWishlistDto } from './dto/add-to-wishlist.dto';
 
 import { ProductsService } from '../products/products.service';
@@ -20,8 +19,6 @@ export class WishlistService {
     private wishlistRepository: Repository<Wishlist>,
     @InjectRepository(Product)
     private productRepository: Repository<Product>,
-    @InjectRepository(ProductVariant)
-    private productVariantRepository: Repository<ProductVariant>,
     private productsService: ProductsService,
   ) {}
 
@@ -40,40 +37,6 @@ export class WishlistService {
 
     if (product.status === ProductStatus.ARCHIVED) {
       throw new BadRequestException('Cannot add archived product to wishlist');
-    }
-
-    const productHasVariants =
-      (await this.productVariantRepository.count({
-        where: { product_id: product.id },
-      })) > 0;
-
-    if (productHasVariants && !addToWishlistDto.variant_id) {
-      throw new BadRequestException(
-        'variant_id is required when adding a variant product to wishlist',
-      );
-    }
-
-    // Validate variant if provided
-    if (addToWishlistDto.variant_id) {
-      const variant = await this.productVariantRepository.findOne({
-        where: { id: addToWishlistDto.variant_id },
-      });
-
-      if (!variant) {
-        throw new NotFoundException('Product variant not found');
-      }
-
-      if (variant.product_id !== product.id) {
-        throw new BadRequestException(
-          'Variant does not belong to this product',
-        );
-      }
-
-      if (!variant.is_active) {
-        throw new BadRequestException(
-          'Cannot add inactive variant to wishlist',
-        );
-      }
     }
 
     // Check if already in wishlist

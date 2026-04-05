@@ -141,13 +141,6 @@ export class UsersService {
         'product.category',
         'product.productCategories',
         'product.productCategories.category',
-        'product.priceGroups',
-        'product.weightGroups',
-        'product.stock',
-        'product.variants',
-        'product.variants.combinations',
-        'product.variants.combinations.attribute_value',
-        'product.variants.combinations.attribute_value.attribute',
         'product.attributes',
         'product.attributes.attribute',
       ],
@@ -209,21 +202,13 @@ export class UsersService {
                   type: m.type,
                   is_primary: m.is_primary,
                 })) || [],
-              priceGroups: product.priceGroups || [],
-              weightGroups: product.weightGroups || [],
-              stock: product.stock || [],
-              variants:
-                product.variants?.map((v) => ({
-                  id: v.id,
-                  is_active: v.is_active,
-                  combinations: v.combinations,
-                })) || [],
+              price: product.price,
+              sale_price: product.sale_price,
+              quantity: product.quantity,
+              is_out_of_stock: product.is_out_of_stock,
               attributes:
                 product.attributes?.map((attr) => ({
                   id: attr.id,
-                  controls_pricing: attr.controls_pricing,
-                  controls_media: attr.controls_media,
-                  controls_weight: attr.controls_weight,
                   attribute: attr.attribute
                     ? {
                         id: attr.attribute.id,

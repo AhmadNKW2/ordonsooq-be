@@ -4,7 +4,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, IsNull } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import {
   Order,
   OrderStatus,
@@ -13,11 +13,8 @@ import {
 } from './entities/order.entity';
 import { OrderItem } from './entities/order-item.entity';
 import { Product } from '../products/entities/product.entity';
-import { ProductVariant } from '../products/entities/product-variant.entity';
-import { ProductStock } from '../products/entities/product-stock.entity';
 import { CouponsService } from '../coupons/coupons.service';
 import { WalletService } from '../wallet/wallet.service';
-import { ProductPriceGroupService } from '../products/product-price-group.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { FilterOrderDto } from './dto/filter-order.dto';
 import { UpdateOrderItemsCostDto } from './dto/update-order-items-cost.dto';
@@ -36,7 +33,6 @@ export class OrdersService {
     private orderItemsRepository: Repository<OrderItem>,
     private couponsService: CouponsService,
     private walletService: WalletService,
-    private priceGroupService: ProductPriceGroupService,
     private cartService: CartService,
     private dataSource: DataSource,
   ) {}
@@ -79,63 +75,29 @@ export class OrdersService {
           );
         }
 
-        let variant: ProductVariant | null = null;
-        if (itemDto.variantId) {
-          variant = await queryRunner.manager.findOne(ProductVariant, {
-            where: { id: itemDto.variantId, product_id: product.id },
-          });
-          if (!variant) {
-            throw new NotFoundException(
-              `Variant #${itemDto.variantId} not found for product`,
-            );
-          }
-          if (!variant.is_active) {
-            throw new BadRequestException(`Variant is not active`);
-          }
-        }
-
-        // Check Stock with Lock
-        const stock = await queryRunner.manager.findOne(ProductStock, {
-          where: {
-            product_id: product.id,
-            variant_id: itemDto.variantId || IsNull(),
-          },
-          lock: { mode: 'pessimistic_write' },
-        });
-
-        // 2. Check is_out_of_stock only (don't check quantity since stock logic is incomplete right now)
-        if (!stock || stock.is_out_of_stock) {
+        // Check stock
+        if (product.is_out_of_stock) {
           throw new BadRequestException(
             `Insufficient stock for product ${product.name_en}`,
           );
         }
 
-        // Get Price
-        const priceGroup = await this.priceGroupService.getPriceForVariant(
-          product.id,
-          itemDto.variantId,
-        );
-        if (!priceGroup) {
-          throw new BadRequestException(
-            `Price not found for product ${product.name_en}`,
-          );
-        }
-
+        // Get price directly from product
         const unitPrice =
-          priceGroup.sale_price !== null && Number(priceGroup.sale_price) > 0
-            ? Number(priceGroup.sale_price)
-            : Number(priceGroup.price);
+          product.sale_price !== null && Number(product.sale_price) > 0
+            ? Number(product.sale_price)
+            : Number(product.price);
 
         const itemTotal = unitPrice * itemDto.quantity;
         subtotalAmount += itemTotal;
 
         orderItemsToCreate.push({
           product,
-          variant,
+          variant: null,
           vendorId: product.vendor_id,
           quantity: itemDto.quantity,
           price: unitPrice,
-          cost: itemDto.cost ?? priceGroup.cost ?? 0,
+          cost: itemDto.cost ?? product.cost ?? 0,
           totalPrice: itemTotal,
           productSnapshot: {
             name_en: product.name_en,
@@ -261,7 +223,7 @@ export class OrdersService {
   async findOne(id: number) {
     const order = await this.ordersRepository.findOne({
       where: { id },
-      relations: ['items', 'items.product', 'items.variant', 'user'],
+      relations: ['items', 'items.product', 'user'],
     });
     if (!order) throw new NotFoundException('Order not found');
     return order;
@@ -377,17 +339,16 @@ export class OrdersService {
     try {
       // Restore Stock
       for (const item of order.items) {
-        const stock = await queryRunner.manager.findOne(ProductStock, {
-          where: {
-            product_id: item.productId,
-            variant_id: item.variantId || IsNull(),
-          },
-          lock: { mode: 'pessimistic_write' },
-        });
+        if (item.productId) {
+          const product = await queryRunner.manager.findOne(Product, {
+            where: { id: item.productId },
+            lock: { mode: 'pessimistic_write' },
+          });
 
-        if (stock) {
-          stock.quantity += item.quantity;
-          await queryRunner.manager.save(stock);
+          if (product) {
+            product.quantity += item.quantity;
+            await queryRunner.manager.save(product);
+          }
         }
       }
 
