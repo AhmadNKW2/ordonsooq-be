@@ -8,8 +8,11 @@ import {
   ManyToOne,
   JoinColumn,
   Index,
+  ManyToMany,
+  JoinTable,
 } from 'typeorm';
 import { AttributeValue } from './attribute-value.entity';
+import { Category } from '../../categories/entities/category.entity';
 
 @Entity('attributes')
 @Index('idx_attributes_is_active', ['is_active'])
@@ -68,6 +71,14 @@ export class Attribute {
     cascade: true,
   })
   values: AttributeValue[];
+
+  @ManyToMany(() => Category, (category) => category.attributes)
+  @JoinTable({
+    name: 'attribute_categories',
+    joinColumn: { name: 'attribute_id', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'category_id', referencedColumnName: 'id' },
+  })
+  categories: Category[];
 
   @CreateDateColumn()
   created_at: Date;

@@ -33,6 +33,7 @@ import { ProductSpecificationInputDto } from './dto/product-specification.dto';
 import { ProductAttributeInputDto } from './dto/product-attribute.dto';
 import { ProductGroup } from './entities/product-group.entity';
 import { GroupProduct } from './entities/group-product.entity';
+import { ProductSlugRedirect } from './entities/product-slug-redirect.entity';
 
 import { Like, Not } from 'typeorm';
 
@@ -131,6 +132,8 @@ export class ProductsService {
   constructor(
     @InjectRepository(Product)
     private productsRepository: Repository<Product>,
+    @InjectRepository(ProductSlugRedirect)
+    private readonly slugRedirectRepository: Repository<ProductSlugRedirect>,
     @InjectRepository(ProductGroup)
     private productGroupsRepository: Repository<ProductGroup>,
     @InjectRepository(GroupProduct)
@@ -159,6 +162,34 @@ export class ProductsService {
           ),
       ),
     ];
+  }
+
+  private resolveIsOutOfStock(params: {
+    quantity: number;
+    requestedState?: boolean;
+    currentState?: boolean;
+    fallbackState?: boolean;
+  }): boolean {
+    const {
+      quantity,
+      requestedState,
+      currentState,
+      fallbackState = false,
+    } = params;
+
+    if (quantity <= 0) {
+      return true;
+    }
+
+    if (requestedState !== undefined) {
+      return requestedState;
+    }
+
+    if (currentState !== undefined) {
+      return currentState;
+    }
+
+    return fallbackState;
   }
 
   private async ensureProductsExist(
@@ -1255,6 +1286,11 @@ export class ProductsService {
       }
 
       const slug = await this.generateUniqueSlug(dto.name_en);
+      const initialQuantity = dto.quantity ?? 0;
+      const initialIsOutOfStock = this.resolveIsOutOfStock({
+        quantity: initialQuantity,
+        requestedState: dto.is_out_of_stock,
+      });
 
       // 1. Create basic product (primary category is first in the list)
       const product = this.productsRepository.create({
@@ -1280,9 +1316,13 @@ export class ProductsService {
         length: dto.length ?? null,
         width: dto.width ?? null,
         height: dto.height ?? null,
-        quantity: dto.quantity ?? 0,
+        quantity: initialQuantity,
         low_stock_threshold: dto.low_stock_threshold ?? 10,
-        is_out_of_stock: dto.is_out_of_stock ?? true,
+        is_out_of_stock: initialIsOutOfStock,
+        meta_title_en: dto.meta_title_en ?? null,
+        meta_title_ar: dto.meta_title_ar ?? null,
+        meta_description_en: dto.meta_description_en ?? null,
+        meta_description_ar: dto.meta_description_ar ?? null,
       });
       const savedProduct = await this.productsRepository.save(product);
 
@@ -1989,8 +2029,11 @@ export class ProductsService {
    */
   async update(id: number, dto: UpdateProductDto): Promise<any> {
     // Lightweight check for existence
-    const exists = await this.productsRepository.count({ where: { id } });
-    if (!exists) {
+    const existingProduct = await this.productsRepository.findOne({
+      where: { id },
+      select: ['id', 'slug', 'quantity', 'is_out_of_stock'],
+    });
+    if (!existingProduct) {
       throw new NotFoundException('Product not found');
     }
 
@@ -2069,13 +2112,30 @@ export class ProductsService {
         'height',
         'quantity',
         'low_stock_threshold',
-        'is_out_of_stock',
+        'meta_title_en',
+        'meta_title_ar',
+        'meta_description_en',
+        'meta_description_ar',
       ];
       const basicInfoChanges: any = {};
 
       // Auto-update slug if name changes
       if (dto.name_en) {
-        basicInfoChanges.slug = await this.generateUniqueSlug(dto.name_en, id);
+        const newSlug = await this.generateUniqueSlug(dto.name_en, id);
+        basicInfoChanges.slug = newSlug;
+
+        if (existingProduct.slug && existingProduct.slug !== newSlug) {
+          await queryRunner.manager
+            .getRepository(ProductSlugRedirect)
+            .upsert(
+              {
+                old_slug: existingProduct.slug,
+                new_slug: newSlug,
+                product_id: id,
+              },
+              ['old_slug'],
+            );
+        }
       }
 
       basicInfoFields.forEach((field) => {
@@ -2083,6 +2143,15 @@ export class ProductsService {
           basicInfoChanges[field] = dto[field];
         }
       });
+
+      if (dto.quantity !== undefined || dto.is_out_of_stock !== undefined) {
+        const nextQuantity = dto.quantity ?? existingProduct.quantity;
+        basicInfoChanges.is_out_of_stock = this.resolveIsOutOfStock({
+          quantity: nextQuantity,
+          requestedState: dto.is_out_of_stock,
+          currentState: existingProduct.is_out_of_stock,
+        });
+      }
 
       if (Object.keys(basicInfoChanges).length > 0) {
         await queryRunner.manager.update(Product, id, basicInfoChanges);
@@ -2149,6 +2218,12 @@ export class ProductsService {
         `Failed to update product: ${error.message}`,
       );
     }
+  }
+
+  async findSlugRedirect(oldSlug: string): Promise<ProductSlugRedirect | null> {
+    return this.slugRedirectRepository.findOne({
+      where: { old_slug: oldSlug },
+    });
   }
 
   // Update average rating (called when rating is added/updated)

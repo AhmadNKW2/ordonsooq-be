@@ -4,11 +4,13 @@ import {
   PrimaryGeneratedColumn,
   ManyToOne,
   OneToMany,
+  ManyToMany,
   CreateDateColumn,
   UpdateDateColumn,
   JoinColumn,
   Index,
 } from 'typeorm';
+import { Attribute } from '../../attributes/entities/attribute.entity';
 
 export enum CategoryStatus {
   ACTIVE = 'active',
@@ -81,6 +83,9 @@ export class Category {
   // Legacy relationship (for backward compatibility)
   @OneToMany('Product', 'category')
   products: any[];
+
+  @ManyToMany(() => Attribute, (attribute) => attribute.categories)
+  attributes: Attribute[];
 
   @Column({ nullable: true, type: 'timestamp' })
   archived_at: Date | null;

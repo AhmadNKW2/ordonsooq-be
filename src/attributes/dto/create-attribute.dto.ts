@@ -7,9 +7,9 @@ import {
   ValidateNested,
   IsHexColor,
   IsInt,
-  IsNumber,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class AttributeValueDto {
   @IsString()
@@ -73,6 +73,16 @@ export class CreateAttributeDto {
   @IsBoolean()
   @IsOptional()
   is_active?: boolean;
+
+  @ApiPropertyOptional({
+    type: [Number],
+    example: [5, 12],
+    description: 'Category IDs that this attribute can be used with.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  category_ids?: number[];
 
   @IsArray()
   @ValidateNested({ each: true })

@@ -199,6 +199,19 @@ export class Product {
   @JoinColumn({ name: 'created_by' })
   createdByUser: User;
 
+  // ── SEO ────────────────────────────────────────────────────────
+  @Column({ type: 'varchar', length: 70, nullable: true })
+  meta_title_en: string | null;
+
+  @Column({ type: 'varchar', length: 70, nullable: true })
+  meta_title_ar: string | null;
+
+  @Column({ type: 'varchar', length: 160, nullable: true })
+  meta_description_en: string | null;
+
+  @Column({ type: 'varchar', length: 160, nullable: true })
+  meta_description_ar: string | null;
+
   @CreateDateColumn()
   created_at: Date;
 

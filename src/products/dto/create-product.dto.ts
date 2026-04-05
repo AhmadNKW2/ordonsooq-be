@@ -39,13 +39,12 @@ class MediaInput {
 /**
  * Main DTO for product creation
  *
- * For simple products:
- * - Provide prices, weights, stocks without combination
- * - Do not provide attributes
- *
- * For variant products:
- * - Provide attributes (which attributes the product has)
- * - Provide prices, weights, stocks with combination
+ * Current payload model is flat:
+ * - Pricing uses cost, price, and sale_price
+ * - Dimensions use weight, length, width, and height
+ * - Stock uses quantity, low_stock_threshold, and is_out_of_stock
+ * - Media uses pre-uploaded media IDs
+ * - Attributes and specifications accept selected IDs only
  */
 export class CreateProductDto {
   // Basic product info
@@ -240,4 +239,30 @@ export class CreateProductDto {
   @IsString({ each: true })
   @IsOptional()
   tags?: string[];
+
+  // ============== SEO ==============
+
+  @ApiPropertyOptional({ example: 'Wireless Headphones | Ordonsooq', description: 'Meta title EN — max 70 chars. Leave empty for AI generation later.' })
+  @IsString()
+  @MaxLength(70)
+  @IsOptional()
+  meta_title_en?: string;
+
+  @ApiPropertyOptional({ example: 'سماعات لاسلكية | أوردون سوق', description: 'Meta title AR — max 70 chars. Leave empty for AI generation later.' })
+  @IsString()
+  @MaxLength(70)
+  @IsOptional()
+  meta_title_ar?: string;
+
+  @ApiPropertyOptional({ example: 'Buy the best wireless headphones with ANC technology.', description: 'Meta description EN — max 160 chars. Leave empty for AI generation later.' })
+  @IsString()
+  @MaxLength(160)
+  @IsOptional()
+  meta_description_en?: string;
+
+  @ApiPropertyOptional({ example: 'اشترِ أفضل السماعات اللاسلكية بتقنية إلغاء الضوضاء.', description: 'Meta description AR — max 160 chars. Leave empty for AI generation later.' })
+  @IsString()
+  @MaxLength(160)
+  @IsOptional()
+  meta_description_ar?: string;
 }

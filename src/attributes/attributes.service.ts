@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Attribute } from './entities/attribute.entity';
 import { AttributeValue } from './entities/attribute-value.entity';
+import { Category } from '../categories/entities/category.entity';
 import { CreateAttributeDto } from './dto/create-attribute.dto';
 import { UpdateAttributeDto } from './dto/update-attribute.dto';
 import { ReorderAttributesDto } from './dto/reorder-attributes.dto';
@@ -20,7 +21,74 @@ export class AttributesService {
     private attributeRepository: Repository<Attribute>,
     @InjectRepository(AttributeValue)
     private attributeValueRepository: Repository<AttributeValue>,
+    @InjectRepository(Category)
+    private categoryRepository: Repository<Category>,
   ) {}
+
+  private normalizeCategoryIds(categoryIds?: number[]): number[] {
+    return [
+      ...new Set(
+        (categoryIds ?? [])
+          .map((categoryId) => Number(categoryId))
+          .filter((categoryId) => Number.isInteger(categoryId) && categoryId > 0),
+      ),
+    ];
+  }
+
+  private async syncCategoriesForAttribute(
+    attributeId: number,
+    categoryIds: number[],
+  ): Promise<void> {
+    const normalizedCategoryIds = this.normalizeCategoryIds(categoryIds);
+
+    if (normalizedCategoryIds.length > 0) {
+      const categories = await this.categoryRepository.find({
+        where: { id: In(normalizedCategoryIds) },
+        select: ['id'],
+      });
+
+      if (categories.length !== normalizedCategoryIds.length) {
+        throw new NotFoundException('One or more categories not found');
+      }
+    }
+
+    const relation = this.attributeRepository
+      .createQueryBuilder()
+      .relation(Attribute, 'categories')
+      .of(attributeId);
+
+    const currentCategories = (await relation.loadMany()) as Category[];
+    await relation.addAndRemove(
+      normalizedCategoryIds,
+      currentCategories.map((category) => category.id),
+    );
+  }
+
+  private async attachCategoriesToAttributes(
+    attributes: Attribute[],
+  ): Promise<void> {
+    if (attributes.length === 0) {
+      return;
+    }
+
+    const categoryRelations = await this.attributeRepository.find({
+      where: { id: In(attributes.map((attribute) => attribute.id)) },
+      relations: ['categories'],
+    });
+
+    const categoriesByAttributeId = new Map(
+      categoryRelations.map((attribute) => [
+        attribute.id,
+        [...(attribute.categories ?? [])].sort(
+          (left, right) => left.sortOrder - right.sortOrder || left.id - right.id,
+        ),
+      ]),
+    );
+
+    attributes.forEach((attribute) => {
+      attribute.categories = categoriesByAttributeId.get(attribute.id) ?? [];
+    });
+  }
 
   async create(createAttributeDto: CreateAttributeDto): Promise<Attribute> {
     const existing = await this.attributeRepository.findOne({
@@ -40,7 +108,11 @@ export class AttributesService {
 
     // Assign sort_order to values if they exist
     // Destructure values to handle them separately to avoid "Cyclic dependency" error in TypeORM save
-    const { values: valuesDto, ...attributeData } = createAttributeDto;
+    const {
+      values: valuesDto,
+      category_ids,
+      ...attributeData
+    } = createAttributeDto;
 
     const attribute = this.attributeRepository.create({
       ...attributeData,
@@ -58,6 +130,10 @@ export class AttributesService {
         }),
       );
       await this.attributeValueRepository.save(values);
+    }
+
+    if (category_ids !== undefined) {
+      await this.syncCategoriesForAttribute(savedAttribute.id, category_ids);
     }
 
     return this.findOne(savedAttribute.id);
@@ -93,6 +169,8 @@ export class AttributesService {
         attr.values.forEach((val) => (val.level = level));
       }
     });
+
+    await this.attachCategoriesToAttributes(attributes);
 
     return attributes;
   }
@@ -131,6 +209,8 @@ export class AttributesService {
       attribute.values.forEach((val) => (val.level = level));
     }
 
+    await this.attachCategoriesToAttributes([attribute]);
+
     return attribute;
   }
 
@@ -158,8 +238,16 @@ export class AttributesService {
       }
     }
 
-    Object.assign(attribute, updateAttributeDto);
-    return await this.attributeRepository.save(attribute);
+    const { category_ids, values, ...attributeData } = updateAttributeDto;
+
+    Object.assign(attribute, attributeData);
+    await this.attributeRepository.save(attribute);
+
+    if (category_ids !== undefined) {
+      await this.syncCategoriesForAttribute(id, category_ids);
+    }
+
+    return this.findOne(id);
   }
 
   async remove(id: number): Promise<void> {

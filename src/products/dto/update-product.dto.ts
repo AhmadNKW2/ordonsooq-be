@@ -43,10 +43,9 @@ export class MediaItemDto {
  * The payload represents the COMPLETE state of the product.
  * All basic product information is required.
  *
- * For attributes, prices, weights, and stocks:
- * - Existing data is REPLACED with what's in the payload
- * - If a field is not provided or is empty, existing data will be cleared
- * - Media is managed separately via media_management
+ * Uses the same flat field model as CreateProductDto.
+ * - Scalar fields overwrite the existing product values
+ * - Attributes, specifications, media, tags, and linked products are synced from the payload
  */
 export class UpdateProductDto {
   // ============== Basic Product Info (Required) ==============
@@ -231,4 +230,30 @@ export class UpdateProductDto {
   @IsString({ each: true })
   @IsOptional()
   tags?: string[];
+
+  // ============== SEO ==============
+
+  @ApiPropertyOptional({ example: 'Wireless Headphones | Ordonsooq', description: 'Meta title EN — max 70 chars. Leave empty for AI generation later.' })
+  @IsString()
+  @MaxLength(70)
+  @IsOptional()
+  meta_title_en?: string;
+
+  @ApiPropertyOptional({ example: 'سماعات لاسلكية | أوردون سوق', description: 'Meta title AR — max 70 chars. Leave empty for AI generation later.' })
+  @IsString()
+  @MaxLength(70)
+  @IsOptional()
+  meta_title_ar?: string;
+
+  @ApiPropertyOptional({ example: 'Buy the best wireless headphones with ANC technology.', description: 'Meta description EN — max 160 chars. Leave empty for AI generation later.' })
+  @IsString()
+  @MaxLength(160)
+  @IsOptional()
+  meta_description_en?: string;
+
+  @ApiPropertyOptional({ example: 'اشترِ أفضل السماعات اللاسلكية بتقنية إلغاء الضوضاء.', description: 'Meta description AR — max 160 chars. Leave empty for AI generation later.' })
+  @IsString()
+  @MaxLength(160)
+  @IsOptional()
+  meta_description_ar?: string;
 }

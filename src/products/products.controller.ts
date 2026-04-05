@@ -142,6 +142,26 @@ export class ProductsController {
           vendor_id: 2,
           brand_id: 34,
           visible: true,
+          cost: 1200,
+          price: 1585.9,
+          sale_price: 1499.9,
+          weight: 10.5,
+          length: 93.5,
+          width: 28.4,
+          height: 61.2,
+          quantity: 12,
+          low_stock_threshold: 3,
+          is_out_of_stock: false,
+          meta_title_en: 'LG UltraGear WOLED Gaming Monitor 39-inch | Ordonsooq',
+          meta_title_ar: 'شاشة LG UltraGear WOLED مقاس 39 بوصة | أوردون سوق',
+          meta_description_en:
+            'Buy the LG UltraGear 39-inch WOLED gaming monitor with premium display performance.',
+          meta_description_ar:
+            'اشترِ شاشة LG UltraGear WOLED مقاس 39 بوصة بأداء عرض مميز للألعاب.',
+          media: [
+            { media_id: 3172, is_primary: true, sort_order: 0 },
+            { media_id: 3173, is_primary: false, sort_order: 1 },
+          ],
           specifications: [
             { specification_id: 1, specification_value_ids: [60] },
             { specification_id: 4, specification_value_ids: [7, 8, 39] },
@@ -150,24 +170,41 @@ export class ProductsController {
             { specification_id: 10, specification_value_ids: [35] },
             { specification_id: 11, specification_value_ids: [67] },
           ],
-          prices: [{ price: 1585.9 }],
+          tags: ['monitor', 'oled', 'gaming'],
         },
       },
       full_variant_payload: {
-        summary: 'Variant product using the provided real payload',
+        summary: 'Full product payload using the current DTO',
         value: {
-          name_en: 'asd',
-          name_ar: 'asd',
+          name_en: 'ASD Gaming Mouse',
+          name_ar: 'ماوس ألعاب ASD',
+          sku: 'ASD-MOUSE-001',
           status: 'active',
-          short_description_en: '<p>asd</p>',
-          short_description_ar: '<p>asd</p>',
-          long_description_en: '<p>asd</p>',
-          long_description_ar: '<p>asd</p>',
+          short_description_en: '<p>Lightweight gaming mouse with configurable options.</p>',
+          short_description_ar: '<p>ماوس ألعاب خفيف مع خيارات قابلة للتخصيص.</p>',
+          long_description_en: '<p>Premium gaming mouse designed for precision, speed, and comfort.</p>',
+          long_description_ar: '<p>ماوس ألعاب احترافي مصمم للدقة والسرعة والراحة.</p>',
           category_ids: [35],
           reference_link: 'https://mcc-jo.com/category/mouse',
           vendor_id: 2,
           brand_id: 34,
           visible: true,
+          cost: 30,
+          price: 50,
+          sale_price: 45,
+          weight: 0.25,
+          length: 12,
+          width: 6,
+          height: 4,
+          quantity: 100,
+          low_stock_threshold: 10,
+          is_out_of_stock: false,
+          meta_title_en: 'ASD Gaming Mouse | Ordonsooq',
+          meta_title_ar: 'ماوس ألعاب ASD | أوردون سوق',
+          meta_description_en:
+            'Shop the ASD gaming mouse with configurable variants and premium performance.',
+          meta_description_ar:
+            'تسوّق ماوس الألعاب ASD مع خيارات متعددة وأداء مميز.',
           specifications: [
             {
               specification_id: 11,
@@ -181,101 +218,35 @@ export class ProductsController {
           attributes: [
             {
               attribute_id: 3,
-              controls_pricing: false,
-              controls_media: true,
-              controls_weight: false,
+              attribute_value_ids: [6, 7],
             },
             {
               attribute_id: 10,
-              controls_pricing: false,
-              controls_media: false,
-              controls_weight: false,
+              attribute_value_ids: [29],
             },
             {
               attribute_id: 11,
-              controls_pricing: false,
-              controls_media: false,
-              controls_weight: false,
+              attribute_value_ids: [30],
             },
             {
               attribute_id: 12,
-              controls_pricing: false,
-              controls_media: false,
-              controls_weight: false,
-            },
-          ],
-          prices: [{ price: 50 }],
-          stocks: [
-            {
-              combination: {
-                '3': 6,
-                '10': 29,
-                '11': 30,
-                '12': 40,
-              },
-              quantity: 0,
-              is_out_of_stock: false,
-            },
-            {
-              combination: {
-                '3': 7,
-                '10': 29,
-                '11': 30,
-                '12': 40,
-              },
-              quantity: 0,
-              is_out_of_stock: false,
-            },
-          ],
-          variants: [
-            {
-              combination: {
-                '3': 6,
-                '10': 29,
-                '11': 30,
-                '12': 40,
-              },
-              is_active: true,
-            },
-            {
-              combination: {
-                '3': 7,
-                '10': 29,
-                '11': 30,
-                '12': 40,
-              },
-              is_active: true,
+              attribute_value_ids: [40],
             },
           ],
           media: [
             {
               media_id: 3172,
               is_primary: true,
-              is_group_primary: true,
               sort_order: 0,
-              combination: {
-                '3': 6,
-              },
             },
             {
               media_id: 3173,
               is_primary: false,
-              is_group_primary: false,
               sort_order: 1,
-              combination: {
-                '3': 6,
-              },
-            },
-            {
-              media_id: 3174,
-              is_primary: false,
-              is_group_primary: true,
-              sort_order: 0,
-              combination: {
-                '3': 7,
-              },
             },
           ],
+          linked_product_ids: [41, 42],
+          tags: ['gaming', 'mouse', 'rgb'],
         },
       },
     },
@@ -323,6 +294,16 @@ export class ProductsController {
     return this.productsService.findOneByReferenceLink(referenceLink, isAdmin);
   }
 
+  @Get('slug-redirect/:slug')
+  @HttpCode(HttpStatus.OK)
+  async getSlugRedirect(@Param('slug') slug: string) {
+    const redirect = await this.productsService.findSlugRedirect(slug);
+    if (!redirect) {
+      throw new NotFoundException('No redirect found for this slug');
+    }
+    return { new_slug: redirect.new_slug };
+  }
+
   @Get(':id')
   @UseGuards(OptionalJwtAuthGuard)
   findOne(@Param('id', ParseIntPipe) id: number, @Req() req: any) {
@@ -365,6 +346,26 @@ export class ProductsController {
           vendor_id: 2,
           brand_id: 34,
           visible: true,
+          cost: 1200,
+          price: 1585.9,
+          sale_price: 1499.9,
+          weight: 10.5,
+          length: 93.5,
+          width: 28.4,
+          height: 61.2,
+          quantity: 8,
+          low_stock_threshold: 3,
+          is_out_of_stock: false,
+          meta_title_en: 'LG UltraGear WOLED Gaming Monitor 39-inch | Ordonsooq',
+          meta_title_ar: 'شاشة LG UltraGear WOLED مقاس 39 بوصة | أوردون سوق',
+          meta_description_en:
+            'Buy the LG UltraGear 39-inch WOLED gaming monitor with premium display performance.',
+          meta_description_ar:
+            'اشترِ شاشة LG UltraGear WOLED مقاس 39 بوصة بأداء عرض مميز للألعاب.',
+          media: [
+            { media_id: 3172, is_primary: true, sort_order: 0 },
+            { media_id: 3173, is_primary: false, sort_order: 1 },
+          ],
           specifications: [
             { specification_id: 1, specification_value_ids: [60] },
             { specification_id: 4, specification_value_ids: [7, 39] },
@@ -373,7 +374,7 @@ export class ProductsController {
             { specification_id: 10, specification_value_ids: [35] },
             { specification_id: 11, specification_value_ids: [67] },
           ],
-          prices: [{ price: 1585.9 }],
+          tags: ['monitor', 'oled', 'gaming'],
         },
       },
       replace_attributes_and_specifications: {
@@ -389,22 +390,38 @@ export class ProductsController {
           vendor_id: 2,
           brand_id: 34,
           visible: true,
+          cost: 70,
+          price: 129.9,
+          sale_price: 119.9,
+          weight: 0.12,
+          length: 12,
+          width: 6.5,
+          height: 4,
+          quantity: 45,
+          low_stock_threshold: 5,
+          is_out_of_stock: false,
+          meta_title_en: 'Gaming Mouse Pro | Ordonsooq',
+          meta_title_ar: 'ماوس الألعاب برو | أوردون سوق',
+          meta_description_en:
+            'Upgrade to the Gaming Mouse Pro with refined specs and accessory options.',
+          meta_description_ar:
+            'طوّر تجربتك مع Gaming Mouse Pro بمواصفات محسّنة وخيارات إضافية.',
           attributes: [
             {
               attribute_id: 21,
-              controls_pricing: true,
-              controls_media: false,
-              controls_weight: false,
+              attribute_value_ids: [101, 102],
             },
+          ],
+          media: [
+            { media_id: 4101, is_primary: true, sort_order: 0 },
+            { media_id: 4102, is_primary: false, sort_order: 1 },
           ],
           specifications: [
             { specification_id: 4, specification_value_ids: [39] },
             { specification_id: 11, specification_value_ids: [67] },
           ],
-          prices: [
-            { combination: { '21': 101 }, price: 129.9 },
-            { combination: { '21': 102 }, price: 139.9 },
-          ],
+          linked_product_ids: [12, 18, 27],
+          tags: ['gaming', 'mouse', 'wireless'],
         },
       },
     },
@@ -439,21 +456,42 @@ export class ProductsController {
           attributes: [
             {
               attribute_id: 21,
-              controls_pricing: true,
-              controls_media: false,
-              controls_weight: false,
+              attribute_value_ids: [101, 102],
             },
           ],
           specifications: [
             { specification_id: 4, specification_value_ids: [39] },
             { specification_id: 11, specification_value_ids: [67] },
           ],
+          media: [
+            { media_id: 4101, is_primary: true, sort_order: 0 },
+            { media_id: 4102, is_primary: false, sort_order: 1 },
+          ],
+          price: 129.9,
+          sale_price: 119.9,
+          quantity: 45,
+          weight: 0.12,
+          length: 12,
+          width: 6.5,
+          height: 4,
+          is_out_of_stock: false,
         },
       },
       clear_specifications: {
         summary: 'Remove all product specifications',
         value: {
           specifications: [],
+        },
+      },
+      seo_only: {
+        summary: 'Update only SEO fields',
+        value: {
+          meta_title_en: 'Wireless Headphones | Ordonsooq',
+          meta_title_ar: 'سماعات لاسلكية | أوردون سوق',
+          meta_description_en:
+            'Buy the best wireless headphones with ANC technology.',
+          meta_description_ar:
+            'اشترِ أفضل السماعات اللاسلكية بتقنية إلغاء الضوضاء.',
         },
       },
     },

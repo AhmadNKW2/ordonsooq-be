@@ -20,6 +20,7 @@ import { SearchModule } from '../search/search.module';
 import { SearchProcessor } from '../search/search.processor';
 import { CartItem } from '../cart/entities/cart-item.entity';
 import { Tag } from '../search/entities/tag.entity';
+import { ProductSlugRedirect } from './entities/product-slug-redirect.entity';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { Tag } from '../search/entities/tag.entity';
       Brand,
       CartItem,
       Tag,
+      ProductSlugRedirect,
     ]),
     AttributesModule,
     forwardRef(() => SearchModule),

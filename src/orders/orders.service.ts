@@ -21,6 +21,7 @@ import { UpdateOrderItemsCostDto } from './dto/update-order-items-cost.dto';
 import { User } from '../users/entities/user.entity';
 import { TransactionSource } from '../wallet/entities/wallet-transaction.entity';
 import { CartService } from '../cart/cart.service';
+import { ProductsService } from '../products/products.service';
 
 // ... imports
 
@@ -34,6 +35,7 @@ export class OrdersService {
     private couponsService: CouponsService,
     private walletService: WalletService,
     private cartService: CartService,
+    private productsService: ProductsService,
     private dataSource: DataSource,
   ) {}
 
@@ -46,6 +48,7 @@ export class OrdersService {
       // 1. Process items, validate stock, calculate subtotal
       let subtotalAmount = 0;
       const orderItemsToCreate: any[] = [];
+      const touchedProductIds = new Set<number>();
 
       // Sort items by productId and variantId to avoid deadlocks
       const sortedItems = [...createOrderDto.items].sort((a, b) => {
@@ -60,6 +63,7 @@ export class OrdersService {
       for (const itemDto of sortedItems) {
         const product = await queryRunner.manager.findOne(Product, {
           where: { id: itemDto.productId },
+          lock: { mode: 'pessimistic_write' },
         });
 
         if (!product) {
@@ -76,7 +80,8 @@ export class OrdersService {
         }
 
         // Check stock
-        if (product.is_out_of_stock) {
+        const availableQuantity = Number(product.quantity ?? 0);
+        if (product.is_out_of_stock || availableQuantity < itemDto.quantity) {
           throw new BadRequestException(
             `Insufficient stock for product ${product.name_en}`,
           );
@@ -106,7 +111,12 @@ export class OrdersService {
           },
         });
 
-        // Note: Stock decrement string removed temporarily since actual stock is unknown
+        product.quantity = availableQuantity - itemDto.quantity;
+        if (product.quantity === 0) {
+          product.is_out_of_stock = true;
+        }
+        await queryRunner.manager.save(Product, product);
+        touchedProductIds.add(product.id);
       }
 
       let discountAmount = 0;
@@ -203,6 +213,12 @@ export class OrdersService {
       }
 
       await queryRunner.commitTransaction();
+
+      void Promise.allSettled(
+        [...touchedProductIds].map((productId) =>
+          this.productsService.reindexOne(productId),
+        ),
+      );
 
       // Clear Cart
       try {
@@ -335,6 +351,7 @@ export class OrdersService {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
+    const touchedProductIds = new Set<number>();
 
     try {
       // Restore Stock
@@ -348,6 +365,7 @@ export class OrdersService {
           if (product) {
             product.quantity += item.quantity;
             await queryRunner.manager.save(product);
+            touchedProductIds.add(product.id);
           }
         }
       }
@@ -373,6 +391,13 @@ export class OrdersService {
       await queryRunner.manager.save(order);
 
       await queryRunner.commitTransaction();
+
+      void Promise.allSettled(
+        [...touchedProductIds].map((productId) =>
+          this.productsService.reindexOne(productId),
+        ),
+      );
+
       return this.findOne(order.id);
     } catch (error) {
       await queryRunner.rollbackTransaction();
