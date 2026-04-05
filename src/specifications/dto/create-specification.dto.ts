@@ -8,6 +8,7 @@ import {
   IsInt,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class SpecificationValueDto {
   @IsString()
@@ -59,6 +60,16 @@ export class CreateSpecificationDto {
   @IsBoolean()
   @IsOptional()
   is_active?: boolean;
+
+  @ApiPropertyOptional({
+    type: [Number],
+    example: [5, 12],
+    description: 'Category IDs that this specification can be used with.',
+  })
+  @IsArray()
+  @IsInt({ each: true })
+  @IsOptional()
+  category_ids?: number[];
 
   @IsArray()
   @ValidateNested({ each: true })

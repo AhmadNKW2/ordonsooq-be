@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Specification } from './entities/specification.entity';
 import { SpecificationValue } from './entities/specification-value.entity';
+import { Category } from '../categories/entities/category.entity';
 import { CreateSpecificationDto } from './dto/create-specification.dto';
 import { UpdateSpecificationDto } from './dto/update-specification.dto';
 import { ReorderSpecificationsDto } from './dto/reorder-specifications.dto';
@@ -20,7 +21,48 @@ export class SpecificationsService {
     private specificationRepository: Repository<Specification>,
     @InjectRepository(SpecificationValue)
     private specificationValueRepository: Repository<SpecificationValue>,
+    @InjectRepository(Category)
+    private categoryRepository: Repository<Category>,
   ) {}
+
+  private normalizeCategoryIds(categoryIds?: number[]): number[] {
+    return [
+      ...new Set(
+        (categoryIds ?? [])
+          .map((categoryId) => Number(categoryId))
+          .filter((categoryId) => Number.isInteger(categoryId) && categoryId > 0),
+      ),
+    ];
+  }
+
+  private async syncCategoriesForSpecification(
+    specificationId: number,
+    categoryIds: number[],
+  ): Promise<void> {
+    const normalizedCategoryIds = this.normalizeCategoryIds(categoryIds);
+
+    if (normalizedCategoryIds.length > 0) {
+      const categories = await this.categoryRepository.find({
+        where: { id: In(normalizedCategoryIds) },
+        select: ['id'],
+      });
+
+      if (categories.length !== normalizedCategoryIds.length) {
+        throw new NotFoundException('One or more categories not found');
+      }
+    }
+
+    const relation = this.specificationRepository
+      .createQueryBuilder()
+      .relation(Specification, 'categories')
+      .of(specificationId);
+
+    const currentCategories = (await relation.loadMany()) as Category[];
+    await relation.addAndRemove(
+      normalizedCategoryIds,
+      currentCategories.map((category) => category.id),
+    );
+  }
 
   async create(createSpecificationDto: CreateSpecificationDto): Promise<Specification> {
     const existing = await this.specificationRepository.findOne({
@@ -37,7 +79,7 @@ export class SpecificationsService {
       .getRawOne();
     const nextSortOrder = (maxSortOrder?.max ?? -1) + 1;
 
-    const { values: valuesDto, ...specificationData } = createSpecificationDto;
+    const { category_ids, values: valuesDto, ...specificationData } = createSpecificationDto;
 
     const specification = this.specificationRepository.create({
       ...specificationData,
@@ -45,6 +87,10 @@ export class SpecificationsService {
     });
 
     const savedSpecification = await this.specificationRepository.save(specification);
+
+    if (category_ids) {
+      await this.syncCategoriesForSpecification(savedSpecification.id, category_ids);
+    }
 
     if (valuesDto && valuesDto.length > 0) {
       const values = valuesDto.map((value, index) =>
@@ -60,10 +106,17 @@ export class SpecificationsService {
     return this.findOne(savedSpecification.id);
   }
 
-  async findAll(): Promise<Specification[]> {
-    const specifications = await this.specificationRepository
+  async findAll(categoryId?: number): Promise<Specification[]> {
+    const query = this.specificationRepository
       .createQueryBuilder('specification')
       .leftJoinAndSelect('specification.values', 'values')
+      .leftJoin('specification.categories', 'categories');
+
+    if (categoryId) {
+      query.where('categories.id = :categoryId', { categoryId });
+    }
+
+    const specifications = await query
       .orderBy('specification.sort_order', 'ASC')
       .addOrderBy('specification.created_at', 'DESC')
       .addOrderBy('values.sort_order', 'ASC')
@@ -150,8 +203,16 @@ export class SpecificationsService {
       }
     }
 
-    Object.assign(specification, updateSpecificationDto);
-    return await this.specificationRepository.save(specification);
+    const { category_ids, ...specificationData } = updateSpecificationDto;
+
+    Object.assign(specification, specificationData);
+    await this.specificationRepository.save(specification);
+
+    if (category_ids !== undefined) {
+      await this.syncCategoriesForSpecification(id, category_ids);
+    }
+
+    return this.findOne(id);
   }
 
   async remove(id: number): Promise<void> {

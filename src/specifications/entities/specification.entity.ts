@@ -6,10 +6,13 @@ import {
   UpdateDateColumn,
   OneToMany,
   ManyToOne,
+  ManyToMany,
+  JoinTable,
   JoinColumn,
   Index,
 } from 'typeorm';
 import { SpecificationValue } from './specification-value.entity';
+import { Category } from '../../categories/entities/category.entity';
 
 @Entity('specifications')
 @Index('idx_specifications_is_active', ['is_active'])
@@ -62,6 +65,14 @@ export class Specification {
     cascade: true,
   })
   values: SpecificationValue[];
+
+  @ManyToMany(() => Category, (category) => category.specifications)
+  @JoinTable({
+    name: 'specification_categories',
+    joinColumn: { name: 'specification_id', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'category_id', referencedColumnName: 'id' },
+  })
+  categories: Category[];
 
   @CreateDateColumn()
   created_at: Date;

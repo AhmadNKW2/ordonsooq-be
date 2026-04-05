@@ -8,6 +8,7 @@ import {
   Param,
   Delete,
   UseGuards,
+  Query,
 } from '@nestjs/common';
 import { SpecificationsService } from './specifications.service';
 import { CreateSpecificationDto } from './dto/create-specification.dto';
@@ -18,6 +19,7 @@ import { UpdateSpecificationValueDto } from './dto/update-specification-value.dt
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles, UserRole } from '../common/decorators/roles.decorator';
+import { ApiQuery } from '@nestjs/swagger';
 
 @Controller('specifications')
 export class SpecificationsController {
@@ -31,8 +33,9 @@ export class SpecificationsController {
   }
 
   @Get()
-  findAll() {
-    return this.specificationsService.findAll();
+  @ApiQuery({ name: 'category_id', required: false, type: Number })
+  findAll(@Query('category_id') categoryId?: number) {
+    return this.specificationsService.findAll(categoryId ? +categoryId : undefined);
   }
 
   @Put('reorder')

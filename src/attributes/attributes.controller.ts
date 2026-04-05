@@ -8,6 +8,7 @@ import {
   Param,
   Delete,
   UseGuards,
+  Query,
 } from '@nestjs/common';
 import { AttributesService } from './attributes.service';
 import { CreateAttributeDto } from './dto/create-attribute.dto';
@@ -18,6 +19,7 @@ import { UpdateAttributeValueDto } from './dto/update-attribute-value.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles, UserRole } from '../common/decorators/roles.decorator';
+import { ApiQuery } from '@nestjs/swagger';
 
 @Controller('attributes')
 export class AttributesController {
@@ -31,8 +33,9 @@ export class AttributesController {
   }
 
   @Get()
-  findAll() {
-    return this.attributesService.findAll();
+  @ApiQuery({ name: 'category_id', required: false, type: Number })
+  findAll(@Query('category_id') categoryId?: number) {
+    return this.attributesService.findAll(categoryId ? +categoryId : undefined);
   }
 
   @Put('reorder')

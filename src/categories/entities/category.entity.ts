@@ -11,6 +11,7 @@ import {
   Index,
 } from 'typeorm';
 import { Attribute } from '../../attributes/entities/attribute.entity';
+import { Specification } from '../../specifications/entities/specification.entity';
 
 export enum CategoryStatus {
   ACTIVE = 'active',
@@ -86,6 +87,9 @@ export class Category {
 
   @ManyToMany(() => Attribute, (attribute) => attribute.categories)
   attributes: Attribute[];
+
+  @ManyToMany(() => Specification, (specification) => specification.categories)
+  specifications: Specification[];
 
   @Column({ nullable: true, type: 'timestamp' })
   archived_at: Date | null;

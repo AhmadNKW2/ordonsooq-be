@@ -1421,20 +1421,20 @@ export class ProductsService {
     // 1) Building a lightweight base query for filters + count + paginated IDs
     // 2) Fetching full relations only for the page of product IDs
 
-    const baseQuery = this.productsRepository
-      .createQueryBuilder('product')
-      .where('product.status = :activeStatus', {
-        activeStatus: ProductStatus.ACTIVE,
+    const baseQuery = this.productsRepository.createQueryBuilder('product');
+
+    // Filter by status (override default ACTIVE if specified)
+    if (status !== undefined) {
+      baseQuery.where('product.status = :status', { status });
+    } else {
+      baseQuery.where('product.status = :defaultStatus', {
+        defaultStatus: ProductStatus.ACTIVE,
       });
+    }
 
     // Filter by IDs
     if (filterIds && filterIds.length > 0) {
       baseQuery.andWhere('product.id IN (:...filterIds)', { filterIds });
-    }
-
-    // Filter by status (override default ACTIVE if specified)
-    if (status !== undefined) {
-      baseQuery.andWhere('product.status = :status', { status });
     }
 
     // Filter by visible
