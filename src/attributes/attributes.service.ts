@@ -146,7 +146,10 @@ export class AttributesService {
       .leftJoin('attribute.categories', 'categories');
 
     if (categoryIds && categoryIds.length > 0) {
-      query.where('categories.id IN (:...categoryIds)', { categoryIds });
+      query.where(
+        '(categories.id IN (:...categoryIds) OR attribute.for_all_categories = :allCats)',
+        { categoryIds, allCats: true },
+      );
     }
 
     const attributes = await query

@@ -67,6 +67,9 @@ export class Attribute {
   @Column({ default: true })
   is_active: boolean;
 
+  @Column({ default: false })
+  for_all_categories: boolean;
+
   @OneToMany(() => AttributeValue, (value) => value.attribute, {
     cascade: true,
   })

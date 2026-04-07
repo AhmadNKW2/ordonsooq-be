@@ -74,6 +74,10 @@ export class CreateAttributeDto {
   @IsOptional()
   is_active?: boolean;
 
+  @IsBoolean()
+  @IsOptional()
+  for_all_categories?: boolean;
+
   @IsString()
   @IsOptional()
   attribute_type?: string;

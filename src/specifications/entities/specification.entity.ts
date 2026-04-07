@@ -61,6 +61,9 @@ export class Specification {
   @Column({ default: true })
   is_active: boolean;
 
+  @Column({ default: false })
+  for_all_categories: boolean;
+
   @OneToMany(() => SpecificationValue, (value) => value.specification, {
     cascade: true,
   })

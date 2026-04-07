@@ -66,6 +66,11 @@ export class UpdateProductDto {
   @IsOptional()
   sku?: string;
 
+  @ApiPropertyOptional({ example: 'Some extra record or string data', description: 'Any extra string record you want to store' })
+  @IsString()
+  @IsOptional()
+  record?: string;
+
   @ApiProperty({ example: 'Updated short description in English', description: 'Short description in English' })
   @IsString()
   short_description_en: string;

@@ -136,6 +136,7 @@ export class ProductsController {
           name_en: 'ASD Gaming Mouse',
           name_ar: 'ماوس ألعاب ASD',
           sku: 'ASD-MOUSE-001',
+          record: 'MIGRATED_FROM_OLD_DB_123',
           status: 'active',
           short_description_en: '<p>Lightweight gaming mouse with configurable options.</p>',
           short_description_ar: '<p>ماوس ألعاب خفيف مع خيارات قابلة للتخصيص.</p>',

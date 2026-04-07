@@ -70,6 +70,11 @@ export class CreateProductDto {
   @IsOptional()
   sku?: string;
 
+  @ApiPropertyOptional({ example: 'Some extra record or string data', description: 'Any extra string record you want to store' })
+  @IsString()
+  @IsOptional()
+  record?: string;
+
   @ApiProperty({ example: 'High quality wireless headphones with ANC.', description: 'Short description in English' })
   @IsString()
   short_description_en: string;

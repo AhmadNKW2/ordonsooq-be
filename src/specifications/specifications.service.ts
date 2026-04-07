@@ -64,6 +64,32 @@ export class SpecificationsService {
     );
   }
 
+  private async attachCategoriesToSpecifications(
+    specifications: Specification[],
+  ): Promise<void> {
+    if (specifications.length === 0) {
+      return;
+    }
+
+    const categoryRelations = await this.specificationRepository.find({
+      where: { id: In(specifications.map((specification) => specification.id)) },
+      relations: ['categories'],
+    });
+
+    const categoriesBySpecificationId = new Map(
+      categoryRelations.map((specification) => [
+        specification.id,
+        [...(specification.categories ?? [])].sort(
+          (left, right) => left.sortOrder - right.sortOrder || left.id - right.id,
+        ),
+      ]),
+    );
+
+    specifications.forEach((specification) => {
+      specification.categories = categoriesBySpecificationId.get(specification.id) ?? [];
+    });
+  }
+
   async create(createSpecificationDto: CreateSpecificationDto): Promise<Specification> {
     const existing = await this.specificationRepository.findOne({
       where: { name_en: createSpecificationDto.name_en },
@@ -113,7 +139,10 @@ export class SpecificationsService {
       .leftJoin('specification.categories', 'categories');
 
     if (categoryIds && categoryIds.length > 0) {
-      query.where('categories.id IN (:...categoryIds)', { categoryIds });
+      query.where(
+        '(categories.id IN (:...categoryIds) OR specification.for_all_categories = :allCats)',
+        { categoryIds, allCats: true },
+      );
     }
 
     const specifications = await query
@@ -142,6 +171,8 @@ export class SpecificationsService {
         spec.values.forEach((val) => (val.level = level));
       }
     });
+
+    await this.attachCategoriesToSpecifications(specifications);
 
     return specifications;
   }
@@ -177,6 +208,8 @@ export class SpecificationsService {
     if (specification.values) {
       specification.values.forEach((val) => (val.level = level));
     }
+
+    await this.attachCategoriesToSpecifications([specification]);
 
     return specification;
   }
