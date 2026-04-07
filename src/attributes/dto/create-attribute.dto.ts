@@ -74,6 +74,10 @@ export class CreateAttributeDto {
   @IsOptional()
   is_active?: boolean;
 
+  @IsString()
+  @IsOptional()
+  attribute_type?: string;
+
   @ApiPropertyOptional({
     type: [Number],
     example: [5, 12],

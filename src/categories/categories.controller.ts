@@ -198,6 +198,23 @@ export class CategoriesController {
     return this.categoriesService.findAllCategoryUrls(filterDto);
   }
 
+  @Get('vendor/:vendorId/urls')
+  @ApiOperation({ summary: 'List category URL mappings for one vendor' })
+  @ApiParam({ name: 'vendorId', example: 2, description: 'Vendor id' })
+  @ApiBadRequestResponse({
+    description: 'Invalid query parameters.',
+    type: ApiErrorResponseDto,
+  })
+  findCategoryUrlsByVendor(
+    @Param('vendorId', ParseIntPipe) vendorId: number,
+    @Query() filterDto: FilterCategoryUrlDto,
+  ) {
+    return this.categoriesService.findAllCategoryUrls({
+      ...filterDto,
+      vendor_id: vendorId,
+    });
+  }
+
   @Get('urls/:urlId')
   @ApiOperation({ summary: 'Get a category URL mapping by id' })
   @ApiParam({ name: 'urlId', example: 12 })

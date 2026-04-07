@@ -139,14 +139,14 @@ export class AttributesService {
     return this.findOne(savedAttribute.id);
   }
 
-  async findAll(categoryId?: number): Promise<Attribute[]> {
+  async findAll(categoryIds?: number[]): Promise<Attribute[]> {
     const query = this.attributeRepository
       .createQueryBuilder('attribute')
       .leftJoinAndSelect('attribute.values', 'values')
       .leftJoin('attribute.categories', 'categories');
 
-    if (categoryId) {
-      query.where('categories.id = :categoryId', { categoryId });
+    if (categoryIds && categoryIds.length > 0) {
+      query.where('categories.id IN (:...categoryIds)', { categoryIds });
     }
 
     const attributes = await query

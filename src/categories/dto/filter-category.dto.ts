@@ -7,19 +7,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { CategoryStatus } from '../entities/category.entity';
-
-export enum CategorySortBy {
-  CREATED_AT = 'createdAt',
-  NAME_EN = 'name_en',
-  NAME_AR = 'name_ar',
-  LEVEL = 'level',
-  SORT_ORDER = 'sortOrder',
-}
-
-export enum SortOrder {
-  ASC = 'ASC',
-  DESC = 'DESC',
-}
+import { CategorySortBy, SortOrder } from '../enums/category-filter.enum';
 
 export class FilterCategoryDto {
   @IsOptional()

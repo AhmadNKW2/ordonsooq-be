@@ -106,14 +106,14 @@ export class SpecificationsService {
     return this.findOne(savedSpecification.id);
   }
 
-  async findAll(categoryId?: number): Promise<Specification[]> {
+  async findAll(categoryIds?: number[]): Promise<Specification[]> {
     const query = this.specificationRepository
       .createQueryBuilder('specification')
       .leftJoinAndSelect('specification.values', 'values')
       .leftJoin('specification.categories', 'categories');
 
-    if (categoryId) {
-      query.where('categories.id = :categoryId', { categoryId });
+    if (categoryIds && categoryIds.length > 0) {
+      query.where('categories.id IN (:...categoryIds)', { categoryIds });
     }
 
     const specifications = await query

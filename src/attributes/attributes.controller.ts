@@ -33,9 +33,12 @@ export class AttributesController {
   }
 
   @Get()
-  @ApiQuery({ name: 'category_id', required: false, type: Number })
-  findAll(@Query('category_id') categoryId?: number) {
-    return this.attributesService.findAll(categoryId ? +categoryId : undefined);
+  @ApiQuery({ name: 'category_ids', required: false, type: String, description: 'Comma separated list of category ids (e.g. 1,2,3,5)' })
+  findAll(@Query('category_ids') categoryIdsStr?: string) {
+    const categoryIds = categoryIdsStr 
+      ? categoryIdsStr.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id))
+      : undefined;
+    return this.attributesService.findAll(categoryIds);
   }
 
   @Put('reorder')
