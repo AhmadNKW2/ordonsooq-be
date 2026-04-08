@@ -60,7 +60,7 @@ export class Product {
   @Column({ nullable: true })
   slug: string;
   @Column({ type: 'text', nullable: true })
-  record: string;
+  record: string | null;
   @Column()
   name_ar: string;
 

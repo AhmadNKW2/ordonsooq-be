@@ -87,6 +87,11 @@ export class UpdateProductDto {
   @IsString()
   long_description_ar: string;
 
+  @ApiPropertyOptional({ example: 'https://example.com/product/123' })
+  @IsString()
+  @IsOptional()
+  reference_link?: string;
+
   @ApiProperty({ example: [5, 12, 14], description: 'Updated array of category IDs' })
   @IsArray()
   @IsNumber({}, { each: true })

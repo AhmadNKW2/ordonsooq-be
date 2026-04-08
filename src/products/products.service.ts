@@ -1298,6 +1298,7 @@ export class ProductsService {
         name_ar: dto.name_ar,
         slug: slug,
         sku: dto.sku,
+        record: dto.record ?? null,
         short_description_en: dto.short_description_en,
         short_description_ar: dto.short_description_ar,
         long_description_en: dto.long_description_en,
@@ -2094,6 +2095,7 @@ export class ProductsService {
         'name_en',
         'name_ar',
         'sku',
+        'record',
         'short_description_en',
         'short_description_ar',
         'long_description_en',
@@ -2144,7 +2146,10 @@ export class ProductsService {
         }
       });
 
-      if (dto.quantity !== undefined || dto.is_out_of_stock !== undefined) {
+      if (
+        dto.quantity !== undefined ||
+        dto.is_out_of_stock !== undefined
+      ) {
         const nextQuantity = dto.quantity ?? existingProduct.quantity;
         basicInfoChanges.is_out_of_stock = this.resolveIsOutOfStock({
           quantity: nextQuantity,
