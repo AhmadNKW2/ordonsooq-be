@@ -105,9 +105,18 @@ export class FilterProductDto {
   category_ids?: number[];
 
   // ─── Vendor filter ───────────────────────────────────
-  /** Single vendor ID (backward compat) */
+  /** Single vendor ID (backward compat). Accepts vendorId or vendor_id. */
   @IsOptional()
-  @Type(() => Number)
+  @Transform(({ value, obj }) => {
+    const rawValue = value ?? obj.vendor_id;
+
+    if (rawValue === undefined || rawValue === null || rawValue === '') {
+      return undefined;
+    }
+
+    const numericValue = Number(rawValue);
+    return Number.isNaN(numericValue) ? undefined : numericValue;
+  })
   @IsNumber()
   vendorId?: number;
 

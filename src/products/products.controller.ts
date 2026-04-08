@@ -223,6 +223,12 @@ export class ProductsController {
 
   @Get()
   @UseGuards(OptionalJwtAuthGuard)
+  @ApiQuery({
+    name: 'vendor_id',
+    required: false,
+    type: Number,
+    description: 'Alias for vendorId',
+  })
   findAll(@Query() filterDto: FilterProductDto, @Req() req: any) {
     const isAdmin =
       req.user?.role === UserRole.ADMIN ||
@@ -230,6 +236,30 @@ export class ProductsController {
       req.user?.role === UserRole.CONSTANT_TOKEN_ADMIN ||
       req.user?.role === 'products_api';
     return this.productsService.findAll(filterDto, isAdmin);
+  }
+
+  @Get('vendor/:vendorId')
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({ summary: 'Get products by vendor' })
+  findAllByVendor(
+    @Param('vendorId', ParseIntPipe) vendorId: number,
+    @Query() filterDto: FilterProductDto,
+    @Req() req: any,
+  ) {
+    const isAdmin =
+      req.user?.role === UserRole.ADMIN ||
+      req.user?.role === UserRole.CATALOG_MANAGER ||
+      req.user?.role === UserRole.CONSTANT_TOKEN_ADMIN ||
+      req.user?.role === 'products_api';
+
+    return this.productsService.findAll(
+      {
+        ...filterDto,
+        vendorId,
+        vendor_ids: undefined,
+      },
+      isAdmin,
+    );
   }
 
   @Get('reference-link')
