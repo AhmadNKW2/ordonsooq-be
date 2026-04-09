@@ -16,10 +16,17 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { ApiBody, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBody,
+  ApiOkResponse,
+  ApiOperation,
+  ApiQuery,
+  ApiTags,
+} from '@nestjs/swagger';
 import { IsArray, IsNotEmpty, IsString } from 'class-validator';
 import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
+import { DeleteReviewProductsDto } from './dto/delete-review-products.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { PatchProductDto } from './dto/patch-product.dto';
 import { FilterProductDto, AssignProductsDto } from './dto/filter-product.dto';
@@ -518,6 +525,47 @@ export class ProductsController {
   @Roles(...PRODUCTS_MANAGER_ROLES)
   findArchived(@Query() filterDto: FilterProductDto) {
     return this.productsService.findArchived(filterDto);
+  }
+
+  @Delete('review/permanent')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Permanently delete review products by category and vendor',
+  })
+  @ApiBody({
+    type: DeleteReviewProductsDto,
+    description:
+      'Deletes every product whose status is review and matches both the given category and vendor.',
+    examples: {
+      default: {
+        summary: 'Delete review products for one vendor/category pair',
+        value: {
+          category_id: 35,
+          vendor_id: 2,
+        },
+      },
+    },
+  })
+  @ApiOkResponse({
+    description: 'Review products permanently deleted',
+    schema: {
+      example: {
+        message: 'Deleted 4 review products for vendor "Tech Vendor" in category "Gaming"',
+        deleted: 4,
+        filters: {
+          status: 'review',
+          category_id: 35,
+          vendor_id: 2,
+        },
+      },
+    },
+  })
+  permanentDeleteReviewProducts(@Body() dto: DeleteReviewProductsDto) {
+    return this.productsService.permanentDeleteReviewProducts(
+      dto.category_id,
+      dto.vendor_id,
+    );
   }
 
   @Delete(':id/permanent')

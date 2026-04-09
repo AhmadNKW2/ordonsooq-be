@@ -2472,6 +2472,78 @@ export class ProductsService {
     return { message: `Product "${product.name_en}" permanently deleted` };
   }
 
+  async permanentDeleteReviewProducts(
+    categoryId: number,
+    vendorId: number,
+  ): Promise<{
+    message: string;
+    deleted: number;
+    filters: {
+      status: ProductStatus.REVIEW;
+      category_id: number;
+      vendor_id: number;
+    };
+  }> {
+    const [category, vendor] = await Promise.all([
+      this.categoriesRepository.findOne({ where: { id: categoryId } }),
+      this.dataSource.getRepository(Vendor).findOne({ where: { id: vendorId } }),
+    ]);
+
+    if (!category) {
+      throw new NotFoundException('Category not found');
+    }
+
+    if (!vendor) {
+      throw new NotFoundException('Vendor not found');
+    }
+
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const products = await queryRunner.manager
+        .getRepository(Product)
+        .createQueryBuilder('product')
+        .where('product.status = :status', { status: ProductStatus.REVIEW })
+        .andWhere('product.vendor_id = :vendorId', { vendorId })
+        .andWhere(
+          '(product.category_id = :categoryId OR EXISTS (SELECT 1 FROM product_categories pc WHERE pc.product_id = product.id AND pc.category_id = :categoryId))',
+          { categoryId },
+        )
+        .getMany();
+
+      const productIds = products.map((product) => product.id);
+
+      if (productIds.length > 0) {
+        await queryRunner.manager.delete(CartItem, {
+          product_id: In(productIds),
+        });
+        await queryRunner.manager.remove(Product, products);
+      }
+
+      await queryRunner.commitTransaction();
+
+      return {
+        message:
+          productIds.length > 0
+            ? `Deleted ${productIds.length} review product${productIds.length === 1 ? '' : 's'} for vendor "${vendor.name_en}" in category "${category.name_en}"`
+            : `No review products found for vendor "${vendor.name_en}" in category "${category.name_en}"`,
+        deleted: productIds.length,
+        filters: {
+          status: ProductStatus.REVIEW,
+          category_id: categoryId,
+          vendor_id: vendorId,
+        },
+      };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
   // ========== BULK ASSIGNMENT ==========
 
   /**
