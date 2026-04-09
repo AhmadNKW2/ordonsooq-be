@@ -30,6 +30,7 @@ import { DeleteReviewProductsDto } from './dto/delete-review-products.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { PatchProductDto } from './dto/patch-product.dto';
 import { FilterProductDto, AssignProductsDto } from './dto/filter-product.dto';
+import { ProductNamesQueryDto } from './dto/product-names-query.dto';
 import { SyncLinkedProductsDto } from './dto/sync-linked-products.dto';
 import { Roles, UserRole } from '../common/decorators/roles.decorator';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -228,13 +229,50 @@ export class ProductsController {
     return this.productsService.syncProductsGroup(dto.product_ids);
   }
 
-  @Get()
+  @Get('names')
   @UseGuards(OptionalJwtAuthGuard)
+  @ApiOperation({ summary: 'Get products ids and names only' })
   @ApiQuery({
     name: 'vendor_id',
     required: false,
     type: Number,
-    description: 'Alias for vendorId',
+    description: 'Filter products by vendor id',
+  })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    type: String,
+    description: 'Filter products by product name in English or Arabic',
+  })
+  @ApiQuery({
+    name: 'category_ids',
+    required: false,
+    type: String,
+    description: 'Comma separated list of category ids, e.g. 1,2,3',
+  })
+  findProductNames(@Query() queryDto: ProductNamesQueryDto, @Req() req: any) {
+    const isAdmin =
+      req.user?.role === UserRole.ADMIN ||
+      req.user?.role === UserRole.CATALOG_MANAGER ||
+      req.user?.role === UserRole.CONSTANT_TOKEN_ADMIN ||
+      req.user?.role === 'products_api';
+
+    return this.productsService.findProductNames(queryDto, isAdmin);
+  }
+
+  @Get()
+  @UseGuards(OptionalJwtAuthGuard)
+  @ApiQuery({
+    name: 'vendorId',
+    required: false,
+    type: Number,
+    description: 'Preferred single-vendor filter parameter',
+  })
+  @ApiQuery({
+    name: 'vendor_id',
+    required: false,
+    type: Number,
+    description: 'Backward-compatible alias for vendorId',
   })
   findAll(@Query() filterDto: FilterProductDto, @Req() req: any) {
     const isAdmin =

@@ -10,7 +10,11 @@ import { Repository, In, DataSource, EntityManager } from 'typeorm';
 import { Product, ProductStatus } from './entities/product.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
-import { FilterProductDto } from './dto/filter-product.dto';
+import {
+  FilterProductDto,
+  getSingleVendorId,
+} from './dto/filter-product.dto';
+import { ProductNamesQueryDto } from './dto/product-names-query.dto';
 import {
   Category,
   CategoryStatus,
@@ -37,9 +41,81 @@ import { ProductSlugRedirect } from './entities/product-slug-redirect.entity';
 
 import { Like, Not } from 'typeorm';
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
+}
+
 @Injectable()
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
+
+  async findProductNames(
+    queryDto: ProductNamesQueryDto,
+    isAdmin = false,
+  ): Promise<Array<{ id: number; name_en: string; name_ar: string }>> {
+    const { vendor_id, category_ids, search } = queryDto;
+    const queryBuilder = this.productsRepository
+      .createQueryBuilder('product')
+      .select(['product.id', 'product.name_en', 'product.name_ar'])
+      .orderBy('product.name_en', 'ASC')
+      .addOrderBy('product.id', 'ASC');
+
+    let hasWhereClause = false;
+
+    const addCondition = (
+      condition: string,
+      parameters?: Record<string, unknown>,
+    ) => {
+      if (hasWhereClause) {
+        queryBuilder.andWhere(condition, parameters);
+      } else {
+        queryBuilder.where(condition, parameters);
+        hasWhereClause = true;
+      }
+    };
+
+    if (!isAdmin) {
+      addCondition('product.status = :status', {
+        status: ProductStatus.ACTIVE,
+      });
+    }
+
+    if (vendor_id !== undefined) {
+      addCondition('product.vendor_id = :vendorId', {
+        vendorId: vendor_id,
+      });
+    }
+
+    if (category_ids && category_ids.length > 0) {
+      addCondition(
+        'EXISTS (SELECT 1 FROM product_categories pc WHERE pc.product_id = product.id AND pc.category_id IN (:...categoryIds))',
+        {
+          categoryIds: category_ids,
+        },
+      );
+    }
+
+    if (search) {
+      addCondition(
+        '(product.name_en ILIKE :search OR product.name_ar ILIKE :search)',
+        {
+          search: `%${search}%`,
+        },
+      );
+    }
+
+    const products = await queryBuilder.getMany();
+
+    return products.map((product) => ({
+      id: product.id,
+      name_en: product.name_en,
+      name_ar: product.name_ar,
+    }));
+  }
 
   // ─── In-memory background job tracker ─────────────────────────────────────
   // Kept for the lifetime of the process (survives restarts via a fresh Map).
@@ -411,7 +487,7 @@ export class ProductsService {
       };
     } catch (error) {
       throw new BadRequestException(
-        `Failed to sync linked products group: ${error.message}`,
+        `Failed to sync linked products group: ${getErrorMessage(error)}`,
       );
     }
   }
@@ -452,7 +528,7 @@ export class ProductsService {
       await this.syncProductGroupMemberships(targetProductIds);
     } catch (error) {
       throw new BadRequestException(
-        `Failed to sync linked products: ${error.message}`,
+        `Failed to sync linked products: ${getErrorMessage(error)}`,
       );
     }
 
@@ -826,7 +902,7 @@ export class ProductsService {
         });
     } catch (err) {
       this.logger.warn(
-        `Failed to sync product ${productId} to search index: ${err?.message}`,
+        `Failed to sync product ${productId} to search index: ${getErrorMessage(err)}`,
       );
       if (throwOnError) throw err;
     }
@@ -1383,7 +1459,7 @@ export class ProductsService {
       };
     } catch (error) {
       throw new BadRequestException(
-        `Failed to create product: ${error.message}`,
+        `Failed to create product: ${getErrorMessage(error)}`,
       );
     }
   }
@@ -1415,6 +1491,7 @@ export class ProductsService {
       end_date,
       ids: filterIds,
     } = filterDto;
+    const normalizedVendorId = getSingleVendorId(filterDto);
 
     // NOTE: The list view previously did a huge multi-join + getManyAndCount.
     // With relations like media/variants/stock/groups, this causes row explosion and slow COUNT.
@@ -1466,8 +1543,10 @@ export class ProductsService {
     }
 
     // Filter by single vendor (backward compat)
-    if (vendorId) {
-      baseQuery.andWhere('product.vendor_id = :vendorId', { vendorId });
+    if (normalizedVendorId !== undefined) {
+      baseQuery.andWhere('product.vendor_id = :vendorId', {
+        vendorId: normalizedVendorId,
+      });
     }
 
     // Filter by multiple vendors
@@ -2170,7 +2249,7 @@ export class ProductsService {
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw new BadRequestException(
-        `Failed to update product: ${error.message}`,
+        `Failed to update product: ${getErrorMessage(error)}`,
       );
     } finally {
       await queryRunner.release();
@@ -2220,7 +2299,7 @@ export class ProductsService {
       };
     } catch (error) {
       throw new BadRequestException(
-        `Failed to update product: ${error.message}`,
+        `Failed to update product: ${getErrorMessage(error)}`,
       );
     }
   }

@@ -17,7 +17,7 @@ export class AssignProductsDto {
   @ArrayMinSize(1)
   @Type(() => Number)
   @IsNumber({}, { each: true })
-  product_ids: number[];
+  product_ids!: number[];
 }
 
 export enum ProductSortBy {
@@ -33,6 +33,13 @@ export enum ProductSortBy {
 export enum SortOrder {
   ASC = 'ASC',
   DESC = 'DESC',
+}
+
+export function getSingleVendorId(filterDto: {
+  vendorId?: number;
+  vendor_id?: number;
+}) {
+  return filterDto.vendorId ?? filterDto.vendor_id;
 }
 
 export class FilterProductDto {
@@ -119,6 +126,19 @@ export class FilterProductDto {
   })
   @IsNumber()
   vendorId?: number;
+
+  /** Backward-compatible alias for vendorId. Prefer vendorId in new clients. */
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') {
+      return undefined;
+    }
+
+    const numericValue = Number(value);
+    return Number.isNaN(numericValue) ? undefined : numericValue;
+  })
+  @IsNumber()
+  vendor_id?: number;
 
   /** Multiple vendor IDs */
   @IsOptional()

@@ -25,6 +25,10 @@ import { ProductsService } from '../products/products.service';
 
 // ... imports
 
+function getErrorMessage(error: unknown): string | undefined {
+  return error instanceof Error ? error.message : undefined;
+}
+
 @Injectable()
 export class OrdersService {
   constructor(
@@ -135,7 +139,9 @@ export class OrdersService {
           discountAmount = Number(data.discountAmount);
           couponId = Number(data.coupon.id);
         } catch (e) {
-          throw new BadRequestException(e.message || 'Invalid coupon');
+          throw new BadRequestException(
+            getErrorMessage(e) || 'Invalid coupon',
+          );
         }
       }
 

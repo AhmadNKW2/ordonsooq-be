@@ -157,6 +157,7 @@ export class VendorsService {
       ...productFilter,
       vendor_ids: [id],
       vendorId: undefined,
+      vendor_id: undefined,
       limit: productFilter?.limit ?? 100,
     });
     (vendor as any).products = productsResult.data;
@@ -178,6 +179,7 @@ export class VendorsService {
       ...productFilter,
       vendor_ids: [vendor.id],
       vendorId: undefined,
+      vendor_id: undefined,
       limit: productFilter?.limit ?? 100,
     });
     (vendor as any).products = productsResult.data;

@@ -26,6 +26,18 @@ export interface ImageOptimizationOptions {
   format?: 'jpeg' | 'png' | 'webp';
 }
 
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
+}
+
+function getErrorStack(error: unknown): string | undefined {
+  return error instanceof Error ? error.stack : undefined;
+}
+
 @Injectable()
 export class R2StorageService {
   private readonly s3Client: S3Client;
@@ -140,7 +152,7 @@ export class R2StorageService {
         );
       } catch (error) {
         this.logger.warn(
-          `Failed to optimize image, using original: ${error.message}`,
+          `Failed to optimize image, using original: ${getErrorMessage(error)}`,
         );
       }
     }
@@ -168,7 +180,10 @@ export class R2StorageService {
         size: fileSize,
       };
     } catch (error) {
-      this.logger.error(`Failed to upload file: ${error.message}`, error.stack);
+      this.logger.error(
+        `Failed to upload file: ${getErrorMessage(error)}`,
+        getErrorStack(error),
+      );
       throw error;
     }
   }
@@ -296,7 +311,10 @@ export class R2StorageService {
 
       this.logger.log(`File deleted successfully: ${key}`);
     } catch (error) {
-      this.logger.error(`Failed to delete file: ${error.message}`, error.stack);
+      this.logger.error(
+        `Failed to delete file: ${getErrorMessage(error)}`,
+        getErrorStack(error),
+      );
       throw error;
     }
   }
@@ -335,8 +353,8 @@ export class R2StorageService {
       this.logger.log(`Deleted ${keys.length} files successfully`);
     } catch (error) {
       this.logger.error(
-        `Failed to delete files: ${error.message}`,
-        error.stack,
+        `Failed to delete files: ${getErrorMessage(error)}`,
+        getErrorStack(error),
       );
       throw error;
     }
