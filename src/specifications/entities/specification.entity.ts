@@ -64,6 +64,9 @@ export class Specification {
   @Column({ default: false })
   for_all_categories: boolean;
 
+  @Column({ default: false })
+  allow_ai_inference: boolean;
+
   @OneToMany(() => SpecificationValue, (value) => value.specification, {
     cascade: true,
   })

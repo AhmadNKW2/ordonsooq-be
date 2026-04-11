@@ -70,6 +70,9 @@ export class Attribute {
   @Column({ default: false })
   for_all_categories: boolean;
 
+  @Column({ default: false })
+  allow_ai_inference: boolean;
+
   @OneToMany(() => AttributeValue, (value) => value.attribute, {
     cascade: true,
   })

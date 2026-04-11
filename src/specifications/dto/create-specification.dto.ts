@@ -65,6 +65,10 @@ export class CreateSpecificationDto {
   @IsOptional()
   for_all_categories?: boolean;
 
+  @IsBoolean()
+  @IsOptional()
+  allow_ai_inference?: boolean;
+
   @IsString()
   @IsOptional()
   attribute_type?: string;
