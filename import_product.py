@@ -146,6 +146,60 @@ def extract_paginated_list(data: Any) -> list[dict[str, Any]]:
     raise ValueError(f"Expected a list response but received: {data}")
 
 
+def normalize_input_collection(value: Any) -> list[Any]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        if not value:
+            return []
+        return [
+            {
+                "name": key,
+                "value": item_value,
+            }
+            for key, item_value in value.items()
+        ]
+    return [value]
+
+
+def validate_input_data(data: dict[str, Any]) -> None:
+    missing_fields = [
+        field_name
+        for field_name in ("title", "description", "new_price")
+        if data.get(field_name) in (None, "")
+    ]
+    if missing_fields:
+        raise ValueError(
+            "Input JSON is missing required fields after normalization: "
+            + ", ".join(missing_fields),
+        )
+
+
+def normalize_input_data(raw_data: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(raw_data, dict):
+        raise ValueError("Input JSON must be an object.")
+
+    nested_data = raw_data.get("data")
+    normalized = dict(raw_data)
+    if isinstance(nested_data, dict):
+        normalized.update(nested_data)
+
+    if not normalized.get("reference_link") and raw_data.get("reference_link"):
+        normalized["reference_link"] = raw_data.get("reference_link")
+
+    normalized["attributes"] = normalize_input_collection(
+        normalized.get("attributes"),
+    )
+    normalized["specification"] = normalize_input_collection(
+        normalized.get("specification"),
+    )
+
+    validate_input_data(normalized)
+    return normalized
+
+
 def normalize_lookup_text(value: str) -> str:
     return "".join(character for character in value.casefold() if character.isalnum())
 
@@ -372,35 +426,74 @@ def download_image(session: requests.Session, image_url: str) -> int:
     return int(media["id"])
 
 
+def parse_media_reference(media_reference: Any) -> tuple[str, int | str] | None:
+    if media_reference is None:
+        return None
+    if isinstance(media_reference, int):
+        return "id", media_reference
+    if isinstance(media_reference, str):
+        stripped = media_reference.strip()
+        if not stripped or stripped.lower() == "none":
+            return None
+        if stripped.isdigit():
+            return "id", int(stripped)
+        return "url", stripped
+    if isinstance(media_reference, dict):
+        if media_reference.get("media_id") is not None:
+            return parse_media_reference(media_reference.get("media_id"))
+        if media_reference.get("url") is not None:
+            return parse_media_reference(media_reference.get("url"))
+        if media_reference.get("id") is not None:
+            return parse_media_reference(media_reference.get("id"))
+    return None
+
+
+def resolve_media_id(session: requests.Session, media_reference: Any) -> tuple[int, str]:
+    parsed_reference = parse_media_reference(media_reference)
+    if parsed_reference is None:
+        raise ValueError(f"Unsupported media reference: {media_reference}")
+
+    reference_kind, reference_value = parsed_reference
+    if reference_kind == "id":
+        media_id = int(reference_value)
+        log.info("Using existing media id %s", media_id)
+        return media_id, f"id:{media_id}"
+
+    media_url = str(reference_value)
+    return download_image(session, media_url), f"url:{media_url}"
+
+
 def build_media(session: requests.Session, data: dict[str, Any]) -> list[dict[str, Any]]:
-    primary_image_url = data.get("image") or next(iter(data.get("images", [])), None)
-    if not primary_image_url:
+    ordered_media_sources: list[Any] = []
+    if data.get("image") is not None:
+        ordered_media_sources.append(data.get("image"))
+    ordered_media_sources.extend(normalize_input_collection(data.get("images")))
+
+    if not ordered_media_sources:
         raise ValueError("Input data must include 'image' or a non-empty 'images' array.")
 
     media: list[dict[str, Any]] = []
-    primary_id = download_image(session, primary_image_url)
-    media.append(
-        {
-            "media_id": primary_id,
-            "is_primary": True,
-            "sort_order": 0,
-        },
-    )
-
-    seen_urls = {primary_image_url}
-    next_sort_order = 1
-    for image_url in data.get("images", []):
-        if not image_url or image_url in seen_urls:
+    seen_references: set[str] = set()
+    for media_source in ordered_media_sources:
+        try:
+            media_id, reference_key = resolve_media_id(session, media_source)
+        except ValueError:
             continue
-        seen_urls.add(image_url)
+
+        if reference_key in seen_references:
+            continue
+        seen_references.add(reference_key)
+
         media.append(
             {
-                "media_id": download_image(session, image_url),
-                "is_primary": False,
-                "sort_order": next_sort_order,
+                "media_id": media_id,
+                "is_primary": len(media) == 0,
+                "sort_order": len(media),
             },
         )
-        next_sort_order += 1
+
+    if not media:
+        raise ValueError("Input data must include at least one valid image reference.")
 
     return media
 
@@ -557,7 +650,7 @@ Instructions:
         - Go through the DATABASE SPECIFICATIONS list from top to bottom.
         - Pay STRICT attention to the "allow_ai_inference" flag for each specification:
             * If allow_ai_inference is FALSE (Strict Extraction): You MUST ONLY assign a value if it is explicitly mentioned in the source input data. DO NOT guess. If not mentioned, you MUST skip it.
-            * If allow_ai_inference is TRUE (Logical Inference): You MUST deduce the value based on other technical specifications, even if the exact word is not explicitly written in the source text (e.g., inferring "Gaming" usage from "144Hz" and "1ms").
+            * If allow_ai_inference is TRUE (Logical Inference): You MUST deduce the value based on other specifications, even if the exact word is not explicitly written in the source text (e.g., inferring "Gaming" usage from "144Hz" and "1ms").
         - Mark each DB spec as: FOUND, INFERRED, or NOT FOUND.
 
     STEP 3 — BUILD the specifications array:
@@ -806,7 +899,7 @@ def main() -> int:
         raise FileNotFoundError(f"Input JSON file not found: {input_path}")
 
     client = build_openai_client()
-    data = load_input_json(input_path)
+    data = normalize_input_data(load_input_json(input_path))
     result = import_product(
         client=client,
         data=data,
