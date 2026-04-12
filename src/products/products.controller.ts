@@ -25,8 +25,10 @@ import {
 } from '@nestjs/swagger';
 import { IsArray, IsNotEmpty, IsString } from 'class-validator';
 import { ProductsService } from './products.service';
+import { ProductImportService } from './product-import.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { DeleteReviewProductsDto } from './dto/delete-review-products.dto';
+import { ImportProductPayloadDto } from './dto/import-product-payload.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { PatchProductDto } from './dto/patch-product.dto';
 import { FilterProductDto, AssignProductsDto } from './dto/filter-product.dto';
@@ -58,7 +60,10 @@ const PRODUCTS_MANAGER_ROLES = [
 @ApiTags('Products')
 @Controller('products')
 export class ProductsController {
-  constructor(private readonly productsService: ProductsService) {}
+  constructor(
+    private readonly productsService: ProductsService,
+    private readonly productImportService: ProductImportService,
+  ) {}
 
   // ========== PRODUCT CRUD ==========
 
@@ -128,6 +133,102 @@ export class ProductsController {
         `Job '${jobId}' not found (may have expired after 24 h)`,
       );
     return status;
+  }
+
+  @Post('import-payload')
+  @UseGuards(AuthGuard('jwt'), RolesGuard)
+  @Roles(...PRODUCTS_MANAGER_ROLES)
+  @ApiOperation({
+    summary: 'Import a raw product payload and create a product through the AI enrichment flow',
+  })
+  @ApiBody({
+    type: ImportProductPayloadDto,
+    description:
+      'Send either { payload, category_id, vendor_id, model? } or send the raw product payload directly in the request body.',
+    examples: {
+      wrapped_payload: {
+        summary: 'Wrapped payload import request',
+        value: {
+          category_id: 9,
+          vendor_id: 2,
+          model: 'gpt-5.4',
+          payload: {
+            reference_link: 'https://citycenter.jo/lg-ultragear-24gs60f-b-aek',
+            data: {
+              title: 'LG UltraGear 24GS60F-B 24 inch FHD IPS Gaming Monitor',
+              description:
+                '24-inch Full HD IPS gaming monitor with 180Hz refresh rate, 1ms response time, HDR10, and AMD FreeSync support.',
+              brand: 'LG',
+              new_price: {
+                translate: '129.00',
+              },
+              old_price: {
+                translate: '149.00',
+              },
+              image: '3172',
+              images: ['3172', '3173'],
+              specification: [
+                {
+                  name: 'Panel Type',
+                  value: 'IPS',
+                },
+                {
+                  name: 'Refresh Rate',
+                  value: '180Hz',
+                },
+                {
+                  name: 'Response Time',
+                  value: '1ms',
+                },
+              ],
+              attributes: [
+                {
+                  name: 'Color',
+                  value: 'Black',
+                },
+              ],
+            },
+          },
+        },
+      },
+      direct_payload: {
+        summary: 'Direct raw payload import request',
+        value: {
+          category_id: 9,
+          vendor_id: 2,
+          reference_link: 'https://citycenter.jo/lg-ultragear-24gs60f-b-aek',
+          data: {
+            title: 'LG UltraGear 24GS60F-B 24 inch FHD IPS Gaming Monitor',
+            description:
+              '24-inch Full HD IPS gaming monitor with 180Hz refresh rate, 1ms response time, HDR10, and AMD FreeSync support.',
+            brand: 'LG',
+            new_price: '129.00',
+            old_price: '149.00',
+            image: '3172',
+            images: ['3172', '3173'],
+            specification: [
+              {
+                name: 'Panel Type',
+                value: 'IPS',
+              },
+              {
+                name: 'Refresh Rate',
+                value: '180Hz',
+              },
+            ],
+            attributes: [
+              {
+                name: 'Color',
+                value: 'Black',
+              },
+            ],
+          },
+        },
+      },
+    },
+  })
+  importPayload(@Body() body: Record<string, unknown>, @Req() req: any) {
+    return this.productImportService.importFromRequest(body, req.user?.id);
   }
 
   @Post()

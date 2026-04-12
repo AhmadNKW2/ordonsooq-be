@@ -649,17 +649,16 @@ Instructions:
     STEP 2 — CLASSIFY AND MATCH (CRITICAL RULE):
         - Go through the DATABASE SPECIFICATIONS list from top to bottom.
         - Pay STRICT attention to the "allow_ai_inference" flag for each specification:
-            * If allow_ai_inference is FALSE (Strict Extraction): You MUST ONLY assign a value if it is explicitly mentioned in the source input data. DO NOT guess. If not mentioned, you MUST skip it.
-            * If allow_ai_inference is TRUE (Logical Inference): You MUST deduce the value based on other specifications, even if the exact word is not explicitly written in the source text (e.g., inferring "Gaming" usage from "144Hz" and "1ms").
+            * If allow_ai_inference is FALSE: The metric MUST exist in the source data. You ARE EXPLICITLY ALLOWED to match synonyms, typos, and slight naming variations (e.g., source "Response Time" maps to DB "Responsive Time"). This is NOT considered guessing. If the spec name exists in the source but its specific value (e.g., "4ms") is missing from the DB values list, DO NOT skip the specification.
+            * If allow_ai_inference is TRUE: You MUST deduce the value based on other specifications, even if the exact word is not explicitly written in the source text.
         - Mark each DB spec as: FOUND, INFERRED, or NOT FOUND.
 
     STEP 3 — BUILD the specifications array:
         - For every FOUND or INFERRED DB spec:
-            * If value exists in DB → matched_value_id = <int id>.
-            * If value does NOT exist in DB → matched_value_id = "not_exist", original_value as name_en/name_ar.
-            * DO NOT drop matched or inferred values.
+            * If the exact value exists in DB → matched_value_id = <int id>.
+            * If the exact value does NOT exist in DB → matched_value_id = "not_exist", and put the raw string in original_value.name_en.
+            * YOU MUST NOT drop a specification just because its value is missing from the DB. Use "not_exist".
         - For every NOT FOUND DB spec → skip it entirely.
-        - DO NOT include specification_id = "not_exist" in the output.
 
 4. ATTRIBUTES:
     STEP 1 — EXTRACT:
@@ -667,18 +666,20 @@ Instructions:
         - Read every raw attribute field.
         - Combine all extracted values into a single master list.
 
-    STEP 2 — CLASSIFY AND MATCH:
-        - Go through the DATABASE ATTRIBUTES list from top to bottom.
-        - Pay STRICT attention to the "allow_ai_inference" flag:
-            * If allow_ai_inference is FALSE: Exact extraction only. Do not guess. Skip if missing.
-            * If allow_ai_inference is TRUE: Infer the attribute based on context if not explicitly mentioned.
-        - Mark each as: FOUND, INFERRED, or NOT FOUND.
+    STEP 2 — CLASSIFY AND MATCH (CRITICAL RULE):
+        - Go through the DATABASE SPECIFICATIONS list from top to bottom.
+        - Pay STRICT attention to the "allow_ai_inference" flag for each specification:
+            * If allow_ai_inference is FALSE: The metric MUST exist in the source data. You ARE EXPLICITLY ALLOWED to match synonyms, typos, and slight naming variations (e.g., source "Response Time" maps to DB "Responsive Time"). This is NOT considered guessing. If the spec name exists in the source but its specific value (e.g., "4ms") is missing from the DB values list, DO NOT skip the specification.
+            * If allow_ai_inference is TRUE: You MUST deduce ALL applicable values based on context (e.g., if a monitor has "Game Mode" and is a "Business Monitor", you MUST infer BOTH "Gaming" and "Office" usages).
+        - Mark each DB spec as: FOUND, INFERRED, or NOT FOUND.
 
-    STEP 3 — BUILD the attributes array:
-        - For every FOUND or INFERRED DB attribute:
-            * If value exists in DB → matched_value_id = <int id>.
-            * If value does NOT exist in DB → matched_value_id = "not_exist".
-        - For every NOT FOUND DB attribute → skip it entirely.
+    STEP 3 — BUILD the specifications array:
+        - For every FOUND or INFERRED DB spec:
+            * A specification can have MULTIPLE values. If multiple values apply (like multiple Usages or multiple Ports), include ALL of them as separate objects inside the "values" array.
+            * If the exact value exists in DB → matched_value_id = <int id>.
+            * If the exact value does NOT exist in DB → matched_value_id = "not_exist", and put the raw string in original_value.name_en.
+            * YOU MUST NOT drop a specification just because its value is missing from the DB. Use "not_exist".
+        - For every NOT FOUND DB spec → skip it entirely.
 
 5. META DESCRIPTION: Must be 160 characters or fewer.
 6. META TITLE: Must be 70 characters or fewer.

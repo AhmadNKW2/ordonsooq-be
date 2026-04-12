@@ -14,6 +14,7 @@ import { AttributesModule } from '../attributes/attributes.module';
 import { AttributeValue } from '../attributes/entities/attribute-value.entity';
 import { Attribute } from '../attributes/entities/attribute.entity';
 import { Media } from '../media/entities/media.entity';
+import { MediaModule } from '../media/media.module';
 import { Category } from '../categories/entities/category.entity';
 import { Brand } from '../brands/entities/brand.entity';
 import { SearchModule } from '../search/search.module';
@@ -21,6 +22,8 @@ import { SearchProcessor } from '../search/search.processor';
 import { CartItem } from '../cart/entities/cart-item.entity';
 import { Tag } from '../search/entities/tag.entity';
 import { ProductSlugRedirect } from './entities/product-slug-redirect.entity';
+import { SpecificationsModule } from '../specifications/specifications.module';
+import { ProductImportService } from './product-import.service';
 
 @Module({
   imports: [
@@ -42,11 +45,14 @@ import { ProductSlugRedirect } from './entities/product-slug-redirect.entity';
       ProductSlugRedirect,
     ]),
     AttributesModule,
+    SpecificationsModule,
+    MediaModule,
     forwardRef(() => SearchModule),
   ],
   controllers: [ProductsController],
   providers: [
     ProductsService,
+    ProductImportService,
   ],
   exports: [
     ProductsService,
