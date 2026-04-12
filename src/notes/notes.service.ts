@@ -10,6 +10,7 @@ import { UpdateNoteDto } from './dto/update-note.dto';
 import { Note } from './entities/note.entity';
 
 import { FilterNoteDto } from './dto/filter-note.dto';
+import { hydrateProductMedia } from '../products/utils/product-media.util';
 
 @Injectable()
 export class NotesService {
@@ -42,13 +43,17 @@ export class NotesService {
 
     const [notes, total] = await this.notesRepository.findAndCount({
       where: whereCondition,
-      relations: ['product', 'product.media', 'user'],
+      relations: ['product', 'product.productMedia', 'product.productMedia.media', 'user'],
       order: { created_at: 'DESC' },
       skip,
       take: per_page,
     });
 
     notes.forEach((note) => {
+      if (note.product) {
+        hydrateProductMedia(note.product, true);
+      }
+
       if (note.user) {
         delete (note.user as any).password;
         delete (note.user as any).googleId;
@@ -80,13 +85,17 @@ export class NotesService {
 
     const [notes, total] = await this.notesRepository.findAndCount({
       where: whereCondition,
-      relations: ['product', 'product.media', 'user'],
+      relations: ['product', 'product.productMedia', 'product.productMedia.media', 'user'],
       order: { created_at: 'DESC' },
       skip,
       take: per_page,
     });
 
     notes.forEach((note) => {
+      if (note.product) {
+        hydrateProductMedia(note.product, true);
+      }
+
       if (note.user) {
         delete (note.user as any).password;
         delete (note.user as any).googleId;
@@ -111,7 +120,7 @@ export class NotesService {
 
     const note = await this.notesRepository.findOne({
       where: { id },
-      relations: ['product', 'product.media', 'user'],
+      relations: ['product', 'product.productMedia', 'product.productMedia.media', 'user'],
     });
 
     if (!note) {
@@ -126,6 +135,10 @@ export class NotesService {
       delete (note.user as any).password;
       delete (note.user as any).googleId;
       delete (note.user as any).appleId;
+    }
+
+    if (note.product) {
+      hydrateProductMedia(note.product, true);
     }
 
     return note;

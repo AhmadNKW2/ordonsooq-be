@@ -10,6 +10,7 @@ import { CartItem } from './entities/cart-item.entity';
 import { Product, ProductStatus } from '../products/entities/product.entity';
 import { AddToCartDto } from './dto/add-to-cart.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
+import { getPrimaryMediaUrl } from '../products/utils/product-media.util';
 
 @Injectable()
 export class CartService {
@@ -27,7 +28,8 @@ export class CartService {
       .createQueryBuilder('cart')
       .leftJoinAndSelect('cart.items', 'items')
       .leftJoinAndSelect('items.product', 'product')
-      .leftJoinAndSelect('product.media', 'media')
+      .leftJoinAndSelect('product.productMedia', 'productMedia')
+      .leftJoinAndSelect('productMedia.media', 'media')
       .where('cart.user_id = :userId', { userId })
       .orderBy('items.id', 'ASC')
       .getOne();
@@ -145,9 +147,7 @@ export class CartService {
 
   private async formatCartResponse(cart: Cart) {
     const items = cart.items.map((item) => {
-      const primaryMedia = item.product?.media?.find((m) => m.is_primary);
-      const firstMedia = item.product?.media?.[0];
-      const image = primaryMedia?.url || firstMedia?.url || null;
+      const image = getPrimaryMediaUrl(item.product);
 
       const regularPrice = item.product ? Number(item.product.price) : 0;
       const salePrice =

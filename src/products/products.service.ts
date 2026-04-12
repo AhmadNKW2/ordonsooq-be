@@ -26,6 +26,7 @@ import { Brand, BrandStatus } from '../brands/entities/brand.entity';
 import { Media } from '../media/entities/media.entity';
 import { ProductAttribute } from './entities/product-attribute.entity';
 import { ProductAttributeValue } from './entities/product-attribute-value.entity';
+import { ProductMedia } from './entities/product-media.entity';
 import { ProductSpecificationValue } from './entities/product-specification-value.entity';
 import { SpecificationValue } from '../specifications/entities/specification-value.entity';
 import { CartItem } from '../cart/entities/cart-item.entity';
@@ -39,6 +40,11 @@ import { ProductAttributeInputDto } from './dto/product-attribute.dto';
 import { ProductGroup } from './entities/product-group.entity';
 import { GroupProduct } from './entities/group-product.entity';
 import { ProductSlugRedirect } from './entities/product-slug-redirect.entity';
+import {
+  getPrimaryMediaUrl,
+  hydrateProductMedia,
+  hydrateProductsMedia,
+} from './utils/product-media.util';
 
 import { Like, Not } from 'typeorm';
 
@@ -705,7 +711,7 @@ export class ProductsService {
       const [
         product,
         productCategories,
-        mediaRows,
+        productMediaRows,
         productWithTags,
       ] = await Promise.all([
         this.productsRepository.findOne({
@@ -716,9 +722,10 @@ export class ProductsService {
           where: { product_id: productId },
           relations: ['category'],
         }),
-        this.dataSource.getRepository(Media).find({
+        this.dataSource.getRepository(ProductMedia).find({
           where: { product_id: productId },
-          order: { is_primary: 'DESC' },
+          relations: ['media'],
+          order: { is_primary: 'DESC', sort_order: 'ASC', media_id: 'ASC' },
         }),
         this.productsRepository.findOne({
           where: { id: productId },
@@ -744,7 +751,9 @@ export class ProductsService {
       const inStock = !product.is_out_of_stock;
 
       // ── Media ────────────────────────────────────────────────────────────
-      const images = mediaRows.map((m) => m.url).filter(Boolean);
+      const images = productMediaRows
+        .map((productMedia) => productMedia.media?.url)
+        .filter((url): url is string => Boolean(url));
 
       // ── Category resolution ───────────────────────────────────────────────
       const allCategories = productCategories
@@ -1218,6 +1227,7 @@ export class ProductsService {
     productId: number,
     mediaItems: { media_id: number; is_primary?: boolean; sort_order?: number }[],
   ): Promise<void> {
+    const productMediaRepo = this.dataSource.getRepository(ProductMedia);
     const mediaRepo = this.dataSource.getRepository(Media);
 
     // Validate: only one primary image allowed
@@ -1228,44 +1238,67 @@ export class ProductsService {
       );
     }
 
-    // Get existing product media
-    const existingMedia = await mediaRepo.find({ where: { product_id: productId } });
-    const existingMap = new Map(existingMedia.map((m) => [m.id, m]));
+    const mediaIds = mediaItems.map((item) => item.media_id);
+    if (new Set(mediaIds).size !== mediaIds.length) {
+      throw new BadRequestException(
+        'Duplicate media IDs are not allowed in a product payload.',
+      );
+    }
+
+    const existingLinks = await productMediaRepo.find({
+      where: { product_id: productId },
+    });
+    const existingMap = new Map(
+      existingLinks.map((productMedia) => [productMedia.media_id, productMedia]),
+    );
     const payloadIds = new Set<number>();
 
+    if (mediaIds.length > 0) {
+      const uniqueMediaIds = [...new Set(mediaIds)];
+      const existingMedia = await mediaRepo.find({
+        where: { id: In(uniqueMediaIds) },
+      });
+      const existingIds = new Set(existingMedia.map((media) => media.id));
+      const missingIds = uniqueMediaIds.filter((mediaId) => !existingIds.has(mediaId));
+
+      if (missingIds.length > 0) {
+        throw new NotFoundException(
+          `Media with ID ${missingIds.join(', ')} not found`,
+        );
+      }
+    }
+
     // Link / update media in payload
-    await Promise.all(
-      mediaItems.map(async (item, index) => {
-        payloadIds.add(item.media_id);
-        const existing = existingMap.get(item.media_id);
-        if (existing) {
-          existing.is_primary = item.is_primary ?? false;
-          existing.sort_order = item.sort_order ?? index;
-          await mediaRepo.save(existing);
-        } else {
-          const media = await mediaRepo.findOne({ where: { id: item.media_id } });
-          if (!media) {
-            throw new NotFoundException(`Media with ID ${item.media_id} not found`);
-          }
-          media.product_id = productId;
-          media.is_primary = item.is_primary ?? false;
-          media.sort_order = item.sort_order ?? index;
-          await mediaRepo.save(media);
-        }
-      }),
-    );
+    const linksToSave = mediaItems.map((item, index) => {
+      payloadIds.add(item.media_id);
+
+      const existing = existingMap.get(item.media_id);
+      if (existing) {
+        existing.is_primary = item.is_primary ?? false;
+        existing.sort_order = item.sort_order ?? index;
+        return existing;
+      }
+
+      return productMediaRepo.create({
+        product_id: productId,
+        media_id: item.media_id,
+        is_primary: item.is_primary ?? false,
+        sort_order: item.sort_order ?? index,
+      });
+    });
+
+    if (linksToSave.length > 0) {
+      await productMediaRepo.save(linksToSave);
+    }
 
     // Unlink media not in payload
-    await Promise.all(
-      existingMedia
-        .filter((m) => !payloadIds.has(m.id))
-        .map(async (m) => {
-          m.product_id = null;
-          m.is_primary = false;
-          m.sort_order = 0;
-          await mediaRepo.save(m);
-        }),
-    );
+    const linkIdsToDelete = existingLinks
+      .filter((productMedia) => !payloadIds.has(productMedia.media_id))
+      .map((productMedia) => productMedia.id);
+
+    if (linkIdsToDelete.length > 0) {
+      await productMediaRepo.delete(linkIdsToDelete);
+    }
   }
 
   private async syncProductAttributes(
@@ -1725,7 +1758,7 @@ export class ProductsService {
     const [
       data,
       productCategories,
-      medias,
+      productMediaRows,
       attributes,
       attributeValues,
       specifications,
@@ -1743,8 +1776,9 @@ export class ProductsService {
         where: { product_id: In(ids) },
         relations: ['category'],
       }),
-      this.dataSource.getRepository(Media).find({
+      this.dataSource.getRepository(ProductMedia).find({
         where: { product_id: In(ids) },
+        relations: ['media'],
       }),
       this.dataSource.getRepository(ProductAttribute).find({
         where: { product_id: In(ids) },
@@ -1772,8 +1806,8 @@ export class ProductsService {
       (product as any).productCategories = productCategories.filter(
         (pc) => pc.product_id === product.id,
       );
-      (product as any).media = medias.filter(
-        (m) => m.product_id === product.id,
+      (product as any).productMedia = productMediaRows.filter(
+        (productMedia) => productMedia.product_id === product.id,
       );
       (product as any).attributes = attributes.filter(
         (a) => a.product_id === product.id,
@@ -1855,6 +1889,8 @@ export class ProductsService {
   }
 
   private transformProductDetail(product: Product, isAdmin = false): any {
+    hydrateProductMedia(product, true);
+
     const {
       media,
       brand,
@@ -2026,7 +2062,7 @@ export class ProductsService {
     const [
       productBase,
       productCategories,
-      media,
+      productMedia,
       attributes,
       attributeValues,
       specifications,
@@ -2040,8 +2076,9 @@ export class ProductsService {
         where: { product_id: id },
         relations: ['category'],
       }),
-      this.dataSource.getRepository(Media).find({
+      this.dataSource.getRepository(ProductMedia).find({
         where: { product_id: id },
+        relations: ['media'],
       }),
       this.dataSource.getRepository(ProductAttribute).find({
         where: { product_id: id },
@@ -2070,7 +2107,7 @@ export class ProductsService {
     }
 
     productBase.productCategories = productCategories;
-    productBase.media = media;
+  productBase.productMedia = productMedia;
     productBase.attributes = attributes;
     (productBase as any).attribute_values = attributeValues;
     productBase.specifications = specifications;
@@ -2127,6 +2164,8 @@ export class ProductsService {
    * - Transform productCategories to categories array
    */
   private transformProductResponse(product: Product): any {
+    hydrateProductMedia(product, true);
+
     const {
       media,
       productCategories,
@@ -2539,7 +2578,8 @@ export class ProductsService {
       .createQueryBuilder('product')
       .leftJoinAndSelect('product.category', 'category')
       .leftJoinAndSelect('product.vendor', 'vendor')
-      .leftJoinAndSelect('product.media', 'media')
+      .leftJoinAndSelect('product.productMedia', 'productMedia')
+      .leftJoinAndSelect('productMedia.media', 'media')
       .where('product.status = :status', { status: ProductStatus.ARCHIVED });
 
     // Filter by category
@@ -2575,9 +2615,7 @@ export class ProductsService {
 
     // Map products to include image from primary media or first media
     const data = rawData.map((product) => {
-      const primaryMedia = product.media?.find((m) => m.is_primary);
-      const firstMedia = product.media?.[0];
-      const image = primaryMedia?.url || firstMedia?.url || null;
+      const image = getPrimaryMediaUrl(product);
 
       // Extract vendor info with status
       const vendorInfo = product.vendor
@@ -2590,7 +2628,8 @@ export class ProductsService {
           }
         : null;
 
-      const { media, vendor, ...productData } = product;
+      const { media, productMedia, vendor, ...productData } =
+        hydrateProductMedia(product, true) as any;
       return {
         ...productData,
         image,

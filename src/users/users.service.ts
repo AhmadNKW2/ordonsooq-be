@@ -12,6 +12,10 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { FilterUserDto } from './dto/filter-user.dto';
 import { Wishlist } from '../wishlist/entities/wishlist.entity';
 import { Product, ProductStatus } from '../products/entities/product.entity';
+import {
+  getPrimaryMediaUrl,
+  hydrateProductMedia,
+} from '../products/utils/product-media.util';
 
 type SanitizedUser = Omit<User, 'password'>;
 
@@ -136,7 +140,8 @@ export class UsersService {
       where: { user_id: id },
       relations: [
         'product',
-        'product.media',
+        'product.productMedia',
+        'product.productMedia.media',
         'product.vendor',
         'product.category',
         'product.productCategories',
@@ -149,10 +154,10 @@ export class UsersService {
 
     // Map wishlist items with full product details
     const wishlist = wishlistItems.map((item) => {
-      const product = item.product;
-      const primaryMedia = product?.media?.find((m) => m.is_primary);
-      const firstMedia = product?.media?.[0];
-      const image = primaryMedia?.url || firstMedia?.url || null;
+      const product = item.product
+        ? hydrateProductMedia(item.product, true)
+        : null;
+      const image = getPrimaryMediaUrl(product);
 
       return {
         id: item.id,

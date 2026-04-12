@@ -19,6 +19,10 @@ import { Product, ProductStatus } from '../products/entities/product.entity';
 import { FilterProductDto } from '../products/dto/filter-product.dto';
 import { ProductsService } from '../products/products.service';
 import { R2StorageService } from '../common/services/r2-storage.service';
+import {
+  getPrimaryMediaUrl,
+  hydrateProductMedia,
+} from '../products/utils/product-media.util';
 
 @Injectable()
 export class VendorsService {
@@ -382,15 +386,14 @@ export class VendorsService {
             'archived_at',
             'archived_by',
           ],
-          relations: ['media'],
+          relations: ['productMedia', 'productMedia.media'],
         });
 
         // Map products to include image from primary media or first media
         const archivedProducts = archivedProductsRaw.map((product) => {
-          const primaryMedia = product.media?.find((m) => m.is_primary);
-          const firstMedia = product.media?.[0];
-          const image = primaryMedia?.url || firstMedia?.url || null;
-          const { media, ...productData } = product;
+          const image = getPrimaryMediaUrl(product);
+          const { media, productMedia, ...productData } =
+            hydrateProductMedia(product, true) as any;
           return { ...productData, image };
         });
 

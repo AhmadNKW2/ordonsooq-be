@@ -29,6 +29,11 @@ import { Vendor } from '../vendors/entities/vendor.entity';
 import { VendorStatus } from '../vendors/entities/vendor.entity';
 import { R2StorageService } from '../common/services/r2-storage.service';
 import { Attribute } from '../attributes/entities/attribute.entity';
+import {
+  getPrimaryMediaUrl,
+  hydrateProductMedia,
+  hydrateProductsMedia,
+} from '../products/utils/product-media.util';
 
 @Injectable()
 export class CategoriesService {
@@ -1200,15 +1205,14 @@ export class CategoriesService {
             'archived_at',
             'archived_by',
           ],
-          relations: ['media'],
+          relations: ['productMedia', 'productMedia.media'],
         });
 
         // Map products to include image from primary media or first media
         const archivedProducts = archivedProductsRaw.map((product) => {
-          const primaryMedia = product.media?.find((m) => m.is_primary);
-          const firstMedia = product.media?.[0];
-          const image = primaryMedia?.url || firstMedia?.url || null;
-          const { media, ...productData } = product;
+          const image = getPrimaryMediaUrl(product);
+          const { media, productMedia, ...productData } =
+            hydrateProductMedia(product, true) as any;
           return { ...productData, image };
         });
 
@@ -1478,7 +1482,8 @@ export class CategoriesService {
       relations: [
         'product',
         'product.vendor',
-        'product.media',
+        'product.productMedia',
+        'product.productMedia.media',
         'product.priceGroups',
       ],
     });
@@ -1486,6 +1491,8 @@ export class CategoriesService {
     const products = productCategories
       .map((pc) => pc.product)
       .filter((p) => p && p.status === ProductStatus.ACTIVE);
+
+    hydrateProductsMedia(products, true);
 
     return {
       category,
@@ -1515,7 +1522,8 @@ export class CategoriesService {
       relations: [
         'product',
         'product.vendor',
-        'product.media',
+        'product.productMedia',
+        'product.productMedia.media',
         'product.priceGroups',
       ],
     });
@@ -1523,6 +1531,8 @@ export class CategoriesService {
     const products = productCategories
       .map((pc) => pc.product)
       .filter((p) => p && p.status === ProductStatus.ARCHIVED);
+
+    hydrateProductsMedia(products, true);
 
     // Add canRestore flag based on vendor status
     const productsWithRestoreInfo = products.map((product) => {

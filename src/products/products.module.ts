@@ -10,6 +10,7 @@ import { ProductSpecificationValue } from './entities/product-specification-valu
 import { ProductAttributeValue } from './entities/product-attribute-value.entity';
 import { ProductGroup } from './entities/product-group.entity';
 import { GroupProduct } from './entities/group-product.entity';
+import { ProductMedia } from './entities/product-media.entity';
 import { AttributesModule } from '../attributes/attributes.module';
 import { AttributeValue } from '../attributes/entities/attribute-value.entity';
 import { Attribute } from '../attributes/entities/attribute.entity';
@@ -24,6 +25,7 @@ import { Tag } from '../search/entities/tag.entity';
 import { ProductSlugRedirect } from './entities/product-slug-redirect.entity';
 import { SpecificationsModule } from '../specifications/specifications.module';
 import { ProductImportService } from './product-import.service';
+import { ProductMediaBackfillService } from './product-media-backfill.service';
 
 @Module({
   imports: [
@@ -32,6 +34,7 @@ import { ProductImportService } from './product-import.service';
       ProductAttribute,
       ProductAttributeValue,
       ProductCategory,
+      ProductMedia,
       ProductSpecificationValue,
       ProductGroup,
       GroupProduct,
@@ -53,6 +56,7 @@ import { ProductImportService } from './product-import.service';
   providers: [
     ProductsService,
     ProductImportService,
+    ProductMediaBackfillService,
   ],
   exports: [
     ProductsService,

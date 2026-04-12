@@ -4,10 +4,10 @@ import {
   Column,
   CreateDateColumn,
   UpdateDateColumn,
-  ManyToOne,
-  JoinColumn,
   Index,
+  OneToMany,
 } from 'typeorm';
+import { ProductMedia } from '../../products/entities/product-media.entity';
 
 export enum MediaType {
   IMAGE = 'image',
@@ -15,20 +15,20 @@ export enum MediaType {
 }
 
 /**
- * Unified media entity - handles both uploaded files and product-linked media
+ * Unified media entity - handles uploaded files that can be linked to products
  *
  * This allows "upload first, link later" pattern:
- * 1. User uploads file -> Media entity created with url (product_id = null)
- * 2. User submits product form -> Media updated with product_id, sort_order, is_primary
+ * 1. User uploads file -> Media entity created with url
+ * 2. User submits product form -> product_media rows link media IDs to products
  *
- * For simple products: media_group_id is null or points to a simple group
- * For variant products: media_group_id points to a group with attribute values
+ * Legacy product columns remain in the table for backward-compatible backfill,
+ * but product ownership now lives in the product_media join table.
  */
 @Entity('media')
-@Index('idx_media_product_id', ['product_id'])
+@Index('idx_media_product_id', ['legacy_product_id'])
 @Index('idx_media_type', ['type'])
 @Index('idx_media_created_at', ['created_at'])
-@Index('idx_media_product_sort', ['product_id', 'sort_order'])
+@Index('idx_media_product_sort', ['legacy_product_id', 'legacy_sort_order'])
 export class Media {
   @PrimaryGeneratedColumn()
   id: number;
@@ -55,20 +55,19 @@ export class Media {
   @Column({ nullable: true })
   alt_text: string;
 
-  // ===== Product Linking =====
+  // ===== Legacy Product Linking =====
 
-  @Column({ type: 'int', nullable: true })
-  product_id: number | null;
+  @Column({ name: 'product_id', type: 'int', nullable: true, select: false })
+  legacy_product_id: number | null;
 
-  @ManyToOne('Product', 'media', { onDelete: 'CASCADE', nullable: true })
-  @JoinColumn({ name: 'product_id' })
-  product: any;
+  @Column({ name: 'sort_order', default: 0, select: false })
+  legacy_sort_order: number;
 
-  @Column({ default: 0 })
-  sort_order: number;
+  @Column({ name: 'is_primary', default: false, select: false })
+  legacy_is_primary: boolean;
 
-  @Column({ default: false })
-  is_primary: boolean;
+  @OneToMany(() => ProductMedia, (productMedia) => productMedia.media)
+  productMedia: ProductMedia[];
 
   @CreateDateColumn()
   created_at: Date;
