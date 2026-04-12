@@ -118,6 +118,24 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
 
   app.use((req, res, next) => {
+    const requestedSwaggerUrl =
+      typeof req.query?.url === 'string' ? req.query.url : undefined;
+
+    if (
+      (req.path === '/docs' || req.path === '/docs/') &&
+      requestedSwaggerUrl !== '/docs-json'
+    ) {
+      res.setHeader(
+        'Cache-Control',
+        'no-store, no-cache, must-revalidate, proxy-revalidate',
+      );
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      res.setHeader('Surrogate-Control', 'no-store');
+      res.redirect(302, '/docs?url=/docs-json');
+      return;
+    }
+
     if (
       req.path === '/docs' ||
       req.path === '/docs/' ||
