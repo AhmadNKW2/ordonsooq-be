@@ -12,6 +12,22 @@ import {
 import { Type, Transform } from 'class-transformer';
 import { ProductStatus } from '../entities/product.entity';
 
+function parseNumericArray(value: unknown): number[] | undefined {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(Number);
+  }
+
+  if (typeof value === 'string') {
+    return value.split(',').map(Number);
+  }
+
+  return [Number(value)];
+}
+
 export class AssignProductsDto {
   @IsArray()
   @ArrayMinSize(1)
@@ -40,6 +56,22 @@ export function getSingleVendorId(filterDto: {
   vendor_id?: number;
 }) {
   return filterDto.vendorId ?? filterDto.vendor_id;
+}
+
+export function getCategoryIds(filterDto: {
+  category_ids?: number[];
+  categories_ids?: number[];
+}) {
+  return [
+    ...new Set(
+      [...(filterDto.category_ids ?? []), ...(filterDto.categories_ids ?? [])]
+        .map((categoryId) => Number(categoryId))
+        .filter(
+          (categoryId) =>
+            Number.isInteger(categoryId) && categoryId > 0,
+        ),
+    ),
+  ];
 }
 
 export class FilterProductDto {
@@ -102,14 +134,42 @@ export class FilterProductDto {
 
   /** Multiple category IDs (comma-separated or repeated param) */
   @IsOptional()
-  @Transform(({ value }) => {
-    if (Array.isArray(value)) return value.map(Number);
-    if (typeof value === 'string') return value.split(',').map(Number);
-    return [Number(value)];
-  })
+  @Transform(({ value }) => parseNumericArray(value))
   @IsArray()
   @IsNumber({}, { each: true })
   category_ids?: number[];
+
+  /** Backward-compatible alias for category_ids. */
+  @IsOptional()
+  @Transform(({ value }) => parseNumericArray(value))
+  @IsArray()
+  @IsNumber({}, { each: true })
+  categories_ids?: number[];
+
+  // ─── Attribute / Specification filters ──────────────
+  @IsOptional()
+  @Transform(({ value }) => parseNumericArray(value))
+  @IsArray()
+  @IsNumber({}, { each: true })
+  attributes_ids?: number[];
+
+  @IsOptional()
+  @Transform(({ value }) => parseNumericArray(value))
+  @IsArray()
+  @IsNumber({}, { each: true })
+  attributes_values_ids?: number[];
+
+  @IsOptional()
+  @Transform(({ value }) => parseNumericArray(value))
+  @IsArray()
+  @IsNumber({}, { each: true })
+  specifications_ids?: number[];
+
+  @IsOptional()
+  @Transform(({ value }) => parseNumericArray(value))
+  @IsArray()
+  @IsNumber({}, { each: true })
+  specifications_values_ids?: number[];
 
   // ─── Vendor filter ───────────────────────────────────
   /** Single vendor ID (backward compat). Accepts vendorId or vendor_id. */

@@ -12,6 +12,7 @@ import {
   JoinColumn,
   BeforeInsert,
   Index,
+  ValueTransformer,
 } from 'typeorm';
 import { Category } from '../../categories/entities/category.entity';
 import { Vendor } from '../../vendors/entities/vendor.entity';
@@ -22,6 +23,23 @@ import { ProductAttribute } from './product-attribute.entity';
 import { ProductCategory } from './product-category.entity';
 import { ProductSpecificationValue } from './product-specification-value.entity';
 import { GroupProduct } from './group-product.entity';
+
+const decimalNumberTransformer: ValueTransformer = {
+  to(value: number | null | undefined) {
+    if (value === null || value === undefined) {
+      return value;
+    }
+
+    return typeof value === 'number' ? value : Number(value);
+  },
+  from(value: string | number | null | undefined) {
+    if (value === null || value === undefined) {
+      return value;
+    }
+
+    return typeof value === 'number' ? value : Number(value);
+  },
+};
 
 export enum ProductStatus {
   ACTIVE = 'active',
@@ -125,13 +143,28 @@ export class Product {
   media: Media[];
 
   // ── Pricing (flat) ────────────────────────────────────────────
-  @Column('decimal', { precision: 10, scale: 2, default: 0 })
+  @Column('decimal', {
+    precision: 10,
+    scale: 2,
+    default: 0,
+    transformer: decimalNumberTransformer,
+  })
   cost: number;
 
-  @Column('decimal', { precision: 10, scale: 2, default: 0 })
+  @Column('decimal', {
+    precision: 10,
+    scale: 2,
+    default: 0,
+    transformer: decimalNumberTransformer,
+  })
   price: number;
 
-  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  @Column('decimal', {
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    transformer: decimalNumberTransformer,
+  })
   sale_price: number | null;
 
   // ── Weight / dimensions (flat) ────────────────────────────────

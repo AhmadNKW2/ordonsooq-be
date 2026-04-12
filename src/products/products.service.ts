@@ -12,6 +12,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import {
   FilterProductDto,
+  getCategoryIds,
   getSingleVendorId,
 } from './dto/filter-product.dto';
 import { ProductNamesQueryDto } from './dto/product-names-query.dto';
@@ -1471,11 +1472,14 @@ export class ProductsService {
       sortBy = 'created_at',
       sortOrder = 'DESC',
       categoryId,
-      category_ids,
       vendorId,
       vendor_ids,
       brandId,
       brand_ids,
+      attributes_ids,
+      attributes_values_ids,
+      specifications_ids,
+      specifications_values_ids,
       created_by,
       minPrice,
       maxPrice,
@@ -1491,6 +1495,7 @@ export class ProductsService {
       end_date,
       ids: filterIds,
     } = filterDto;
+    const normalizedCategoryIds = getCategoryIds(filterDto);
     const normalizedVendorId = getSingleVendorId(filterDto);
 
     // NOTE: The list view previously did a huge multi-join + getManyAndCount.
@@ -1535,10 +1540,38 @@ export class ProductsService {
     }
 
     // Filter by multiple categories (OR logic — product must belong to at least one)
-    if (category_ids && category_ids.length > 0) {
+    if (normalizedCategoryIds.length > 0) {
       baseQuery.andWhere(
         'EXISTS (SELECT 1 FROM product_categories pc WHERE pc.product_id = product.id AND pc.category_id IN (:...category_ids))',
-        { category_ids },
+        { category_ids: normalizedCategoryIds },
+      );
+    }
+
+    if (attributes_ids && attributes_ids.length > 0) {
+      baseQuery.andWhere(
+        'EXISTS (SELECT 1 FROM product_attributes pa WHERE pa.product_id = product.id AND pa.attribute_id IN (:...attributes_ids))',
+        { attributes_ids },
+      );
+    }
+
+    if (attributes_values_ids && attributes_values_ids.length > 0) {
+      baseQuery.andWhere(
+        'EXISTS (SELECT 1 FROM product_attribute_values pav WHERE pav.product_id = product.id AND pav.attribute_value_id IN (:...attributes_values_ids))',
+        { attributes_values_ids },
+      );
+    }
+
+    if (specifications_ids && specifications_ids.length > 0) {
+      baseQuery.andWhere(
+        'EXISTS (SELECT 1 FROM product_specification_values psv INNER JOIN specification_values sv ON sv.id = psv.specification_value_id WHERE psv.product_id = product.id AND sv.specification_id IN (:...specifications_ids))',
+        { specifications_ids },
+      );
+    }
+
+    if (specifications_values_ids && specifications_values_ids.length > 0) {
+      baseQuery.andWhere(
+        'EXISTS (SELECT 1 FROM product_specification_values psv WHERE psv.product_id = product.id AND psv.specification_value_id IN (:...specifications_values_ids))',
+        { specifications_values_ids },
       );
     }
 
@@ -1772,6 +1805,55 @@ export class ProductsService {
   /**
    * Transform product for detailed view (GET /products/:id)
    */
+  private buildProductRelationIds(product: Product) {
+    const {
+      productCategories,
+      category,
+      category_id,
+      attributes: productAttributes,
+      attribute_values: productAttributeValues,
+      specifications: productSpecifications,
+    } = product as any;
+
+    return {
+      categories_ids: this.normalizeProductIds([
+        ...(productCategories ?? []).map(
+          (productCategory: any) =>
+            productCategory.category_id ?? productCategory.category?.id,
+        ),
+        category_id,
+        category?.id,
+      ]),
+      attributes_ids: this.normalizeProductIds(
+        (productAttributes ?? []).map(
+          (productAttribute: any) =>
+            productAttribute.attribute_id ?? productAttribute.attribute?.id,
+        ),
+      ),
+      attributes_values_ids: this.normalizeProductIds(
+        (productAttributeValues ?? []).map(
+          (productAttributeValue: any) =>
+            productAttributeValue.attribute_value_id ??
+            productAttributeValue.attribute_value?.id,
+        ),
+      ),
+      specifications_ids: this.normalizeProductIds(
+        (productSpecifications ?? []).map(
+          (productSpecification: any) =>
+            productSpecification.specification_value?.specification_id ??
+            productSpecification.specification_value?.specification?.id,
+        ),
+      ),
+      specifications_values_ids: this.normalizeProductIds(
+        (productSpecifications ?? []).map(
+          (productSpecification: any) =>
+            productSpecification.specification_value_id ??
+            productSpecification.specification_value?.id,
+        ),
+      ),
+    };
+  }
+
   private transformProductDetail(product: Product, isAdmin = false): any {
     const {
       media,
@@ -1912,6 +1994,8 @@ export class ProductsService {
         sort_order: m.sort_order,
       }));
 
+    const relationIds = this.buildProductRelationIds(product);
+
     const {
       category_id,
       vendor_id,
@@ -1925,6 +2009,7 @@ export class ProductsService {
 
     return {
       ...cleanRest,
+      ...relationIds,
       brand: brandInfo,
       categories,
       attributes: attributesMap,

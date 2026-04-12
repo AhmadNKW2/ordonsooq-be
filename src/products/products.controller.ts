@@ -256,9 +256,9 @@ export class ProductsController {
           vendor_id: 2,
           brand_id: 34,
           visible: true,
-          cost: 30,
-          price: 50,
-          sale_price: 45,
+          cost: 30.5,
+          price: 50.99,
+          sale_price: 45.25,
           weight: 0.25,
           length: 12,
           width: 6,
@@ -350,6 +350,7 @@ export class ProductsController {
     required: false,
     type: String,
     description: 'Comma separated list of category ids, e.g. 1,2,3',
+    example: '1,2,3',
   })
   findProductNames(@Query() queryDto: ProductNamesQueryDto, @Req() req: any) {
     const isAdmin =
@@ -368,12 +369,56 @@ export class ProductsController {
     required: false,
     type: Number,
     description: 'Preferred single-vendor filter parameter',
+    example: 2,
   })
   @ApiQuery({
     name: 'vendor_id',
     required: false,
     type: Number,
     description: 'Backward-compatible alias for vendorId',
+    example: 2,
+  })
+  @ApiQuery({
+    name: 'category_ids',
+    required: false,
+    type: String,
+    description: 'Comma separated category ids, e.g. 1,2,3',
+    example: '1,2,3',
+  })
+  @ApiQuery({
+    name: 'categories_ids',
+    required: false,
+    type: String,
+    description: 'Alias for category_ids',
+    example: '1,2,3',
+  })
+  @ApiQuery({
+    name: 'attributes_ids',
+    required: false,
+    type: String,
+    description: 'Comma separated attribute ids, e.g. 5,8',
+    example: '5,8',
+  })
+  @ApiQuery({
+    name: 'attributes_values_ids',
+    required: false,
+    type: String,
+    description: 'Comma separated attribute value ids, e.g. 12,15',
+    example: '12,15',
+  })
+  @ApiQuery({
+    name: 'specifications_ids',
+    required: false,
+    type: String,
+    description: 'Comma separated specification ids, e.g. 3,4',
+    example: '3,4',
+  })
+  @ApiQuery({
+    name: 'specifications_values_ids',
+    required: false,
+    type: String,
+    description: 'Comma separated specification value ids, e.g. 21,22',
+    example: '21,22',
   })
   findAll(@Query() filterDto: FilterProductDto, @Req() req: any) {
     const isAdmin =

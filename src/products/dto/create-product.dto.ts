@@ -13,6 +13,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ProductStatus } from '../entities/product.entity';
+import { PreserveRawNumberInput } from '../../common/decorators/preserve-raw-number-input.decorator';
 import { ProductSpecificationInputDto } from './product-specification.dto';
 
 import { ProductAttributeInputDto } from './product-attribute.dto';
@@ -124,16 +125,19 @@ export class CreateProductDto {
   // ============== Pricing ==============
 
   @ApiPropertyOptional({ example: 50.00, description: 'The cost price of the product' })
+  @PreserveRawNumberInput()
   @IsNumber()
   @IsOptional()
   cost?: number;
 
   @ApiPropertyOptional({ example: 99.99, description: 'The regular selling price' })
+  @PreserveRawNumberInput()
   @IsNumber()
   @IsOptional()
   price?: number;
 
   @ApiPropertyOptional({ example: 79.99, description: 'The discounted sale price (if applicable)' })
+  @PreserveRawNumberInput()
   @IsNumber()
   @IsOptional()
   sale_price?: number;
