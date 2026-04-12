@@ -117,26 +117,13 @@ async function bootstrap() {
   // Set global prefix for all routes
   app.setGlobalPrefix('api');
 
-  const swaggerUiPath = 'docs-v2';
-
   app.use((req, res, next) => {
-    if (req.path === '/docs' || req.path === '/docs/') {
-      res.setHeader(
-        'Cache-Control',
-        'no-store, no-cache, must-revalidate, proxy-revalidate',
-      );
-      res.setHeader('Pragma', 'no-cache');
-      res.setHeader('Expires', '0');
-      res.setHeader('Surrogate-Control', 'no-store');
-      res.redirect(302, `/${swaggerUiPath}`);
-      return;
-    }
-
     if (
-      req.path === `/${swaggerUiPath}` ||
+      req.path === '/docs' ||
+      req.path === '/docs/' ||
       req.path === '/docs-json' ||
       req.path === '/docs-yaml' ||
-      req.path.startsWith(`/${swaggerUiPath}/`)
+      req.path.startsWith('/docs/')
     ) {
       res.setHeader(
         'Cache-Control',
@@ -178,7 +165,7 @@ async function bootstrap() {
     deepScanRoutes: true,
   });
 
-  SwaggerModule.setup(swaggerUiPath, app, swaggerDocument, {
+  SwaggerModule.setup('docs', app, swaggerDocument, {
     customSiteTitle: 'Ordonsooq API Docs',
     jsonDocumentUrl: 'docs-json',
     yamlDocumentUrl: 'docs-yaml',
@@ -194,8 +181,7 @@ async function bootstrap() {
 
   const appUrl = await app.getUrl();
   console.log(`Application is running on: ${appUrl}/api`);
-  console.log(`Swagger UI is available at: ${appUrl}/${swaggerUiPath}`);
-  console.log(`Legacy Swagger URL redirects from: ${appUrl}/docs`);
+  console.log(`Swagger UI is available at: ${appUrl}/docs`);
   console.log(`OpenAPI JSON is available at: ${appUrl}/docs-json`);
   console.log(`OpenAPI YAML is available at: ${appUrl}/docs-yaml`);
 }
