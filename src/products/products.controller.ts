@@ -28,7 +28,6 @@ import { ProductsService } from './products.service';
 import { ProductImportService } from './product-import.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { DeleteReviewProductsDto } from './dto/delete-review-products.dto';
-import { ImportProductPayloadDto } from './dto/import-product-payload.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { PatchProductDto } from './dto/patch-product.dto';
 import { FilterProductDto, AssignProductsDto } from './dto/filter-product.dto';
@@ -142,90 +141,135 @@ export class ProductsController {
     summary: 'Import a raw product payload and create a product through the AI enrichment flow',
   })
   @ApiBody({
-    type: ImportProductPayloadDto,
-    description:
-      'Send either { payload, category_id, vendor_id, model? } or send the raw product payload directly in the request body.',
-    examples: {
-      wrapped_payload: {
-        summary: 'Wrapped payload import request',
-        value: {
-          category_id: 9,
-          vendor_id: 2,
-          model: 'gpt-5.4',
-          payload: {
-            reference_link: 'https://citycenter.jo/lg-ultragear-24gs60f-b-aek',
-            data: {
-              title: 'LG UltraGear 24GS60F-B 24 inch FHD IPS Gaming Monitor',
-              description:
-                '24-inch Full HD IPS gaming monitor with 180Hz refresh rate, 1ms response time, HDR10, and AMD FreeSync support.',
-              brand: 'LG',
-              new_price: {
-                translate: '129.00',
-              },
-              old_price: {
-                translate: '149.00',
-              },
-              image: '3172',
-              images: ['3172', '3173'],
-              specification: [
-                {
-                  name: 'Panel Type',
-                  value: 'IPS',
-                },
-                {
-                  name: 'Refresh Rate',
-                  value: '180Hz',
-                },
-                {
-                  name: 'Response Time',
-                  value: '1ms',
-                },
-              ],
-              attributes: [
-                {
-                  name: 'Color',
-                  value: 'Black',
-                },
-              ],
-            },
-          },
+    schema: {
+      type: 'object',
+      additionalProperties: true,
+      example: {
+        category: {
+          id: 9,
+          name_en: 'Monitors',
+          slug: 'monitors',
+          name_ar: 'الشاشات',
+          description_en: 'Monitors',
+          description_ar: 'الشاشات',
+          image:
+            'https://pub-b8afad6fa843477fb61b00764b315e24.r2.dev/categories/36af1f8b-04ea-4ae9-a001-bf1fe32cc379.webp',
+          level: 0,
+          sortOrder: 1,
+          status: 'active',
+          visible: true,
+          parent_id: 'None',
+          archived_at: 'None',
+          archived_by: 'None',
+          createdAt: '2026-03-05T13:41:21.368+03:00',
+          updatedAt: '2026-03-16T06:19:24.965+03:00',
         },
-      },
-      direct_payload: {
-        summary: 'Direct raw payload import request',
-        value: {
-          category_id: 9,
-          vendor_id: 2,
-          reference_link: 'https://citycenter.jo/lg-ultragear-24gs60f-b-aek',
-          data: {
-            title: 'LG UltraGear 24GS60F-B 24 inch FHD IPS Gaming Monitor',
-            description:
-              '24-inch Full HD IPS gaming monitor with 180Hz refresh rate, 1ms response time, HDR10, and AMD FreeSync support.',
-            brand: 'LG',
-            new_price: '129.00',
-            old_price: '149.00',
-            image: '3172',
-            images: ['3172', '3173'],
-            specification: [
-              {
-                name: 'Panel Type',
-                value: 'IPS',
-              },
-              {
-                name: 'Refresh Rate',
-                value: '180Hz',
-              },
-            ],
-            attributes: [
-              {
-                name: 'Color',
-                value: 'Black',
-              },
-            ],
-          },
+        category_id: 9,
+        vendor: {
+          id: 2,
+          slug: 'midas-computer-center',
+          name_en: 'Midas Computer Center',
+          name_ar: 'ميداس للكمبيوتر',
+          description_en: 'Midas Computer Center',
+          description_ar: 'ميداس للكمبيوتر',
+          email: 'None',
+          phone: 'None',
+          address: 'None',
+          logo:
+            'https://pub-b8afad6fa843477fb61b00764b315e24.r2.dev/vendors/bbc6f2da-992a-4b85-b1de-3699c5e9162e.webp',
+          status: 'active',
+          visible: true,
+          rating: '0.00',
+          rating_count: 0,
+          sort_order: 1,
+          archived_at: 'None',
+          archived_by: 'None',
+          created_at: '2026-02-19T13:07:51.709+03:00',
+          updated_at: '2026-02-19T13:07:51.709+03:00',
+          deleted_at: 'None',
+        },
+        vendor_id: 2,
+        created_at: '2026-04-07T12:10:45.258+03:00',
+        updated_at: '2026-04-07T12:10:45.258+03:00',
+        scraping_website_id: '2',
+        type: 'new',
+        reference_link:
+          'https://mcc-jo.com/product/samsung-s3-essential-d362-curved-business-monitor-24-inch-full-hd-100hz-4ms-eye-saver-mode',
+        data: {
+          reference_link:
+            'https://mcc-jo.com/product/samsung-s3-essential-d362-curved-business-monitor-24-inch-full-hd-100hz-4ms-eye-saver-mode',
+          title:
+            'Samsung S3 Essential D362 Curved Business Monitor - 24-inch Full HD 100Hz 4ms Eye Saver Mode',
+          short_description:
+            'Samsung S3 Essential D362 Curved Business Monitor - 24-inch Full HD 100Hz 4ms Eye Saver Mode, Color Gamut (sRGB Coverage) 95%',
+          description:
+            'Samsung S3 Essential D362CurvedBusiness Monitor - 24-inch Full HD 100Hz 4ms Eye Saver Mode1800R Curved Screen | 100Hz Refresh Rate | Game Mode | Eye Saver Mode & Less Screen FlickeringAdditional Features: Color Gamut (sRGB Coverage) 95% | Eco Saving Plus | Off Timer PlusSamsung S3Curved MonitorThe Curved for enriched engagement,1800R Curved ScreenA more immersive viewing experience. The curved monitor wraps more closely around your field of vision to create a wider view which enhances depth perception and minimizes peripheral distractions, helping to better stay focused on what\'s on screen.Smooth performance for your content,100Hz Refresh RateStay in the action when playing games, watching videos, or working on creative projects. The 100Hz refresh rate reduces lag and motion blur so you don\'t miss a thing in fast-paced moments.Game ModeGain the edge with optimizable game settings. Color and image contrast can be instantly adjusted to see scenes more vividly and spot enemies hiding in the dark, while Game Mode adjusts any game to fill your screen with every detail in view.for moreAsus Gaming Laptop',
+          old_price: 'None',
+          new_price: '89.0',
+          brand: 'SAMSUNG',
+          image: 4924,
+          images: [4925, 4926, 4927, 4928],
+          specification: [
+            {
+              key: 'Screen Size',
+              value: ['24-inch'],
+            },
+            {
+              key: 'Screen Refresh Rate',
+              value: ['100 Hz'],
+            },
+            {
+              key: 'Screen Resolution',
+              value: ['1920x1080 (FHD)'],
+            },
+            {
+              key: 'Screen Panel Technology',
+              value: ['VA'],
+            },
+            {
+              key: 'Response Time',
+              value: ['4ms'],
+            },
+            {
+              key: 'Contrast Ratio',
+              value: ['3000:1'],
+            },
+            {
+              key: 'Brightness',
+              value: ['250 nits'],
+            },
+            {
+              key: 'Flat / Curved',
+              value: ['Curved'],
+            },
+            {
+              key: 'Speakers',
+              value: ['N/A'],
+            },
+            {
+              key: 'Color support',
+              value: ['8-bit (16.7 million colors)', '95% DCI-P3'],
+            },
+            {
+              key: 'Ports',
+              value: ['1x HDMI', '1x D-Sub (VGA)'],
+            },
+            {
+              key: 'BRAND',
+              value: ['SAMSUNG'],
+            },
+            {
+              key: 'Warranty',
+              value: ['3-YEAR'],
+            },
+          ],
+          attributes: {},
+          in_stock: true,
         },
       },
     },
+    description:
+      'Send the raw product payload directly in the request body. This example matches the importer payload shape used by product.json.',
   })
   importPayload(@Body() body: Record<string, unknown>, @Req() req: any) {
     return this.productImportService.importFromRequest(body, req.user?.id);

@@ -332,7 +332,7 @@ export class ProductImportService {
         this.requireOptionalString(mergedPayload.url) ??
         this.requireOptionalString(mergedPayload.link),
       quantity: mergedPayload.quantity,
-      stock: mergedPayload.stock,
+      stock: mergedPayload.stock ?? mergedPayload.in_stock,
       sku: this.requireOptionalString(mergedPayload.sku),
       record: this.requireOptionalString(mergedPayload.record),
     };
