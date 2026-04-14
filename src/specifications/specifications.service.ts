@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
@@ -13,6 +14,11 @@ import { UpdateSpecificationDto } from './dto/update-specification.dto';
 import { ReorderSpecificationsDto } from './dto/reorder-specifications.dto';
 import { ReorderSpecificationValuesDto } from './dto/reorder-specification-values.dto';
 import { UpdateSpecificationValueDto } from './dto/update-specification-value.dto';
+import {
+  buildNormalizedValueSql,
+  normalizeValueNameForUniqueness,
+  sanitizeValueName,
+} from '../common/utils/value-name-normalization.util';
 
 @Injectable()
 export class SpecificationsService {
@@ -33,6 +39,112 @@ export class SpecificationsService {
           .filter((categoryId) => Number.isInteger(categoryId) && categoryId > 0),
       ),
     ];
+  }
+
+  private sanitizeRequiredValueName(value: string, fieldName: string): string {
+    const sanitizedValue = sanitizeValueName(value ?? '');
+
+    if (!sanitizedValue) {
+      throw new BadRequestException(`${fieldName} is required`);
+    }
+
+    return sanitizedValue;
+  }
+
+  private prepareSpecificationValuesPayload<
+    T extends { value_en: string; value_ar: string },
+  >(values: T[]): T[] {
+    const seenEnglishNames = new Set<string>();
+    const seenArabicNames = new Set<string>();
+
+    return values.map((value) => {
+      const sanitizedValueEn = this.sanitizeRequiredValueName(
+        value.value_en,
+        'value_en',
+      );
+      const sanitizedValueAr = this.sanitizeRequiredValueName(
+        value.value_ar,
+        'value_ar',
+      );
+      const normalizedValueEn = normalizeValueNameForUniqueness(sanitizedValueEn);
+      const normalizedValueAr = normalizeValueNameForUniqueness(sanitizedValueAr);
+
+      if (
+        seenEnglishNames.has(normalizedValueEn) ||
+        seenArabicNames.has(normalizedValueAr)
+      ) {
+        throw new ConflictException(
+          'Duplicate specification values are not allowed within the same specification',
+        );
+      }
+
+      seenEnglishNames.add(normalizedValueEn);
+      seenArabicNames.add(normalizedValueAr);
+
+      return {
+        ...value,
+        value_en: sanitizedValueEn,
+        value_ar: sanitizedValueAr,
+      };
+    });
+  }
+
+  private async ensureSpecificationValueUnique(
+    specificationId: number,
+    valueEn: string,
+    valueAr: string,
+    excludeId?: number,
+  ): Promise<void> {
+    const query = this.specificationValueRepository
+      .createQueryBuilder('value')
+      .select('value.id', 'id')
+      .where('value.specification_id = :specificationId', { specificationId })
+      .andWhere(
+        `(${buildNormalizedValueSql('value.value_en')} = :normalizedValueEn OR ${buildNormalizedValueSql('value.value_ar')} = :normalizedValueAr)`,
+        {
+          normalizedValueEn: normalizeValueNameForUniqueness(valueEn),
+          normalizedValueAr: normalizeValueNameForUniqueness(valueAr),
+        },
+      );
+
+    if (excludeId !== undefined) {
+      query.andWhere('value.id != :excludeId', { excludeId });
+    }
+
+    const existingValue = await query.getRawOne();
+
+    if (existingValue) {
+      throw new ConflictException(
+        'Specification value with this name already exists for this specification',
+      );
+    }
+  }
+
+  private async validateSpecificationParentValue(
+    specificationId: number,
+    parentValueId?: number | null,
+    currentValueId?: number,
+  ): Promise<void> {
+    if (parentValueId === undefined || parentValueId === null) {
+      return;
+    }
+
+    if (currentValueId !== undefined && parentValueId === currentValueId) {
+      throw new BadRequestException(
+        'parent_value_id cannot reference the same specification value',
+      );
+    }
+
+    const parentValue = await this.specificationValueRepository.findOne({
+      where: { id: parentValueId, specification_id: specificationId },
+      select: ['id'],
+    });
+
+    if (!parentValue) {
+      throw new NotFoundException(
+        'Parent specification value was not found for this specification',
+      );
+    }
   }
 
   private async syncCategoriesForSpecification(
@@ -106,6 +218,9 @@ export class SpecificationsService {
     const nextSortOrder = (maxSortOrder?.max ?? -1) + 1;
 
     const { category_ids, values: valuesDto, ...specificationData } = createSpecificationDto;
+    const preparedValues = valuesDto
+      ? this.prepareSpecificationValuesPayload(valuesDto)
+      : [];
 
     const specification = this.specificationRepository.create({
       ...specificationData,
@@ -118,8 +233,8 @@ export class SpecificationsService {
       await this.syncCategoriesForSpecification(savedSpecification.id, category_ids);
     }
 
-    if (valuesDto && valuesDto.length > 0) {
-      const values = valuesDto.map((value, index) =>
+    if (preparedValues.length > 0) {
+      const values = preparedValues.map((value, index) =>
         this.specificationValueRepository.create({
           ...value,
           specification: savedSpecification,
@@ -267,6 +382,19 @@ export class SpecificationsService {
       throw new NotFoundException(`Specification with ID ${specificationId} not found`);
     }
 
+    const sanitizedValueEn = this.sanitizeRequiredValueName(valueEn, 'value_en');
+    const sanitizedValueAr = this.sanitizeRequiredValueName(valueAr, 'value_ar');
+
+    await this.ensureSpecificationValueUnique(
+      specificationId,
+      sanitizedValueEn,
+      sanitizedValueAr,
+    );
+    await this.validateSpecificationParentValue(
+      specificationId,
+      parentValueId,
+    );
+
     const maxSortOrder = await this.specificationValueRepository
       .createQueryBuilder('value')
       .select('MAX(value.sort_order)', 'max')
@@ -276,8 +404,8 @@ export class SpecificationsService {
 
     const specificationValue = this.specificationValueRepository.create({
       specification_id: specificationId,
-      value_en: valueEn,
-      value_ar: valueAr,
+      value_en: sanitizedValueEn,
+      value_ar: sanitizedValueAr,
       parent_value_id: parentValueId,
       sort_order: nextSortOrder,
     });
@@ -311,6 +439,39 @@ export class SpecificationsService {
       throw new NotFoundException(
         `Specification value with ID ${valueId} not found`,
       );
+    }
+
+    const nextValueEn =
+      updateDto.value_en !== undefined
+        ? this.sanitizeRequiredValueName(updateDto.value_en, 'value_en')
+        : this.sanitizeRequiredValueName(value.value_en, 'value_en');
+    const nextValueAr =
+      updateDto.value_ar !== undefined
+        ? this.sanitizeRequiredValueName(updateDto.value_ar, 'value_ar')
+        : this.sanitizeRequiredValueName(value.value_ar, 'value_ar');
+    const nextParentValueId =
+      updateDto.parent_value_id !== undefined
+        ? updateDto.parent_value_id
+        : value.parent_value_id;
+
+    await this.ensureSpecificationValueUnique(
+      value.specification_id,
+      nextValueEn,
+      nextValueAr,
+      valueId,
+    );
+    await this.validateSpecificationParentValue(
+      value.specification_id,
+      nextParentValueId,
+      valueId,
+    );
+
+    if (updateDto.value_en !== undefined) {
+      updateDto.value_en = nextValueEn;
+    }
+
+    if (updateDto.value_ar !== undefined) {
+      updateDto.value_ar = nextValueAr;
     }
 
     Object.assign(value, updateDto);
