@@ -3,6 +3,7 @@ import json
 import logging
 import mimetypes
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
@@ -41,6 +42,12 @@ load_dotenv_file(Path(__file__).resolve().with_name(".env"))
 DEFAULT_BASE_URL = os.getenv("PRODUCT_IMPORT_BASE_URL", "https://api.ordonsooq.com/api").rstrip("/")
 DEFAULT_OPENAI_MODEL = os.getenv("PRODUCT_IMPORT_OPENAI_MODEL", "gpt-5.4")
 DEFAULT_TIMEOUT_SECONDS = 120
+DEFAULT_OPENAI_LOG_PATH = Path(
+    os.getenv(
+        "PRODUCT_IMPORT_OPENAI_LOG_PATH",
+        str(Path(__file__).resolve().parent / "logs" / "import_product_openai.jsonl"),
+    ),
+)
 NOT_EXIST = "not_exist"
 
 
@@ -202,6 +209,43 @@ def normalize_input_data(raw_data: dict[str, Any]) -> dict[str, Any]:
 
 def normalize_lookup_text(value: str) -> str:
     return "".join(character for character in value.casefold() if character.isalnum())
+
+
+def append_openai_log(entry: dict[str, Any], log_path: Path = DEFAULT_OPENAI_LOG_PATH) -> None:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("a", encoding="utf-8") as log_file:
+        log_file.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def build_openai_log_entry(
+    *,
+    model: str,
+    openai_input: list[dict[str, Any]],
+    raw_product_input: dict[str, Any],
+    source_file: str | None,
+    response: Any = None,
+    raw_output_text: str | None = None,
+    parsed_output: dict[str, Any] | None = None,
+    error_message: str | None = None,
+) -> dict[str, Any]:
+    response_dump: Any = None
+    if response is not None:
+        if hasattr(response, "model_dump"):
+            response_dump = response.model_dump()
+        else:
+            response_dump = str(response)
+
+    return {
+        "timestamp": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+        "source_file": source_file,
+        "model": model,
+        "raw_product_input": raw_product_input,
+        "openai_input": openai_input,
+        "openai_response": response_dump,
+        "raw_output_text": raw_output_text,
+        "parsed_output": parsed_output,
+        "error": error_message,
+    }
 
 
 def resolve_brand_id(brands: list[dict[str, Any]], brand_name: str) -> int:
@@ -600,6 +644,7 @@ def call_ai(
     specifications_res: list[dict[str, Any]],
     attribute_res: list[dict[str, Any]],
     model: str = DEFAULT_OPENAI_MODEL,
+    source_file: str | None = None,
 ) -> dict[str, Any]:
     brands_catalog = compact_brands_for_ai(brands_res)
     specifications_catalog = compact_specifications_for_ai(specifications_res)
@@ -732,35 +777,66 @@ Respond ONLY with a JSON object in this exact format:
 ]
 }}"""
 
-    response = client.responses.create(
+    openai_input = [
+        {"role": "system", "content": system_prompt},
+        {
+            "role": "user",
+            "content": json.dumps(
+                {
+                    "brand": data.get("brand"),
+                    "title": data["title"],
+                    "description": data["description"],
+                    "specification": data.get("specification", []),
+                    "attributes": data.get("attributes", []),
+                },
+                indent=2,
+                ensure_ascii=False,
+            ),
+        },
+    ]
+
+    response = None
+    raw = None
+
+    try:
+        response = client.responses.create(
         model=model,
-        input=[
-            {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": json.dumps(
-                    {
-                        "brand": data.get("brand"),
-                        "title": data["title"],
-                        "description": data["description"],
-                        "specification": data.get("specification", []),
-                        "attributes": data.get("attributes", []),
-                    },
-                    indent=2,
-                    ensure_ascii=False,
-                ),
-            },
-        ],
-    )
+        input=openai_input,
+        )
 
-    raw = response.output_text.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```", 2)[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-        raw = raw.strip()
+        raw = response.output_text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```", 2)[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+            raw = raw.strip()
 
-    return json.loads(raw)
+        parsed = json.loads(raw)
+        append_openai_log(
+            build_openai_log_entry(
+                model=model,
+                openai_input=openai_input,
+                raw_product_input=data,
+                source_file=source_file,
+                response=response,
+                raw_output_text=raw,
+                parsed_output=parsed,
+            ),
+        )
+        return parsed
+    except Exception as error:
+        append_openai_log(
+            build_openai_log_entry(
+                model=model,
+                openai_input=openai_input,
+                raw_product_input=data,
+                source_file=source_file,
+                response=response,
+                raw_output_text=raw,
+                error_message=str(error),
+            ),
+        )
+        raise
 
 
 def import_product(
@@ -771,6 +847,7 @@ def import_product(
     auth_token: str | None = None,
     base_url: str = DEFAULT_BASE_URL,
     model: str = DEFAULT_OPENAI_MODEL,
+    source_file: str | None = None,
 ) -> dict[str, Any]:
     session = make_session(auth_token=auth_token, base_url=base_url)
 
@@ -788,6 +865,7 @@ def import_product(
         specifications_res,
         attribute_res,
         model=model,
+        source_file=source_file,
     )
     log.info("AI result received: title_en='%s'", ai_result["title_en"])
 
@@ -909,6 +987,7 @@ def main() -> int:
         auth_token=args.auth_token,
         base_url=args.base_url,
         model=args.model,
+        source_file=str(input_path.resolve()),
     )
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0
