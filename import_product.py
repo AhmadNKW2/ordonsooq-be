@@ -3,6 +3,7 @@ import json
 import logging
 import mimetypes
 import os
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -49,6 +50,7 @@ DEFAULT_OPENAI_LOG_PATH = Path(
     ),
 )
 NOT_EXIST = "not_exist"
+NUMERIC_TOKEN_PATTERN = re.compile(r"\d+(?:\.\d+)?")
 
 
 logging.basicConfig(
@@ -123,6 +125,31 @@ def api_post(
     url = f"{get_session_base_url(session)}/{endpoint.lstrip('/')}"
     log.info("POST %s", url)
     response = session.post(url, json=payload, timeout=DEFAULT_TIMEOUT_SECONDS)
+    response.raise_for_status()
+    return unwrap_data(response.json(), url)
+
+
+def api_post_multipart_form(
+    session: requests.Session,
+    endpoint: str,
+    fields: dict[str, Any],
+) -> Any:
+    url = f"{get_session_base_url(session)}/{endpoint.lstrip('/')}"
+    log.info("POST %s (multipart form)", url)
+
+    multipart_fields: list[tuple[str, tuple[None, str]]] = []
+    for key, value in fields.items():
+        if value is None:
+            continue
+        if isinstance(value, bool):
+            serialized_value = "true" if value else "false"
+        elif isinstance(value, (list, dict)):
+            serialized_value = json.dumps(value, ensure_ascii=False)
+        else:
+            serialized_value = str(value)
+        multipart_fields.append((key, (None, serialized_value)))
+
+    response = session.post(url, files=multipart_fields, timeout=DEFAULT_TIMEOUT_SECONDS)
     response.raise_for_status()
     return unwrap_data(response.json(), url)
 
@@ -209,6 +236,163 @@ def normalize_input_data(raw_data: dict[str, Any]) -> dict[str, Any]:
 
 def normalize_lookup_text(value: str) -> str:
     return "".join(character for character in value.casefold() if character.isalnum())
+
+
+def extract_numeric_signature(value: str) -> tuple[str, ...]:
+    return tuple(NUMERIC_TOKEN_PATTERN.findall(value.replace(",", "")))
+
+
+def extract_simple_text(value: Any) -> str:
+    if isinstance(value, str):
+        normalized = value.strip()
+        if normalized:
+            return normalized
+
+    if isinstance(value, dict):
+        for key in ("name_en", "value_en", "name", "value", "name_ar", "value_ar"):
+            candidate = str(value.get(key, "")).strip()
+            if candidate:
+                return candidate
+
+    raise ValueError(f"AI returned an empty attribute/specification value: {value}")
+
+
+def extract_localized_value(value: Any) -> tuple[str, str]:
+    if isinstance(value, dict):
+        name_en = str(
+            value.get("name_en")
+            or value.get("value_en")
+            or value.get("name")
+            or value.get("value")
+            or "",
+        ).strip()
+        name_ar = str(value.get("name_ar") or value.get("value_ar") or name_en).strip() or name_en
+        if name_en:
+            return name_en, name_ar
+
+    normalized = extract_simple_text(value)
+    return normalized, normalized
+
+
+def dedupe_non_empty_strings(values: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        normalized = value.strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(normalized)
+    return deduped
+
+
+def extract_definition_units(definition: dict[str, Any] | None) -> list[str]:
+    if not definition:
+        return []
+
+    return dedupe_non_empty_strings(
+        [
+            str(definition.get("unit_en", "")).strip(),
+            str(definition.get("unit_ar", "")).strip(),
+        ],
+    )
+
+
+def has_defined_unit(definition: dict[str, Any] | None) -> bool:
+    return bool(extract_definition_units(definition))
+
+
+def build_specification_value_candidates(
+    specification: dict[str, Any] | None,
+    matched_value: dict[str, Any],
+) -> list[str]:
+    base_candidates = dedupe_non_empty_strings(
+        [
+            str(matched_value.get("value_en", "")).strip(),
+            str(matched_value.get("value_ar", "")).strip(),
+        ],
+    )
+
+    if not specification:
+        return base_candidates
+
+    unit_candidates = extract_definition_units(specification)
+    if not unit_candidates:
+        return base_candidates
+
+    with_units = [
+        f"{base_candidate} {unit_candidate}"
+        for base_candidate in base_candidates
+        for unit_candidate in unit_candidates
+    ]
+    return dedupe_non_empty_strings(base_candidates + with_units)
+
+
+def build_attribute_value_candidates(
+    attribute: dict[str, Any] | None,
+    matched_value: dict[str, Any],
+) -> list[str]:
+    base_candidates = dedupe_non_empty_strings(
+        [
+            str(matched_value.get("value_en", "")).strip(),
+            str(matched_value.get("value_ar", "")).strip(),
+        ],
+    )
+
+    unit_candidates = extract_definition_units(attribute)
+    if not unit_candidates:
+        return base_candidates
+
+    with_units = [
+        f"{base_candidate} {unit_candidate}"
+        for base_candidate in base_candidates
+        for unit_candidate in unit_candidates
+    ]
+    return dedupe_non_empty_strings(base_candidates + with_units)
+
+
+def analyze_approximate_match(
+    raw_candidates: list[str],
+    matched_candidates: list[str],
+) -> tuple[bool, str]:
+    normalized_matched_candidates = {
+        normalize_lookup_text(candidate)
+        for candidate in matched_candidates
+        if candidate.strip()
+    }
+    matched_numeric_signatures = {
+        extract_numeric_signature(candidate)
+        for candidate in matched_candidates
+        if candidate.strip()
+    }
+
+    has_measurable_raw_value = False
+    for raw_candidate in raw_candidates:
+        normalized_raw_candidate = raw_candidate.strip()
+        if not normalized_raw_candidate:
+            continue
+
+        if normalize_lookup_text(normalized_raw_candidate) in normalized_matched_candidates:
+            return False, "raw value matches an existing database value after normalization"
+
+        raw_numeric_signature = extract_numeric_signature(normalized_raw_candidate)
+        if raw_numeric_signature:
+            has_measurable_raw_value = True
+            if raw_numeric_signature in matched_numeric_signatures:
+                return False, "raw value matches an existing database numeric signature"
+
+    if has_measurable_raw_value:
+        return True, "raw measurable value differs from all existing unit-based database values"
+
+    return False, "raw value has no measurable token; approximate numeric safeguard not applied"
+
+
+def should_replace_approximate_match(
+    raw_candidates: list[str],
+    matched_candidates: list[str],
+) -> bool:
+    should_replace, _ = analyze_approximate_match(raw_candidates, matched_candidates)
+    return should_replace
 
 
 def append_openai_log(entry: dict[str, Any], log_path: Path = DEFAULT_OPENAI_LOG_PATH) -> None:
@@ -315,6 +499,59 @@ def resolve_optional_brand_id(
     return None, None
 
 
+def create_brand(session: requests.Session, brand_name: str) -> tuple[int, str]:
+    normalized_brand_name = brand_name.strip()
+    if not normalized_brand_name:
+        raise ValueError("Brand name is empty.")
+
+    created = api_post_multipart_form(
+        session,
+        "brands",
+        {
+            "name_en": normalized_brand_name,
+            "name_ar": normalized_brand_name,
+        },
+    )
+    created_name = str(created.get("name_en", normalized_brand_name)).strip() or normalized_brand_name
+    return int(created["id"]), created_name
+
+
+def resolve_or_create_brand_id(
+    session: requests.Session,
+    brands: list[dict[str, Any]],
+    data: dict[str, Any],
+    ai_brand_name: Any,
+) -> tuple[int | None, str | None, bool]:
+    brand_id, resolved_brand_name = resolve_optional_brand_id(brands, data, ai_brand_name)
+    if brand_id is not None:
+        return brand_id, resolved_brand_name, False
+
+    source_brand_name = str(data.get("brand", "")).strip()
+    if not source_brand_name:
+        return None, None, False
+
+    try:
+        created_brand_id, created_brand_name = create_brand(session, source_brand_name)
+        brands.append(
+            {
+                "id": created_brand_id,
+                "name_en": created_brand_name,
+                "name_ar": source_brand_name,
+            },
+        )
+        return created_brand_id, created_brand_name, True
+    except requests.HTTPError:
+        refreshed_brands = extract_paginated_list(api_get(session, "brands", {"limit": 1000}))
+        refreshed_brand_id, refreshed_brand_name = resolve_optional_brand_id(
+            refreshed_brands,
+            data,
+            ai_brand_name,
+        )
+        if refreshed_brand_id is not None:
+            return refreshed_brand_id, refreshed_brand_name, False
+        raise
+
+
 def create_specification_value(
     session: requests.Session,
     specification_id: int,
@@ -352,29 +589,88 @@ def create_attribute_value(
 def resolve_specifications(
     session: requests.Session,
     ai_specifications: list[dict[str, Any]],
+    available_specifications: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     resolved: list[dict[str, Any]] = []
+    specification_lookup = {
+        int(specification["id"]): specification
+        for specification in available_specifications
+        if specification.get("id") is not None
+    }
 
     for specification in ai_specifications:
         specification_id = int(specification["specification_id"])
         resolved_value_ids: list[int] = []
+        matched_specification = specification_lookup.get(specification_id)
+        value_lookup = {
+            int(value["id"]): value
+            for value in matched_specification.get("values", [])
+            if matched_specification and value.get("id") is not None
+        }
 
         for value in specification.get("values", []):
             matched_id = value.get("matched_value_id")
+            original_value_en, original_value_ar = extract_localized_value(value.get("original_value"))
+
+            if matched_id not in (NOT_EXIST, None):
+                matched_id = int(matched_id)
+                matched_value = value_lookup.get(matched_id)
+                if matched_value is None:
+                    log.info(
+                        "Specification %s: AI returned unknown value id=%s for '%s'; creating new value.",
+                        specification_id,
+                        matched_id,
+                        original_value_en,
+                    )
+                    matched_id = NOT_EXIST
+                else:
+                    unit_defined = has_defined_unit(matched_specification)
+                    matched_candidates = build_specification_value_candidates(
+                        matched_specification,
+                        matched_value,
+                    )
+
+                    if unit_defined:
+                        should_replace, decision_reason = analyze_approximate_match(
+                            [original_value_en, original_value_ar],
+                            matched_candidates,
+                        )
+                        if should_replace:
+                            log.info(
+                                "Specification %s: rejecting approximate match id=%s for raw value '%s'; creating exact value (%s).",
+                                specification_id,
+                                matched_id,
+                                original_value_en,
+                                decision_reason,
+                            )
+                            matched_id = NOT_EXIST
+                        else:
+                            log.info(
+                                "Specification %s: keeping matched value id=%s for raw value '%s' (%s).",
+                                specification_id,
+                                matched_id,
+                                original_value_en,
+                                decision_reason,
+                            )
+                    else:
+                        log.info(
+                            "Specification %s: keeping matched value id=%s for raw value '%s' (no unit defined; approximate numeric safeguard not applied).",
+                            specification_id,
+                            matched_id,
+                            original_value_en,
+                        )
+
             if matched_id == NOT_EXIST:
-                original_value = value["original_value"]
-                new_value_en = original_value["name_en"]
-                new_value_ar = original_value["name_ar"]
                 log.info(
                     "Specification %s: creating missing value '%s'.",
                     specification_id,
-                    new_value_en,
+                    original_value_en,
                 )
                 matched_id = create_specification_value(
                     session,
                     specification_id,
-                    new_value_en,
-                    new_value_ar,
+                    original_value_en,
+                    original_value_ar,
                 )
                 log.info(
                     "Specification %s: created value id=%s",
@@ -400,27 +696,88 @@ def resolve_specifications(
 def resolve_attributes(
     session: requests.Session,
     ai_attributes: list[dict[str, Any]],
+    available_attributes: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     resolved: list[dict[str, Any]] = []
+    attribute_lookup = {
+        int(attribute["id"]): attribute
+        for attribute in available_attributes
+        if attribute.get("id") is not None
+    }
 
     for attribute in ai_attributes:
         attribute_id = int(attribute["attribute"]["attribute_id"])
         resolved_value_ids: list[int] = []
+        matched_attribute = attribute_lookup.get(attribute_id)
+        value_lookup = {
+            int(value["id"]): value
+            for value in matched_attribute.get("values", [])
+            if matched_attribute and value.get("id") is not None
+        }
 
         for value in attribute.get("values", []):
             matched_id = value.get("matched_value_id")
+            original_value_text = extract_simple_text(value.get("original_value"))
+
+            if matched_id not in (NOT_EXIST, None):
+                matched_id = int(matched_id)
+                matched_value = value_lookup.get(matched_id)
+                if matched_value is None:
+                    log.info(
+                        "Attribute %s: AI returned unknown value id=%s for '%s'; creating new value.",
+                        attribute_id,
+                        matched_id,
+                        original_value_text,
+                    )
+                    matched_id = NOT_EXIST
+                else:
+                    unit_defined = has_defined_unit(matched_attribute)
+                    matched_candidates = build_attribute_value_candidates(
+                        matched_attribute,
+                        matched_value,
+                    )
+
+                    if unit_defined:
+                        should_replace, decision_reason = analyze_approximate_match(
+                            [original_value_text],
+                            matched_candidates,
+                        )
+                        if should_replace:
+                            log.info(
+                                "Attribute %s: rejecting approximate match id=%s for raw value '%s'; creating exact value (%s).",
+                                attribute_id,
+                                matched_id,
+                                original_value_text,
+                                decision_reason,
+                            )
+                            matched_id = NOT_EXIST
+                        else:
+                            log.info(
+                                "Attribute %s: keeping matched value id=%s for raw value '%s' (%s).",
+                                attribute_id,
+                                matched_id,
+                                original_value_text,
+                                decision_reason,
+                            )
+                    else:
+                        log.info(
+                            "Attribute %s: keeping matched value id=%s for raw value '%s' (no unit defined; approximate numeric safeguard not applied).",
+                            attribute_id,
+                            matched_id,
+                            original_value_text,
+                        )
+
             if matched_id == NOT_EXIST:
-                raw_value = str(value["original_value"])
                 log.info(
                     "Attribute %s: creating missing value '%s'.",
                     attribute_id,
-                    raw_value,
+                    original_value_text,
                 )
                 matched_id = create_attribute_value(
                     session,
                     attribute_id,
-                    raw_value,
-                    raw_value,
+                    original_value_text,
+                    original_value_text,
                 )
                 log.info(
                     "Attribute %s: created value id=%s",
@@ -620,6 +977,8 @@ def compact_attributes_for_ai(attributes: list[dict[str, Any]]) -> list[dict[str
                 "name_en": attribute.get("name_en"),
                 "name_ar": attribute.get("name_ar"),
                 "type": attribute.get("type"),
+                "unit_en": attribute.get("unit_en"),
+                "unit_ar": attribute.get("unit_ar"),
                 "is_color": attribute.get("is_color"),
                 "allow_ai_inference": attribute.get("allow_ai_inference", False),
                 "values": [
@@ -703,6 +1062,7 @@ Instructions:
             * If the exact value exists in DB → matched_value_id = <int id>.
             * If the exact value does NOT exist in DB → matched_value_id = "not_exist", and put the raw string in original_value.name_en.
             * YOU MUST NOT drop a specification just because its value is missing from the DB. Use "not_exist".
+            * ONLY when the specification has a unit such as inch, Hz, ms, or GB, NEVER choose the nearest or closest existing database value for measurable data. If the source says "25 inch" and the database has only "24.5 inch", you MUST return "not_exist" and preserve "25 inch" as the original value.
         - For every NOT FOUND DB spec → skip it entirely.
 
 4. ATTRIBUTES:
@@ -724,6 +1084,8 @@ Instructions:
             * If the exact value exists in DB → matched_value_id = <int id>.
             * If the exact value does NOT exist in DB → matched_value_id = "not_exist", and put the raw string in original_value.name_en.
             * YOU MUST NOT drop a specification just because its value is missing from the DB. Use "not_exist".
+            * ONLY when the attribute has a unit such as inch, Hz, ms, or GB, NEVER choose the nearest or closest existing database value for measurable data. If the exact raw value is missing, return "not_exist" and preserve the raw value.
+            * If the attribute has no unit, do normal text/value matching and do not force a new value based only on this numeric safeguard.
         - For every NOT FOUND DB spec → skip it entirely.
 
 5. META DESCRIPTION: Must be 160 characters or fewer.
@@ -869,21 +1231,33 @@ def import_product(
     )
     log.info("AI result received: title_en='%s'", ai_result["title_en"])
 
-    brand_id, resolved_brand_name = resolve_optional_brand_id(
+    brand_id, resolved_brand_name, brand_created = resolve_or_create_brand_id(
+        session,
         brands_res,
         data,
         ai_result.get("brand_name"),
     )
     if brand_id is not None and resolved_brand_name is not None:
-        log.info("Resolved brand '%s' -> id=%s", resolved_brand_name, brand_id)
+        if brand_created:
+            log.info("Created brand '%s' -> id=%s", resolved_brand_name, brand_id)
+        else:
+            log.info("Resolved brand '%s' -> id=%s", resolved_brand_name, brand_id)
     else:
         log.info("No brand resolved from source data or AI; creating product without brand_id.")
 
     log.info("Resolving specifications...")
-    resolved_specs = resolve_specifications(session, ai_result.get("specifications", []))
+    resolved_specs = resolve_specifications(
+        session,
+        ai_result.get("specifications", []),
+        specifications_res,
+    )
 
     log.info("Resolving attributes...")
-    resolved_attrs = resolve_attributes(session, ai_result.get("attributes", []))
+    resolved_attrs = resolve_attributes(
+        session,
+        ai_result.get("attributes", []),
+        attribute_res,
+    )
 
     log.info("Uploading media...")
     media = build_media(session, data)
