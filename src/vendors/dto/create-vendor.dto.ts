@@ -5,11 +5,15 @@ import {
   IsEmail,
   IsBoolean,
   IsEnum,
-  IsArray,
-  IsNumber,
+  ValidateNested,
 } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { VendorStatus } from '../entities/vendor.entity';
+import {
+  parseProductChangesInput,
+  ProductChangesDto,
+} from '../../common/dto/product-changes.dto';
 
 export class CreateVendorDto {
   @IsString()
@@ -56,26 +60,16 @@ export class CreateVendorDto {
   })
   visible?: boolean;
 
-  @IsOptional()
-  @Transform(({ value }) => {
-    if (value === undefined) return undefined;
-    if (value === '' || value === null) return [];
-    if (typeof value === 'string') {
-      try {
-        const parsed = JSON.parse(value);
-        return Array.isArray(parsed) ? parsed : [];
-      } catch {
-        return value
-          .split(',')
-          .map(Number)
-          .filter((n) => !isNaN(n));
-      }
-    }
-    return Array.isArray(value) ? value : [];
+  @ApiPropertyOptional({
+    type: ProductChangesDto,
+    description:
+      'Delta product assignment changes. Send add/remove product IDs here instead of product_ids.',
   })
-  @IsArray()
-  @IsNumber({}, { each: true })
-  product_ids?: number[];
+  @IsOptional()
+  @Transform(({ value }) => parseProductChangesInput(value))
+  @ValidateNested()
+  @Type(() => ProductChangesDto)
+  product_changes?: ProductChangesDto;
 
   // Logo will be handled as file upload
 }

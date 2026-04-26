@@ -30,6 +30,10 @@ import { VendorStatus } from '../vendors/entities/vendor.entity';
 import { R2StorageService } from '../common/services/r2-storage.service';
 import { Attribute } from '../attributes/entities/attribute.entity';
 import {
+  getNormalizedProductChanges,
+  ProductChangesDto,
+} from '../common/dto/product-changes.dto';
+import {
   getPrimaryMediaUrl,
   hydrateProductMedia,
   hydrateProductsMedia,
@@ -345,7 +349,7 @@ export class CategoriesService {
     const nextSortOrder = (maxSortOrder?.max ?? -1) + 1;
 
     // Map parent_id from DTO to parent_id for entity
-    const { parent_id, product_ids, attribute_ids, ...rest } = createCategoryDto;
+    const { parent_id, product_changes, attribute_ids, ...rest } = createCategoryDto;
     const slug = await this.generateUniqueSlug(rest.name_en);
 
     const category = this.categoriesRepository.create({
@@ -358,9 +362,8 @@ export class CategoriesService {
 
     const savedCategory = await this.categoriesRepository.save(category);
 
-    // Assign products if provided
-    if (product_ids && product_ids.length > 0) {
-      await this.syncProductsToCategory(savedCategory.id, product_ids);
+    if (product_changes) {
+      await this.applyProductChangesToCategory(savedCategory.id, product_changes);
     }
 
     if (attribute_ids !== undefined) {
@@ -370,10 +373,7 @@ export class CategoriesService {
     return this.findOne(savedCategory.id);
   }
 
-  /**
-   * Sync products to a category - replaces all existing assignments
-   */
-  private async syncProductsToCategory(
+  private async addProductsToCategory(
     categoryId: number,
     product_ids: number[],
   ): Promise<void> {
@@ -405,6 +405,34 @@ export class CategoriesService {
         }),
       );
       await this.productCategoriesRepository.save(newAssignments);
+    }
+  }
+
+  private async applyProductChangesToCategory(
+    categoryId: number,
+    productChanges?: ProductChangesDto,
+  ): Promise<void> {
+    const {
+      addProductIds,
+      removeProductIds,
+      conflictingProductIds,
+    } = getNormalizedProductChanges(productChanges);
+
+    if (conflictingProductIds.length > 0) {
+      throw new BadRequestException(
+        `product_changes contains the same product IDs in add_product_ids and remove_product_ids: ${conflictingProductIds.join(', ')}`,
+      );
+    }
+
+    if (removeProductIds.length > 0) {
+      await this.productCategoriesRepository.delete({
+        product_id: In(removeProductIds),
+        category_id: categoryId,
+      });
+    }
+
+    if (addProductIds.length > 0) {
+      await this.addProductsToCategory(categoryId, addProductIds);
     }
   }
 
@@ -596,7 +624,7 @@ export class CategoriesService {
     const category = await this.findOne(id);
     const oldImageUrl = category.image;
 
-    const { product_ids, attribute_ids, ...updateData } = updateCategoryDto;
+    const { product_changes, attribute_ids, ...updateData } = updateCategoryDto;
 
     if (updateData.name_en && updateData.name_en !== category.name_en) {
       category.slug = await this.generateUniqueSlug(updateData.name_en, id);
@@ -662,9 +690,8 @@ export class CategoriesService {
       }
     }
 
-    // Sync products if provided
-    if (product_ids !== undefined) {
-      await this.syncProductsToCategory(id, product_ids);
+    if (product_changes) {
+      await this.applyProductChangesToCategory(id, product_changes);
     }
 
     if (attribute_ids !== undefined) {

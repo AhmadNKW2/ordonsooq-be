@@ -20,6 +20,10 @@ import {
 } from './dto/archive-brand.dto';
 import { R2StorageService } from '../common/services/r2-storage.service';
 import {
+  getNormalizedProductChanges,
+  ProductChangesDto,
+} from '../common/dto/product-changes.dto';
+import {
   getPrimaryMediaUrl,
   hydrateProductMedia,
 } from '../products/utils/product-media.util';
@@ -87,7 +91,7 @@ export class BrandsService {
       throw new BadRequestException('Brand with same name already exists');
     }
 
-    const { product_ids, ...rest } = dto;
+    const { product_changes, ...rest } = dto;
     const slug = await this.generateUniqueSlug(rest.name_en);
 
     const brand = this.brandsRepository.create({
@@ -101,8 +105,8 @@ export class BrandsService {
 
     const savedBrand = await this.brandsRepository.save(brand);
 
-    if (product_ids !== undefined) {
-      await this.syncProductsToBrand(savedBrand.id, product_ids);
+    if (product_changes) {
+      await this.applyProductChangesToBrand(savedBrand.id, product_changes);
     }
 
     return savedBrand;
@@ -226,7 +230,7 @@ export class BrandsService {
       throw new BadRequestException('Use archive endpoint to archive a brand');
     }
 
-    const { product_ids, ...rest } = dto;
+    const { product_changes, ...rest } = dto;
 
     Object.assign(brand, rest);
     if (logoUrl) {
@@ -247,29 +251,42 @@ export class BrandsService {
       }
     }
 
-    if (product_ids !== undefined) {
-      await this.syncProductsToBrand(id, product_ids);
+    if (product_changes) {
+      await this.applyProductChangesToBrand(id, product_changes);
     }
 
     return savedBrand;
   }
 
-  private async syncProductsToBrand(
+  private async applyProductChangesToBrand(
     brandId: number,
-    product_ids: number[],
+    productChanges?: ProductChangesDto,
   ): Promise<void> {
-    // Remove this brand from existing products
-    await this.productsRepository.update(
-      { brand_id: brandId },
-      { brand_id: null as any },
-    );
+    const {
+      addProductIds,
+      removeProductIds,
+      conflictingProductIds,
+    } = getNormalizedProductChanges(productChanges);
 
-    if (!product_ids || product_ids.length === 0) return;
+    if (conflictingProductIds.length > 0) {
+      throw new BadRequestException(
+        `product_changes contains the same product IDs in add_product_ids and remove_product_ids: ${conflictingProductIds.join(', ')}`,
+      );
+    }
 
-    await this.productsRepository.update(
-      { id: In(product_ids), status: ProductStatus.ACTIVE },
-      { brand_id: brandId },
-    );
+    if (removeProductIds.length > 0) {
+      await this.productsRepository.update(
+        { id: In(removeProductIds), brand_id: brandId },
+        { brand_id: null as any },
+      );
+    }
+
+    if (addProductIds.length > 0) {
+      await this.productsRepository.update(
+        { id: In(addProductIds), status: ProductStatus.ACTIVE },
+        { brand_id: brandId },
+      );
+    }
   }
 
   // ========== LIFECYCLE MANAGEMENT ==========

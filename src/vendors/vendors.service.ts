@@ -20,6 +20,10 @@ import { FilterProductDto } from '../products/dto/filter-product.dto';
 import { ProductsService } from '../products/products.service';
 import { R2StorageService } from '../common/services/r2-storage.service';
 import {
+  getNormalizedProductChanges,
+  ProductChangesDto,
+} from '../common/dto/product-changes.dto';
+import {
   getPrimaryMediaUrl,
   hydrateProductMedia,
 } from '../products/utils/product-media.util';
@@ -99,7 +103,7 @@ export class VendorsService {
 
     const nextSortOrder = (maxSortOrder?.max ?? -1) + 1;
 
-    const { product_ids, ...vendorData } = createVendorDto;
+    const { product_changes, ...vendorData } = createVendorDto;
     const slug = await this.generateUniqueSlug(vendorData.name_en);
 
     const vendor = this.vendorRepository.create({
@@ -110,34 +114,42 @@ export class VendorsService {
     });
     const savedVendor = await this.vendorRepository.save(vendor);
 
-    // Assign products if provided
-    if (product_ids && product_ids.length > 0) {
-      await this.syncProductsToVendor(savedVendor.id, product_ids);
+    if (product_changes) {
+      await this.applyProductChangesToVendor(savedVendor.id, product_changes);
     }
 
     return savedVendor;
   }
 
-  /**
-   * Sync products to a vendor - replaces vendor assignment for specified products
-   */
-  private async syncProductsToVendor(
+  private async applyProductChangesToVendor(
     vendorId: number,
-    product_ids: number[],
+    productChanges?: ProductChangesDto,
   ): Promise<void> {
-    // First, remove this vendor from all products that currently have it
-    await this.productsRepository.update(
-      { vendor_id: vendorId },
-      { vendor_id: null as any },
-    );
+    const {
+      addProductIds,
+      removeProductIds,
+      conflictingProductIds,
+    } = getNormalizedProductChanges(productChanges);
 
-    if (product_ids.length === 0) return;
+    if (conflictingProductIds.length > 0) {
+      throw new BadRequestException(
+        `product_changes contains the same product IDs in add_product_ids and remove_product_ids: ${conflictingProductIds.join(', ')}`,
+      );
+    }
 
-    // Assign this vendor to the specified products
-    await this.productsRepository.update(
-      { id: In(product_ids), status: ProductStatus.ACTIVE },
-      { vendor_id: vendorId },
-    );
+    if (removeProductIds.length > 0) {
+      await this.productsRepository.update(
+        { id: In(removeProductIds), vendor_id: vendorId },
+        { vendor_id: null as any },
+      );
+    }
+
+    if (addProductIds.length > 0) {
+      await this.productsRepository.update(
+        { id: In(addProductIds), status: ProductStatus.ACTIVE },
+        { vendor_id: vendorId },
+      );
+    }
   }
 
   async findAll(): Promise<Vendor[]> {
@@ -210,7 +222,7 @@ export class VendorsService {
       vendor.slug = await this.generateUniqueSlug(updateVendorDto.name_en, id);
     }
 
-    const { product_ids, ...updateData } = updateVendorDto;
+    const { product_changes, ...updateData } = updateVendorDto;
 
     Object.assign(vendor, updateData);
     if (logoUrl) {
@@ -230,9 +242,8 @@ export class VendorsService {
       }
     }
 
-    // Sync products if provided
-    if (product_ids !== undefined) {
-      await this.syncProductsToVendor(id, product_ids);
+    if (product_changes) {
+      await this.applyProductChangesToVendor(id, product_changes);
     }
 
     return savedVendor;
