@@ -18,6 +18,26 @@ import { ProductStatus } from './entities/product.entity';
 import { ProductsService } from './products.service';
 
 const NOT_EXIST = 'not_exist';
+const NUMERIC_TOKEN_REGEX = /\d+(?:\.\d+)?/g;
+const LOOKUP_TOKEN_REGEX = /[\p{L}\p{N}]+/gu;
+const DEFINITION_MATCH_THRESHOLD = 0.78;
+const MISSING_VALUE_MARKERS = new Set(['', '-', '--', 'n/a', 'na', 'none', 'null']);
+
+interface ImportDefinitionValue {
+  id?: number | null;
+  value_en?: string | null;
+  value_ar?: string | null;
+}
+
+interface ImportDefinition {
+  id: number;
+  name_en?: string | null;
+  name_ar?: string | null;
+  unit_en?: string | null;
+  unit_ar?: string | null;
+  allow_ai_inference?: boolean | null;
+  values?: ImportDefinitionValue[];
+}
 
 interface ParsedImportRequest {
   payload: NormalizedImportPayload;
@@ -129,16 +149,26 @@ export class ProductImportService {
         attributes,
         request.model,
       );
+      const enforcedSpecifications = this.enforceRequiredSpecifications(
+        request.payload,
+        aiResult.specifications ?? [],
+        specifications,
+      );
+      const enforcedAttributes = this.enforceRequiredAttributes(
+        request.payload,
+        aiResult.attributes ?? [],
+        attributes,
+      );
       const { brandId } = this.resolveOptionalBrand(
         brands,
         request.payload,
         aiResult.brand_name,
       );
       const specificationsPayload = await this.resolveSpecifications(
-        aiResult.specifications ?? [],
+        enforcedSpecifications,
       );
       const attributesPayload = await this.resolveAttributes(
-        aiResult.attributes ?? [],
+        enforcedAttributes,
       );
       const media = await this.buildMedia(request.payload);
       const pricing = this.resolvePricing(request.payload);
@@ -554,6 +584,560 @@ export class ProductImportService {
     return Array.from(value.toLowerCase())
       .filter((character) => /[\p{L}\p{N}]/u.test(character))
       .join('');
+  }
+
+  private dedupeNonEmptyStrings(values: string[]): string[] {
+    const deduped: string[] = [];
+    const seen = new Set<string>();
+
+    for (const value of values) {
+      const normalized = value.trim();
+      if (!normalized || seen.has(normalized)) {
+        continue;
+      }
+
+      seen.add(normalized);
+      deduped.push(normalized);
+    }
+
+    return deduped;
+  }
+
+  private isMissingTextValue(value: string): boolean {
+    return MISSING_VALUE_MARKERS.has(value.trim().toLowerCase());
+  }
+
+  private tokenizeLookupText(value: string): Set<string> {
+    return new Set(
+      (value.toLowerCase().match(LOOKUP_TOKEN_REGEX) ?? []).filter(Boolean),
+    );
+  }
+
+  private calculateEditSimilarity(left: string, right: string): number {
+    if (left === right) {
+      return 1;
+    }
+
+    if (!left.length || !right.length) {
+      return 0;
+    }
+
+    const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+
+    for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
+      let diagonal = previous[0];
+      previous[0] = leftIndex;
+
+      for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
+        const temp = previous[rightIndex];
+        const substitutionCost =
+          left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1;
+        previous[rightIndex] = Math.min(
+          previous[rightIndex] + 1,
+          previous[rightIndex - 1] + 1,
+          diagonal + substitutionCost,
+        );
+        diagonal = temp;
+      }
+    }
+
+    const distance = previous[right.length];
+    return 1 - distance / Math.max(left.length, right.length);
+  }
+
+  private calculateLookupSimilarity(left: string, right: string): number {
+    const normalizedLeft = this.normalizeLookupText(left);
+    const normalizedRight = this.normalizeLookupText(right);
+
+    if (!normalizedLeft || !normalizedRight) {
+      return 0;
+    }
+
+    if (normalizedLeft === normalizedRight) {
+      return 1;
+    }
+
+    const leftTokens = this.tokenizeLookupText(left);
+    const rightTokens = this.tokenizeLookupText(right);
+    let tokenScore = 0;
+
+    if (leftTokens.size && rightTokens.size) {
+      const overlap = [...leftTokens].filter((token) => rightTokens.has(token)).length;
+      if (overlap) {
+        tokenScore = overlap / new Set([...leftTokens, ...rightTokens]).size;
+        if (overlap === Math.min(leftTokens.size, rightTokens.size) && overlap >= 2) {
+          tokenScore = Math.max(tokenScore, 0.85);
+        }
+      }
+    }
+
+    let containmentScore = 0;
+    if (
+      normalizedLeft.includes(normalizedRight) ||
+      normalizedRight.includes(normalizedLeft)
+    ) {
+      const shorter = Math.min(normalizedLeft.length, normalizedRight.length);
+      const longer = Math.max(normalizedLeft.length, normalizedRight.length);
+      if (shorter >= 6) {
+        containmentScore = shorter / longer;
+      }
+    }
+
+    return Math.max(
+      tokenScore,
+      containmentScore,
+      this.calculateEditSimilarity(normalizedLeft, normalizedRight),
+    );
+  }
+
+  private extractSourceFieldNames(entry: unknown): string[] {
+    const entryObject = this.getObject(entry);
+
+    if (!entryObject) {
+      return [];
+    }
+
+    return this.dedupeNonEmptyStrings(
+      ['key', 'name', 'name_en', 'name_ar', 'label', 'title']
+        .map((key) => this.requireOptionalString(entryObject[key]))
+        .filter((value): value is string => !!value && !this.isMissingTextValue(value)),
+    );
+  }
+
+  private extractSourceValueTexts(value: unknown): string[] {
+    if (value === null || value === undefined) {
+      return [];
+    }
+
+    if (Array.isArray(value)) {
+      return this.dedupeNonEmptyStrings(
+        value.flatMap((item) => this.extractSourceValueTexts(item)),
+      );
+    }
+
+    const valueObject = this.getObject(value);
+    if (valueObject) {
+      if (valueObject.value !== undefined) {
+        return this.extractSourceValueTexts(valueObject.value);
+      }
+
+      if (valueObject.values !== undefined) {
+        return this.extractSourceValueTexts(valueObject.values);
+      }
+
+      return this.dedupeNonEmptyStrings(
+        ['translate', 'value_en', 'value_ar', 'name_en', 'name_ar', 'value', 'name']
+          .filter((key) => valueObject[key] !== undefined)
+          .flatMap((key) => this.extractSourceValueTexts(valueObject[key])),
+      );
+    }
+
+    const normalized = String(value).trim();
+    if (!normalized || this.isMissingTextValue(normalized)) {
+      return [];
+    }
+
+    return [normalized];
+  }
+
+  private getDefinitionDisplayName(definition: ImportDefinition): string {
+    return definition.name_en?.trim() || definition.name_ar?.trim() || String(definition.id);
+  }
+
+  private buildDefinitionAliases(definition: ImportDefinition): string[] {
+    return this.dedupeNonEmptyStrings([
+      definition.name_en ?? '',
+      definition.name_ar ?? '',
+    ]);
+  }
+
+  private mapSourceValuesByDefinition<T extends ImportDefinition>(
+    sourceEntries: unknown[],
+    availableDefinitions: T[],
+  ): Map<number, string[]> {
+    const valuesByDefinition = new Map<number, string[]>();
+
+    for (const entry of sourceEntries) {
+      const fieldNames = this.extractSourceFieldNames(entry);
+      const sourceValues = this.extractSourceValueTexts(entry);
+      if (!fieldNames.length || !sourceValues.length) {
+        continue;
+      }
+
+      let bestDefinition: T | null = null;
+      let bestScore = 0;
+      for (const definition of availableDefinitions) {
+        const aliases = this.buildDefinitionAliases(definition);
+        if (!aliases.length) {
+          continue;
+        }
+
+        const score = Math.max(
+          ...fieldNames.flatMap((fieldName) =>
+            aliases.map((alias) => this.calculateLookupSimilarity(fieldName, alias)),
+          ),
+        );
+        if (score > bestScore) {
+          bestScore = score;
+          bestDefinition = definition;
+        }
+      }
+
+      if (!bestDefinition || bestScore < DEFINITION_MATCH_THRESHOLD) {
+        continue;
+      }
+
+      valuesByDefinition.set(bestDefinition.id, [
+        ...(valuesByDefinition.get(bestDefinition.id) ?? []),
+        ...sourceValues,
+      ]);
+    }
+
+    for (const [definitionId, values] of valuesByDefinition.entries()) {
+      valuesByDefinition.set(definitionId, this.dedupeNonEmptyStrings(values));
+    }
+
+    return valuesByDefinition;
+  }
+
+  private extractDefinitionUnits(definition: ImportDefinition): string[] {
+    return this.dedupeNonEmptyStrings([
+      definition.unit_en ?? '',
+      definition.unit_ar ?? '',
+    ]);
+  }
+
+  private hasDefinedUnit(definition: ImportDefinition): boolean {
+    return this.extractDefinitionUnits(definition).length > 0;
+  }
+
+  private buildDefinitionValueCandidates(
+    definition: ImportDefinition,
+    matchedValue: ImportDefinitionValue,
+  ): string[] {
+    const baseCandidates = this.dedupeNonEmptyStrings([
+      matchedValue.value_en ?? '',
+      matchedValue.value_ar ?? '',
+    ]);
+    const unitCandidates = this.extractDefinitionUnits(definition);
+
+    if (!unitCandidates.length) {
+      return baseCandidates;
+    }
+
+    return this.dedupeNonEmptyStrings([
+      ...baseCandidates,
+      ...baseCandidates.flatMap((baseCandidate) =>
+        unitCandidates.map((unitCandidate) => `${baseCandidate} ${unitCandidate}`),
+      ),
+    ]);
+  }
+
+  private extractNumericSignature(value: string): string[] {
+    return (value.replace(/,/g, '').match(NUMERIC_TOKEN_REGEX) ?? []).filter(Boolean);
+  }
+
+  private buildExistingValueMap(definition: ImportDefinition): Map<number, ImportDefinitionValue> {
+    return new Map(
+      (definition.values ?? [])
+        .filter((value): value is ImportDefinitionValue & { id: number } =>
+          typeof value.id === 'number',
+        )
+        .map((value) => [value.id, value]),
+    );
+  }
+
+  private findExactMatchedValueId(
+    definition: ImportDefinition,
+    rawValue: string,
+  ): number | null {
+    const normalizedRawValue = this.normalizeLookupText(rawValue);
+    const rawNumericSignature = this.extractNumericSignature(rawValue).join('|');
+
+    for (const value of definition.values ?? []) {
+      if (typeof value.id !== 'number') {
+        continue;
+      }
+
+      const normalizedCandidates = new Set(
+        this.buildDefinitionValueCandidates(definition, value).map((candidate) =>
+          this.normalizeLookupText(candidate),
+        ),
+      );
+      if (normalizedCandidates.has(normalizedRawValue)) {
+        return value.id;
+      }
+
+      if (this.hasDefinedUnit(definition) && rawNumericSignature) {
+        const candidateSignatures = new Set(
+          this.buildDefinitionValueCandidates(definition, value)
+            .map((candidate) => this.extractNumericSignature(candidate).join('|'))
+            .filter(Boolean),
+        );
+        if (candidateSignatures.has(rawNumericSignature)) {
+          return value.id;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  private buildValueTextCandidates(
+    value: ImportAiSpecificationValue | ImportAiAttributeValue,
+    definition: ImportDefinition,
+    matchedValues: Map<number, ImportDefinitionValue>,
+    localized: boolean,
+  ): string[] {
+    const candidates: string[] = [];
+
+    try {
+      if (localized) {
+        const localizedValue = this.extractLocalizedValue(value.original_value);
+        candidates.push(localizedValue.name_en, localizedValue.name_ar);
+      } else {
+        candidates.push(this.extractSimpleText(value.original_value));
+      }
+    } catch {
+      // Ignore invalid AI original_value fields here; later validation still applies.
+    }
+
+    const matchedValueId = this.extractPositiveInteger(value.matched_value_id);
+    if (matchedValueId) {
+      const matchedValue = matchedValues.get(matchedValueId);
+      if (matchedValue) {
+        candidates.push(...this.buildDefinitionValueCandidates(definition, matchedValue));
+      }
+    }
+
+    return this.dedupeNonEmptyStrings(candidates);
+  }
+
+  private valuesOverlap(
+    sourceValues: string[],
+    candidateValues: string[],
+    allowNumericSignature: boolean,
+  ): boolean {
+    const normalizedSourceValues = new Set(
+      sourceValues
+        .map((sourceValue) => this.normalizeLookupText(sourceValue))
+        .filter(Boolean),
+    );
+    const sourceNumericSignatures = new Set(
+      sourceValues
+        .map((sourceValue) => this.extractNumericSignature(sourceValue).join('|'))
+        .filter(Boolean),
+    );
+
+    for (const candidateValue of candidateValues) {
+      const normalizedCandidate = this.normalizeLookupText(candidateValue);
+      if (normalizedSourceValues.has(normalizedCandidate)) {
+        return true;
+      }
+
+      if (allowNumericSignature) {
+        const candidateSignature = this.extractNumericSignature(candidateValue).join('|');
+        if (candidateSignature && sourceNumericSignatures.has(candidateSignature)) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  private enforceRequiredSpecifications(
+    payload: NormalizedImportPayload,
+    aiSpecifications: ImportAiSpecification[],
+    availableSpecifications: Specification[],
+  ): ImportAiSpecification[] {
+    const sourceValuesBySpecification = this.mapSourceValuesByDefinition(
+      payload.specification,
+      availableSpecifications,
+    );
+    const aiValuesBySpecification = new Map<number, ImportAiSpecificationValue[]>();
+
+    for (const specification of aiSpecifications) {
+      const specificationId = this.extractPositiveInteger(
+        specification.specification_id,
+      );
+      if (!specificationId) {
+        continue;
+      }
+
+      aiValuesBySpecification.set(specificationId, [
+        ...(aiValuesBySpecification.get(specificationId) ?? []),
+        ...(specification.values ?? []),
+      ]);
+    }
+
+    const mergedSpecifications: ImportAiSpecification[] = [];
+    const missingInferenceSpecifications: string[] = [];
+
+    for (const specification of availableSpecifications) {
+      const sourceValues = sourceValuesBySpecification.get(specification.id) ?? [];
+      const allowAiInference = !!specification.allow_ai_inference;
+      const matchedValues = this.buildExistingValueMap(specification);
+      let values = [...(aiValuesBySpecification.get(specification.id) ?? [])];
+
+      if (sourceValues.length && !allowAiInference) {
+        values = values.filter((value) =>
+          this.valuesOverlap(
+            sourceValues,
+            this.buildValueTextCandidates(value, specification, matchedValues, true),
+            this.hasDefinedUnit(specification),
+          ),
+        );
+      }
+
+      if (sourceValues.length) {
+        const currentValueCandidates = this.dedupeNonEmptyStrings(
+          values.flatMap((value) =>
+            this.buildValueTextCandidates(value, specification, matchedValues, true),
+          ),
+        );
+        const missingSourceValues = sourceValues.filter(
+          (sourceValue) =>
+            !this.valuesOverlap(
+              [sourceValue],
+              currentValueCandidates,
+              this.hasDefinedUnit(specification),
+            ),
+        );
+
+        if (missingSourceValues.length) {
+          this.logger.log(
+            `Backfilling source specification '${this.getDefinitionDisplayName(specification)}' with values ${missingSourceValues.join(', ')}`,
+          );
+          values.push(
+            ...missingSourceValues.map((rawValue) => ({
+              original_value: {
+                name_en: rawValue,
+                name_ar: rawValue,
+              },
+              matched_value_id:
+                this.findExactMatchedValueId(specification, rawValue) ?? NOT_EXIST,
+            })),
+          );
+        }
+      } else if (!allowAiInference) {
+        values = [];
+      } else if (!values.length) {
+        missingInferenceSpecifications.push(
+          this.getDefinitionDisplayName(specification),
+        );
+      }
+
+      if (values.length) {
+        mergedSpecifications.push({
+          specification_id: specification.id,
+          values,
+        });
+      }
+    }
+
+    if (missingInferenceSpecifications.length) {
+      throw new BadRequestException(
+        `AI inference is required but missing for specifications: ${missingInferenceSpecifications.join(', ')}`,
+      );
+    }
+
+    return mergedSpecifications;
+  }
+
+  private enforceRequiredAttributes(
+    payload: NormalizedImportPayload,
+    aiAttributes: ImportAiAttribute[],
+    availableAttributes: Attribute[],
+  ): ImportAiAttribute[] {
+    const sourceValuesByAttribute = this.mapSourceValuesByDefinition(
+      payload.attributes,
+      availableAttributes,
+    );
+    const aiValuesByAttribute = new Map<number, ImportAiAttributeValue[]>();
+
+    for (const attribute of aiAttributes) {
+      const attributeId = this.extractPositiveInteger(attribute.attribute?.attribute_id);
+      if (!attributeId) {
+        continue;
+      }
+
+      aiValuesByAttribute.set(attributeId, [
+        ...(aiValuesByAttribute.get(attributeId) ?? []),
+        ...(attribute.values ?? []),
+      ]);
+    }
+
+    const mergedAttributes: ImportAiAttribute[] = [];
+    const missingInferenceAttributes: string[] = [];
+
+    for (const attribute of availableAttributes) {
+      const sourceValues = sourceValuesByAttribute.get(attribute.id) ?? [];
+      const allowAiInference = !!attribute.allow_ai_inference;
+      const matchedValues = this.buildExistingValueMap(attribute);
+      let values = [...(aiValuesByAttribute.get(attribute.id) ?? [])];
+
+      if (sourceValues.length && !allowAiInference) {
+        values = values.filter((value) =>
+          this.valuesOverlap(
+            sourceValues,
+            this.buildValueTextCandidates(value, attribute, matchedValues, false),
+            this.hasDefinedUnit(attribute),
+          ),
+        );
+      }
+
+      if (sourceValues.length) {
+        const currentValueCandidates = this.dedupeNonEmptyStrings(
+          values.flatMap((value) =>
+            this.buildValueTextCandidates(value, attribute, matchedValues, false),
+          ),
+        );
+        const missingSourceValues = sourceValues.filter(
+          (sourceValue) =>
+            !this.valuesOverlap(
+              [sourceValue],
+              currentValueCandidates,
+              this.hasDefinedUnit(attribute),
+            ),
+        );
+
+        if (missingSourceValues.length) {
+          this.logger.log(
+            `Backfilling source attribute '${this.getDefinitionDisplayName(attribute)}' with values ${missingSourceValues.join(', ')}`,
+          );
+          values.push(
+            ...missingSourceValues.map((rawValue) => ({
+              original_value: rawValue,
+              matched_value_id:
+                this.findExactMatchedValueId(attribute, rawValue) ?? NOT_EXIST,
+            })),
+          );
+        }
+      } else if (!allowAiInference) {
+        values = [];
+      } else if (!values.length) {
+        missingInferenceAttributes.push(this.getDefinitionDisplayName(attribute));
+      }
+
+      if (values.length) {
+        mergedAttributes.push({
+          attribute: {
+            attribute_id: attribute.id,
+            original_value: this.getDefinitionDisplayName(attribute),
+          },
+          values,
+        });
+      }
+    }
+
+    if (missingInferenceAttributes.length) {
+      throw new BadRequestException(
+        `AI inference is required but missing for attributes: ${missingInferenceAttributes.join(', ')}`,
+      );
+    }
+
+    return mergedAttributes;
   }
 
   private async resolveSpecifications(
@@ -1060,6 +1644,8 @@ export class ProductImportService {
       name_en: attribute.name_en,
       name_ar: attribute.name_ar,
       type: attribute.type,
+      unit_en: attribute.unit_en,
+      unit_ar: attribute.unit_ar,
       is_color: attribute.is_color,
       allow_ai_inference: attribute.allow_ai_inference,
       values: (attribute.values ?? [])
@@ -1117,6 +1703,9 @@ Instructions:
         - Pay strict attention to allow_ai_inference for each specification.
         - If allow_ai_inference is false, the metric must exist in the source data. You may match synonyms, typos, and slight naming variations.
         - If allow_ai_inference is true, you must deduce the value based on the available evidence.
+      - If a category specification has an explicit source value, you must include it in the output and must not omit it.
+      - If a category specification has no explicit source value and allow_ai_inference is false, omit it.
+      - If a category specification has no explicit source value and allow_ai_inference is true, you must infer it and include it.
 
     STEP 3 - BUILD the specifications array:
         - For every found or inferred specification:
@@ -1134,6 +1723,9 @@ Instructions:
         - Pay strict attention to allow_ai_inference for each attribute.
         - If allow_ai_inference is false, the value must exist in the source data. You may match synonyms, typos, and slight naming variations.
         - If allow_ai_inference is true, you may infer applicable values from context.
+      - If a category attribute has an explicit source value, you must include it in the output and must not omit it.
+      - If a category attribute has no explicit source value and allow_ai_inference is false, omit it.
+      - If a category attribute has no explicit source value and allow_ai_inference is true, you must infer it and include it.
 
     STEP 3 - BUILD the attributes array:
         - Attributes can have multiple values.

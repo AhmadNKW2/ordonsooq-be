@@ -1,4 +1,5 @@
 import argparse
+from difflib import SequenceMatcher
 import json
 import logging
 import mimetypes
@@ -51,6 +52,9 @@ DEFAULT_OPENAI_LOG_PATH = Path(
 )
 NOT_EXIST = "not_exist"
 NUMERIC_TOKEN_PATTERN = re.compile(r"\d+(?:\.\d+)?")
+LOOKUP_TOKEN_PATTERN = re.compile(r"\w+", re.UNICODE)
+DEFINITION_MATCH_THRESHOLD = 0.78
+MISSING_VALUE_MARKERS = {"", "-", "--", "n/a", "na", "none", "null"}
 
 
 logging.basicConfig(
@@ -236,6 +240,523 @@ def normalize_input_data(raw_data: dict[str, Any]) -> dict[str, Any]:
 
 def normalize_lookup_text(value: str) -> str:
     return "".join(character for character in value.casefold() if character.isalnum())
+
+
+def tokenize_lookup_text(value: str) -> set[str]:
+    return {
+        token
+        for token in LOOKUP_TOKEN_PATTERN.findall(value.casefold())
+        if token
+    }
+
+
+def calculate_lookup_similarity(left: str, right: str) -> float:
+    normalized_left = normalize_lookup_text(left)
+    normalized_right = normalize_lookup_text(right)
+    if not normalized_left or not normalized_right:
+        return 0.0
+    if normalized_left == normalized_right:
+        return 1.0
+
+    left_tokens = tokenize_lookup_text(left)
+    right_tokens = tokenize_lookup_text(right)
+    token_score = 0.0
+    if left_tokens and right_tokens:
+        overlap = len(left_tokens & right_tokens)
+        if overlap:
+            token_score = overlap / len(left_tokens | right_tokens)
+            if overlap == min(len(left_tokens), len(right_tokens)) and overlap >= 2:
+                token_score = max(token_score, 0.85)
+
+    containment_score = 0.0
+    if normalized_left in normalized_right or normalized_right in normalized_left:
+        shorter = min(len(normalized_left), len(normalized_right))
+        longer = max(len(normalized_left), len(normalized_right))
+        if shorter >= 6:
+            containment_score = shorter / longer
+
+    sequence_score = SequenceMatcher(None, normalized_left, normalized_right).ratio()
+    return max(token_score, containment_score, sequence_score)
+
+
+def is_missing_text_value(value: str) -> bool:
+    return value.strip().casefold() in MISSING_VALUE_MARKERS
+
+
+def extract_source_field_names(entry: Any) -> list[str]:
+    if not isinstance(entry, dict):
+        return []
+
+    return dedupe_non_empty_strings(
+        [
+            str(entry.get(key, "")).strip()
+            for key in ("key", "name", "name_en", "name_ar", "label", "title")
+            if str(entry.get(key, "")).strip()
+            and not is_missing_text_value(str(entry.get(key, "")).strip())
+        ],
+    )
+
+
+def extract_source_value_texts(value: Any) -> list[str]:
+    if value is None:
+        return []
+
+    if isinstance(value, list):
+        texts: list[str] = []
+        for item in value:
+            texts.extend(extract_source_value_texts(item))
+        return dedupe_non_empty_strings(texts)
+
+    if isinstance(value, dict):
+        if "value" in value:
+            return extract_source_value_texts(value.get("value"))
+        if "values" in value:
+            return extract_source_value_texts(value.get("values"))
+
+        texts: list[str] = []
+        for key in ("translate", "value_en", "value_ar", "name_en", "name_ar", "value", "name"):
+            if key not in value:
+                continue
+            texts.extend(extract_source_value_texts(value.get(key)))
+        return dedupe_non_empty_strings(texts)
+
+    normalized = str(value).strip()
+    if not normalized or is_missing_text_value(normalized):
+        return []
+    return [normalized]
+
+
+def get_definition_display_name(definition: dict[str, Any]) -> str:
+    return (
+        str(definition.get("name_en", "")).strip()
+        or str(definition.get("name_ar", "")).strip()
+        or str(definition.get("id", "unknown")).strip()
+    )
+
+
+def build_definition_aliases(definition: dict[str, Any]) -> list[str]:
+    return dedupe_non_empty_strings(
+        [
+            str(definition.get("name_en", "")).strip(),
+            str(definition.get("name_ar", "")).strip(),
+        ],
+    )
+
+
+def map_source_values_by_definition(
+    source_entries: list[Any],
+    available_definitions: list[dict[str, Any]],
+    definition_kind: str,
+) -> dict[int, list[str]]:
+    values_by_definition: dict[int, list[str]] = {}
+
+    for entry in source_entries:
+        field_names = extract_source_field_names(entry)
+        source_values = extract_source_value_texts(entry)
+        if not field_names or not source_values:
+            continue
+
+        best_definition: dict[str, Any] | None = None
+        best_score = 0.0
+        for definition in available_definitions:
+            aliases = build_definition_aliases(definition)
+            if not aliases or definition.get("id") is None:
+                continue
+
+            score = max(
+                calculate_lookup_similarity(field_name, alias)
+                for field_name in field_names
+                for alias in aliases
+            )
+            if score > best_score:
+                best_score = score
+                best_definition = definition
+
+        if best_definition is None or best_score < DEFINITION_MATCH_THRESHOLD:
+            log.info(
+                "Skipping unmatched source %s field %s with values %s.",
+                definition_kind,
+                field_names,
+                source_values,
+            )
+            continue
+
+        definition_id = int(best_definition["id"])
+        values_by_definition.setdefault(definition_id, []).extend(source_values)
+
+    return {
+        definition_id: dedupe_non_empty_strings(values)
+        for definition_id, values in values_by_definition.items()
+    }
+
+
+def build_ai_definition_value_lookup(
+    ai_definitions: list[dict[str, Any]],
+    definition_id_key: str,
+) -> dict[int, list[dict[str, Any]]]:
+    lookup: dict[int, list[dict[str, Any]]] = {}
+    for definition in ai_definitions:
+        try:
+            definition_id = int(definition.get(definition_id_key))
+        except (TypeError, ValueError):
+            continue
+
+        values = definition.get("values", [])
+        if not isinstance(values, list):
+            continue
+        lookup.setdefault(definition_id, []).extend(values)
+
+    return lookup
+
+
+def build_existing_value_lookup(definition: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    return {
+        int(value["id"]): value
+        for value in definition.get("values", [])
+        if value.get("id") is not None
+    }
+
+
+def find_exact_matched_value_id(
+    definition: dict[str, Any],
+    raw_value: str,
+    candidate_builder: Any,
+) -> int | None:
+    normalized_raw_value = normalize_lookup_text(raw_value)
+    numeric_signature = extract_numeric_signature(raw_value)
+    for value in definition.get("values", []):
+        if value.get("id") is None:
+            continue
+
+        normalized_candidates = {
+            normalize_lookup_text(candidate)
+            for candidate in candidate_builder(definition, value)
+            if candidate.strip()
+        }
+        if normalized_raw_value in normalized_candidates:
+            return int(value["id"])
+
+        if has_defined_unit(definition) and numeric_signature:
+            candidate_signatures = {
+                extract_numeric_signature(candidate)
+                for candidate in candidate_builder(definition, value)
+                if candidate.strip()
+            }
+            if numeric_signature in candidate_signatures:
+                return int(value["id"])
+
+    return None
+
+
+def build_value_text_candidates(
+    value: dict[str, Any],
+    definition: dict[str, Any],
+    matched_values: dict[int, dict[str, Any]],
+    candidate_builder: Any,
+    localized: bool,
+) -> list[str]:
+    candidates: list[str] = []
+
+    try:
+        if localized:
+            original_value_en, original_value_ar = extract_localized_value(value.get("original_value"))
+            candidates.extend([original_value_en, original_value_ar])
+        else:
+            candidates.append(extract_simple_text(value.get("original_value")))
+    except ValueError:
+        pass
+
+    matched_id = value.get("matched_value_id")
+    if matched_id not in (NOT_EXIST, None):
+        try:
+            matched_value = matched_values.get(int(matched_id))
+        except (TypeError, ValueError):
+            matched_value = None
+        if matched_value is not None:
+            candidates.extend(candidate_builder(definition, matched_value))
+
+    return dedupe_non_empty_strings(candidates)
+
+
+def values_overlap(
+    source_values: list[str],
+    candidate_values: list[str],
+    *,
+    allow_numeric_signature: bool,
+) -> bool:
+    normalized_source_values = {
+        normalize_lookup_text(source_value)
+        for source_value in source_values
+        if source_value.strip()
+    }
+    source_numeric_signatures = {
+        extract_numeric_signature(source_value)
+        for source_value in source_values
+        if source_value.strip() and extract_numeric_signature(source_value)
+    }
+
+    for candidate_value in candidate_values:
+        normalized_candidate = normalize_lookup_text(candidate_value)
+        if normalized_candidate in normalized_source_values:
+            return True
+
+        if allow_numeric_signature:
+            candidate_signature = extract_numeric_signature(candidate_value)
+            if candidate_signature and candidate_signature in source_numeric_signatures:
+                return True
+
+    return False
+
+
+def build_source_backfill_values(
+    definition: dict[str, Any],
+    missing_source_values: list[str],
+    candidate_builder: Any,
+    *,
+    localized: bool,
+) -> list[dict[str, Any]]:
+    backfilled_values: list[dict[str, Any]] = []
+    for raw_value in missing_source_values:
+        matched_value_id = find_exact_matched_value_id(
+            definition,
+            raw_value,
+            candidate_builder,
+        )
+        backfilled_values.append(
+            {
+                "original_value": (
+                    {"name_en": raw_value, "name_ar": raw_value}
+                    if localized
+                    else raw_value
+                ),
+                "matched_value_id": matched_value_id if matched_value_id is not None else NOT_EXIST,
+            },
+        )
+    return backfilled_values
+
+
+def enforce_required_specifications(
+    data: dict[str, Any],
+    ai_specifications: list[dict[str, Any]],
+    available_specifications: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    source_values_by_specification = map_source_values_by_definition(
+        data.get("specification", []),
+        available_specifications,
+        "specification",
+    )
+    ai_values_by_specification = build_ai_definition_value_lookup(
+        ai_specifications,
+        "specification_id",
+    )
+
+    merged_specifications: list[dict[str, Any]] = []
+    missing_inference_definitions: list[str] = []
+
+    for specification in available_specifications:
+        if specification.get("id") is None:
+            continue
+
+        specification_id = int(specification["id"])
+        source_values = source_values_by_specification.get(specification_id, [])
+        allow_ai_inference = bool(specification.get("allow_ai_inference", False))
+        matched_values = build_existing_value_lookup(specification)
+        values = list(ai_values_by_specification.get(specification_id, []))
+
+        if source_values and not allow_ai_inference:
+            values = [
+                value
+                for value in values
+                if values_overlap(
+                    source_values,
+                    build_value_text_candidates(
+                        value,
+                        specification,
+                        matched_values,
+                        build_specification_value_candidates,
+                        localized=True,
+                    ),
+                    allow_numeric_signature=has_defined_unit(specification),
+                )
+            ]
+
+        if source_values:
+            current_value_candidates: list[str] = []
+            for value in values:
+                current_value_candidates.extend(
+                    build_value_text_candidates(
+                        value,
+                        specification,
+                        matched_values,
+                        build_specification_value_candidates,
+                        localized=True,
+                    ),
+                )
+
+            missing_source_values = [
+                source_value
+                for source_value in source_values
+                if not values_overlap(
+                    [source_value],
+                    current_value_candidates,
+                    allow_numeric_signature=has_defined_unit(specification),
+                )
+            ]
+            if missing_source_values:
+                log.info(
+                    "Backfilling source specification '%s' with values %s.",
+                    get_definition_display_name(specification),
+                    missing_source_values,
+                )
+                values.extend(
+                    build_source_backfill_values(
+                        specification,
+                        missing_source_values,
+                        build_specification_value_candidates,
+                        localized=True,
+                    ),
+                )
+        elif not allow_ai_inference:
+            values = []
+        elif not values:
+            missing_inference_definitions.append(get_definition_display_name(specification))
+
+        if values:
+            merged_specifications.append(
+                {
+                    "specification_id": specification_id,
+                    "values": values,
+                },
+            )
+
+    if missing_inference_definitions:
+        raise ValueError(
+            "AI inference is required but missing for specifications: "
+            + ", ".join(missing_inference_definitions),
+        )
+
+    return merged_specifications
+
+
+def enforce_required_attributes(
+    data: dict[str, Any],
+    ai_attributes: list[dict[str, Any]],
+    available_attributes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    normalized_ai_attributes: list[dict[str, Any]] = []
+    for attribute in ai_attributes:
+        if not isinstance(attribute, dict):
+            continue
+
+        raw_attribute = attribute.get("attribute")
+        attribute_metadata = raw_attribute if isinstance(raw_attribute, dict) else {}
+        raw_values = attribute.get("values")
+        normalized_ai_attributes.append(
+            {
+                "attribute_id": attribute_metadata.get("attribute_id"),
+                "values": raw_values if isinstance(raw_values, list) else [],
+            },
+        )
+
+    source_values_by_attribute = map_source_values_by_definition(
+        data.get("attributes", []),
+        available_attributes,
+        "attribute",
+    )
+    ai_values_by_attribute = build_ai_definition_value_lookup(
+        normalized_ai_attributes,
+        "attribute_id",
+    )
+
+    merged_attributes: list[dict[str, Any]] = []
+    missing_inference_definitions: list[str] = []
+
+    for attribute in available_attributes:
+        if attribute.get("id") is None:
+            continue
+
+        attribute_id = int(attribute["id"])
+        source_values = source_values_by_attribute.get(attribute_id, [])
+        allow_ai_inference = bool(attribute.get("allow_ai_inference", False))
+        matched_values = build_existing_value_lookup(attribute)
+        values = list(ai_values_by_attribute.get(attribute_id, []))
+
+        if source_values and not allow_ai_inference:
+            values = [
+                value
+                for value in values
+                if values_overlap(
+                    source_values,
+                    build_value_text_candidates(
+                        value,
+                        attribute,
+                        matched_values,
+                        build_attribute_value_candidates,
+                        localized=False,
+                    ),
+                    allow_numeric_signature=has_defined_unit(attribute),
+                )
+            ]
+
+        if source_values:
+            current_value_candidates: list[str] = []
+            for value in values:
+                current_value_candidates.extend(
+                    build_value_text_candidates(
+                        value,
+                        attribute,
+                        matched_values,
+                        build_attribute_value_candidates,
+                        localized=False,
+                    ),
+                )
+
+            missing_source_values = [
+                source_value
+                for source_value in source_values
+                if not values_overlap(
+                    [source_value],
+                    current_value_candidates,
+                    allow_numeric_signature=has_defined_unit(attribute),
+                )
+            ]
+            if missing_source_values:
+                log.info(
+                    "Backfilling source attribute '%s' with values %s.",
+                    get_definition_display_name(attribute),
+                    missing_source_values,
+                )
+                values.extend(
+                    build_source_backfill_values(
+                        attribute,
+                        missing_source_values,
+                        build_attribute_value_candidates,
+                        localized=False,
+                    ),
+                )
+        elif not allow_ai_inference:
+            values = []
+        elif not values:
+            missing_inference_definitions.append(get_definition_display_name(attribute))
+
+        if values:
+            merged_attributes.append(
+                {
+                    "attribute": {
+                        "attribute_id": attribute_id,
+                        "original_value": get_definition_display_name(attribute),
+                    },
+                    "values": values,
+                },
+            )
+
+    if missing_inference_definitions:
+        raise ValueError(
+            "AI inference is required but missing for attributes: "
+            + ", ".join(missing_inference_definitions),
+        )
+
+    return merged_attributes
 
 
 def extract_numeric_signature(value: str) -> tuple[str, ...]:
@@ -602,10 +1123,13 @@ def resolve_specifications(
         specification_id = int(specification["specification_id"])
         resolved_value_ids: list[int] = []
         matched_specification = specification_lookup.get(specification_id)
+        if matched_specification is None:
+            log.info("Skipping unknown specification id=%s returned by AI.", specification_id)
+            continue
         value_lookup = {
             int(value["id"]): value
             for value in matched_specification.get("values", [])
-            if matched_specification and value.get("id") is not None
+            if value.get("id") is not None
         }
 
         for value in specification.get("values", []):
@@ -709,10 +1233,13 @@ def resolve_attributes(
         attribute_id = int(attribute["attribute"]["attribute_id"])
         resolved_value_ids: list[int] = []
         matched_attribute = attribute_lookup.get(attribute_id)
+        if matched_attribute is None:
+            log.info("Skipping unknown attribute id=%s returned by AI.", attribute_id)
+            continue
         value_lookup = {
             int(value["id"]): value
             for value in matched_attribute.get("values", [])
-            if matched_attribute and value.get("id") is not None
+            if value.get("id") is not None
         }
 
         for value in attribute.get("values", []):
@@ -1055,6 +1582,9 @@ Instructions:
         - Pay STRICT attention to the "allow_ai_inference" flag for each specification:
             * If allow_ai_inference is FALSE: The metric MUST exist in the source data. You ARE EXPLICITLY ALLOWED to match synonyms, typos, and slight naming variations (e.g., source "Response Time" maps to DB "Responsive Time"). This is NOT considered guessing. If the spec name exists in the source but its specific value (e.g., "4ms") is missing from the DB values list, DO NOT skip the specification.
             * If allow_ai_inference is TRUE: You MUST deduce the value based on other specifications, even if the exact word is not explicitly written in the source text.
+        - If a category specification has an explicit source value, you MUST include it in the output and MUST NOT omit it.
+        - If a category specification has no explicit source value and allow_ai_inference is FALSE, omit it.
+        - If a category specification has no explicit source value and allow_ai_inference is TRUE, you MUST infer it and include it.
         - Mark each DB spec as: FOUND, INFERRED, or NOT FOUND.
 
     STEP 3 — BUILD the specifications array:
@@ -1072,21 +1602,24 @@ Instructions:
         - Combine all extracted values into a single master list.
 
     STEP 2 — CLASSIFY AND MATCH (CRITICAL RULE):
-        - Go through the DATABASE SPECIFICATIONS list from top to bottom.
-        - Pay STRICT attention to the "allow_ai_inference" flag for each specification:
-            * If allow_ai_inference is FALSE: The metric MUST exist in the source data. You ARE EXPLICITLY ALLOWED to match synonyms, typos, and slight naming variations (e.g., source "Response Time" maps to DB "Responsive Time"). This is NOT considered guessing. If the spec name exists in the source but its specific value (e.g., "4ms") is missing from the DB values list, DO NOT skip the specification.
+        - Go through the DATABASE ATTRIBUTES list from top to bottom.
+        - Pay STRICT attention to the "allow_ai_inference" flag for each attribute:
+            * If allow_ai_inference is FALSE: The value MUST exist in the source data. You ARE EXPLICITLY ALLOWED to match synonyms, typos, and slight naming variations. This is NOT considered guessing. If the attribute exists in the source but its specific value is missing from the DB values list, DO NOT skip the attribute.
             * If allow_ai_inference is TRUE: You MUST deduce ALL applicable values based on context (e.g., if a monitor has "Game Mode" and is a "Business Monitor", you MUST infer BOTH "Gaming" and "Office" usages).
-        - Mark each DB spec as: FOUND, INFERRED, or NOT FOUND.
+        - If a category attribute has an explicit source value, you MUST include it in the output and MUST NOT omit it.
+        - If a category attribute has no explicit source value and allow_ai_inference is FALSE, omit it.
+        - If a category attribute has no explicit source value and allow_ai_inference is TRUE, you MUST infer it and include it.
+        - Mark each DB attribute as: FOUND, INFERRED, or NOT FOUND.
 
-    STEP 3 — BUILD the specifications array:
-        - For every FOUND or INFERRED DB spec:
-            * A specification can have MULTIPLE values. If multiple values apply (like multiple Usages or multiple Ports), include ALL of them as separate objects inside the "values" array.
+    STEP 3 — BUILD the attributes array:
+        - For every FOUND or INFERRED DB attribute:
+            * An attribute can have MULTIPLE values. If multiple values apply (like multiple Usages or multiple Ports), include ALL of them as separate objects inside the "values" array.
             * If the exact value exists in DB → matched_value_id = <int id>.
             * If the exact value does NOT exist in DB → matched_value_id = "not_exist", and put the raw string in original_value.name_en.
-            * YOU MUST NOT drop a specification just because its value is missing from the DB. Use "not_exist".
+            * YOU MUST NOT drop an attribute just because its value is missing from the DB. Use "not_exist".
             * ONLY when the attribute has a unit such as inch, Hz, ms, or GB, NEVER choose the nearest or closest existing database value for measurable data. If the exact raw value is missing, return "not_exist" and preserve the raw value.
             * If the attribute has no unit, do normal text/value matching and do not force a new value based only on this numeric safeguard.
-        - For every NOT FOUND DB spec → skip it entirely.
+        - For every NOT FOUND DB attribute → skip it entirely.
 
 5. META DESCRIPTION: Must be 160 characters or fewer.
 6. META TITLE: Must be 70 characters or fewer.
@@ -1231,6 +1764,17 @@ def import_product(
     )
     log.info("AI result received: title_en='%s'", ai_result["title_en"])
 
+    enforced_ai_specifications = enforce_required_specifications(
+        data,
+        ai_result.get("specifications", []),
+        specifications_res,
+    )
+    enforced_ai_attributes = enforce_required_attributes(
+        data,
+        ai_result.get("attributes", []),
+        attribute_res,
+    )
+
     brand_id, resolved_brand_name, brand_created = resolve_or_create_brand_id(
         session,
         brands_res,
@@ -1248,14 +1792,14 @@ def import_product(
     log.info("Resolving specifications...")
     resolved_specs = resolve_specifications(
         session,
-        ai_result.get("specifications", []),
+        enforced_ai_specifications,
         specifications_res,
     )
 
     log.info("Resolving attributes...")
     resolved_attrs = resolve_attributes(
         session,
-        ai_result.get("attributes", []),
+        enforced_ai_attributes,
         attribute_res,
     )
 
