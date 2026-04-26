@@ -12,19 +12,19 @@ import { AuthService, TokenPayload } from '../auth.service';
 
 /**
  * Custom extractor that tries to get the JWT from:
- * 1. HTTP-only cookie named 'access_token'
- * 2. Authorization header as Bearer token (fallback for API clients)
+ * 1. Authorization header as Bearer token
+ * 2. HTTP-only cookie named 'access_token' (fallback for browser auth)
  */
 const cookieOrBearerExtractor = (req: Request): string | null => {
-  // First try to extract from cookie
-  if (req.cookies && req.cookies.access_token) {
-    return req.cookies.access_token;
-  }
-
-  // Fallback to Authorization header for API clients
+  // Prefer an explicit bearer token over ambient cookies.
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     return authHeader.substring(7);
+  }
+
+  // Fallback to cookie-based auth for browser clients.
+  if (req.cookies && req.cookies.access_token) {
+    return req.cookies.access_token;
   }
 
   return null;
@@ -48,7 +48,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   async validate(payload: TokenPayload) {
     // Ensure this is an access token, not a refresh token
-    if (payload.type && payload.type !== 'access') {
+    if (
+      payload.type &&
+      payload.type !== 'access' &&
+      payload.type !== 'static_access'
+    ) {
       throw new UnauthorizedException('Invalid token type');
     }
 

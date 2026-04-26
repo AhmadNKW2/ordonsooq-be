@@ -19,6 +19,10 @@ import {
   PermanentDeleteBrandDto,
 } from './dto/archive-brand.dto';
 import { R2StorageService } from '../common/services/r2-storage.service';
+import {
+  getPrimaryMediaUrl,
+  hydrateProductMedia,
+} from '../products/utils/product-media.util';
 
 @Injectable()
 export class BrandsService {
@@ -396,14 +400,13 @@ export class BrandsService {
             'archived_at',
             'archived_by',
           ],
-          relations: ['media'],
+          relations: ['productMedia', 'productMedia.media'],
         });
 
         const archivedProducts = archivedProductsRaw.map((product) => {
-          const primaryMedia = product.media?.find((m) => m.is_primary);
-          const firstMedia = product.media?.[0];
-          const image = primaryMedia?.url || firstMedia?.url || null;
-          const { media, ...productData } = product as any;
+          const image = getPrimaryMediaUrl(product);
+          const { media, productMedia, ...productData } =
+            hydrateProductMedia(product, true) as any;
           return { ...productData, image };
         });
 

@@ -54,9 +54,11 @@ export class AuthController {
     res: ExpressResponse,
     accessToken: string,
     refreshToken: string,
+    isStaticAccessToken = false,
   ): void {
     const cookieOptions = this.authService.getCookieOptions(
       this.getIsSecureContext(req),
+      isStaticAccessToken,
     );
     res.cookie('access_token', accessToken, cookieOptions.access);
     res.cookie('refresh_token', refreshToken, cookieOptions.refresh);
@@ -100,6 +102,7 @@ export class AuthController {
       res,
       data.tokens.accessToken,
       data.tokens.refreshToken,
+      data.tokens.isStaticAccessToken,
     );
 
     const frontendUrl =
@@ -127,6 +130,7 @@ export class AuthController {
       res,
       data.tokens.accessToken,
       data.tokens.refreshToken,
+      data.tokens.isStaticAccessToken,
     );
 
     const frontendUrl =
@@ -155,6 +159,7 @@ export class AuthController {
         res,
         data.tokens.accessToken,
         data.tokens.refreshToken,
+        data.tokens.isStaticAccessToken,
       );
 
       const frontendUrl =
@@ -186,10 +191,15 @@ export class AuthController {
     @Request() req: ExpressRequest,
     @Response({ passthrough: true }) res: ExpressResponse,
   ) {
-    if (registerDto.role === UserRole.ADMIN) {
+    if (
+      registerDto.role === UserRole.ADMIN ||
+      registerDto.role === UserRole.CONSTANT_TOKEN_ADMIN
+    ) {
       const authHeader = req.headers['authorization'];
       if (!authHeader) {
-        throw new ForbiddenException('Admin creation requires authentication');
+        throw new ForbiddenException(
+          'Privileged account creation requires authentication',
+        );
       }
 
       const token = authHeader.split(' ')[1];
@@ -199,11 +209,19 @@ export class AuthController {
 
       try {
         const payload = this.jwtService.verify(token);
-        if (payload.role !== UserRole.ADMIN) {
-          throw new ForbiddenException('Only admins can create other admins');
+        if (
+          payload.role !== UserRole.ADMIN &&
+          payload.role !== UserRole.CONSTANT_TOKEN_ADMIN &&
+          payload.role !== 'products_api'
+        ) {
+          throw new ForbiddenException(
+            'Only admins can create privileged accounts',
+          );
         }
       } catch (error) {
-        throw new ForbiddenException('Only admins can create other admins');
+        throw new ForbiddenException(
+          'Only admins can create privileged accounts',
+        );
       }
     }
 
@@ -216,6 +234,7 @@ export class AuthController {
       res,
       result.tokens.accessToken,
       result.tokens.refreshToken,
+      result.tokens.isStaticAccessToken,
     );
 
     return {
@@ -224,7 +243,7 @@ export class AuthController {
       data: {
         user: result.user,
         access_token: result.tokens.accessToken,
-        expires_in: this.authService.getAccessTokenExpiresInSeconds(),
+        expires_in: result.tokens.accessTokenExpiresInSeconds,
       },
     };
   }
@@ -246,6 +265,7 @@ export class AuthController {
       res,
       result.tokens.accessToken,
       result.tokens.refreshToken,
+      result.tokens.isStaticAccessToken,
     );
 
     return {
@@ -254,7 +274,7 @@ export class AuthController {
       data: {
         user: result.user,
         access_token: result.tokens.accessToken,
-        expires_in: this.authService.getAccessTokenExpiresInSeconds(),
+        expires_in: result.tokens.accessTokenExpiresInSeconds,
       },
     };
   }
@@ -281,14 +301,20 @@ export class AuthController {
       );
 
       // Set new cookies with rotated tokens
-      this.setAuthCookies(req, res, tokens.accessToken, tokens.refreshToken);
+      this.setAuthCookies(
+        req,
+        res,
+        tokens.accessToken,
+        tokens.refreshToken,
+        tokens.isStaticAccessToken,
+      );
 
       return {
         success: true,
         message: 'Token refreshed successfully',
         data: {
           access_token: tokens.accessToken,
-          expires_in: this.authService.getAccessTokenExpiresInSeconds(),
+          expires_in: tokens.accessTokenExpiresInSeconds,
         },
       };
     } catch {

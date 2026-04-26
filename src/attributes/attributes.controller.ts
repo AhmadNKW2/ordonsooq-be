@@ -8,6 +8,7 @@ import {
   Param,
   Delete,
   UseGuards,
+  Query,
 } from '@nestjs/common';
 import { AttributesService } from './attributes.service';
 import { CreateAttributeDto } from './dto/create-attribute.dto';
@@ -18,6 +19,7 @@ import { UpdateAttributeValueDto } from './dto/update-attribute-value.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles, UserRole } from '../common/decorators/roles.decorator';
+import { ApiQuery } from '@nestjs/swagger';
 
 @Controller('attributes')
 export class AttributesController {
@@ -31,8 +33,12 @@ export class AttributesController {
   }
 
   @Get()
-  findAll() {
-    return this.attributesService.findAll();
+  @ApiQuery({ name: 'category_ids', required: false, type: String, description: 'Comma separated list of category ids (e.g. 1,2,3,5)' })
+  findAll(@Query('category_ids') categoryIdsStr?: string) {
+    const categoryIds = categoryIdsStr 
+      ? categoryIdsStr.split(',').map(id => parseInt(id.trim(), 10)).filter(id => !isNaN(id))
+      : undefined;
+    return this.attributesService.findAll(categoryIds);
   }
 
   @Put('reorder')

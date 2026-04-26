@@ -8,9 +8,13 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, Like } from 'typeorm';
 import { Category, CategoryStatus } from './entities/category.entity';
+import { CategoryUrl } from './entities/category-url.entity';
 import { CreateCategoryDto } from './dto/create-category.dto';
 import { UpdateCategoryDto } from './dto/update-category.dto';
 import { FilterCategoryDto } from './dto/filter-category.dto';
+import { CreateCategoryUrlDto } from './dto/create-category-url.dto';
+import { UpdateCategoryUrlDto } from './dto/update-category-url.dto';
+import { FilterCategoryUrlDto } from './dto/filter-category-url.dto';
 import { FilterProductDto } from '../products/dto/filter-product.dto';
 import {
   RestoreCategoryDto,
@@ -21,8 +25,15 @@ import {
 import { Product, ProductStatus } from '../products/entities/product.entity';
 import { ProductCategory } from '../products/entities/product-category.entity';
 import { ProductsService } from '../products/products.service';
+import { Vendor } from '../vendors/entities/vendor.entity';
 import { VendorStatus } from '../vendors/entities/vendor.entity';
 import { R2StorageService } from '../common/services/r2-storage.service';
+import { Attribute } from '../attributes/entities/attribute.entity';
+import {
+  getPrimaryMediaUrl,
+  hydrateProductMedia,
+  hydrateProductsMedia,
+} from '../products/utils/product-media.util';
 
 @Injectable()
 export class CategoriesService {
@@ -31,13 +42,234 @@ export class CategoriesService {
   constructor(
     @InjectRepository(Category)
     private categoriesRepository: Repository<Category>,
+    @InjectRepository(CategoryUrl)
+    private categoryUrlsRepository: Repository<CategoryUrl>,
     @InjectRepository(Product)
     private productsRepository: Repository<Product>,
     @InjectRepository(ProductCategory)
     private productCategoriesRepository: Repository<ProductCategory>,
+    @InjectRepository(Vendor)
+    private vendorsRepository: Repository<Vendor>,
+    @InjectRepository(Attribute)
+    private attributesRepository: Repository<Attribute>,
     private r2StorageService: R2StorageService,
     private productsService: ProductsService,
   ) {}
+
+  private normalizeAttributeIds(attributeIds?: number[]): number[] {
+    return [
+      ...new Set(
+        (attributeIds ?? [])
+          .map((attributeId) => Number(attributeId))
+          .filter((attributeId) => Number.isInteger(attributeId) && attributeId > 0),
+      ),
+    ];
+  }
+
+  private flattenCategoryTree(categories: Category[]): Category[] {
+    const flattened: Category[] = [];
+    const visit = (category: Category) => {
+      flattened.push(category);
+      (category.children ?? []).forEach(visit);
+    };
+    categories.forEach(visit);
+    return flattened;
+  }
+
+  private async syncAttributesToCategory(
+    categoryId: number,
+    attributeIds: number[],
+  ): Promise<void> {
+    const normalizedAttributeIds = this.normalizeAttributeIds(attributeIds);
+
+    if (normalizedAttributeIds.length > 0) {
+      const attributes = await this.attributesRepository.find({
+        where: { id: In(normalizedAttributeIds) },
+        select: ['id'],
+      });
+
+      if (attributes.length !== normalizedAttributeIds.length) {
+        throw new NotFoundException('One or more attributes not found');
+      }
+    }
+
+    const relation = this.categoriesRepository
+      .createQueryBuilder()
+      .relation(Category, 'attributes')
+      .of(categoryId);
+
+    const currentAttributes = (await relation.loadMany()) as Attribute[];
+    await relation.addAndRemove(
+      normalizedAttributeIds,
+      currentAttributes.map((attribute) => attribute.id),
+    );
+  }
+
+  private async attachAttributesToCategories(
+    categories: Category[],
+  ): Promise<void> {
+    const nodes = this.flattenCategoryTree(categories);
+    if (nodes.length === 0) {
+      return;
+    }
+
+    const relationCategories = await this.categoriesRepository.find({
+      where: { id: In(nodes.map((category) => category.id)) },
+      relations: ['attributes'],
+    });
+
+    const attributesByCategoryId = new Map(
+      relationCategories.map((category) => [
+        category.id,
+        [...(category.attributes ?? [])].sort(
+          (left, right) => left.sort_order - right.sort_order || left.id - right.id,
+        ),
+      ]),
+    );
+
+    nodes.forEach((category) => {
+      category.attributes = attributesByCategoryId.get(category.id) ?? [];
+    });
+  }
+
+  private async validateCategoryUrlReferences(
+    categoryId: number,
+    vendorId: number,
+  ): Promise<void> {
+    const [categoryExists, vendorExists] = await Promise.all([
+      this.categoriesRepository.exist({ where: { id: categoryId } }),
+      this.vendorsRepository.exist({ where: { id: vendorId } }),
+    ]);
+
+    if (!categoryExists) {
+      throw new NotFoundException('Category not found');
+    }
+
+    if (!vendorExists) {
+      throw new NotFoundException('Vendor not found');
+    }
+  }
+
+  private async ensureCategoryUrlPairIsUnique(
+    categoryId: number,
+    vendorId: number,
+    currentId?: number,
+  ): Promise<void> {
+    const existing = await this.categoryUrlsRepository.findOne({
+      where: {
+        category_id: categoryId,
+        vendor_id: vendorId,
+      },
+    });
+
+    if (existing && existing.id !== currentId) {
+      throw new ConflictException(
+        'A category URL already exists for this category and vendor',
+      );
+    }
+  }
+
+  async createCategoryUrl(
+    createCategoryUrlDto: CreateCategoryUrlDto,
+  ): Promise<CategoryUrl> {
+    await this.validateCategoryUrlReferences(
+      createCategoryUrlDto.category_id,
+      createCategoryUrlDto.vendor_id,
+    );
+    await this.ensureCategoryUrlPairIsUnique(
+      createCategoryUrlDto.category_id,
+      createCategoryUrlDto.vendor_id,
+    );
+
+    const categoryUrl = this.categoryUrlsRepository.create(createCategoryUrlDto);
+    const savedCategoryUrl = await this.categoryUrlsRepository.save(categoryUrl);
+
+    return this.findOneCategoryUrl(savedCategoryUrl.id);
+  }
+
+  async findAllCategoryUrls(
+    filterDto?: FilterCategoryUrlDto,
+  ): Promise<CategoryUrl[]> {
+    const queryBuilder = this.categoryUrlsRepository
+      .createQueryBuilder('categoryUrl')
+      .leftJoinAndSelect('categoryUrl.category', 'category')
+      .leftJoinAndSelect('categoryUrl.vendor', 'vendor')
+      .orderBy('categoryUrl.id', 'ASC');
+
+    if (filterDto?.category_id !== undefined) {
+      queryBuilder.andWhere('categoryUrl.category_id = :categoryId', {
+        categoryId: filterDto.category_id,
+      });
+    }
+
+    if (filterDto?.vendor_id !== undefined) {
+      queryBuilder.andWhere('categoryUrl.vendor_id = :vendorId', {
+        vendorId: filterDto.vendor_id,
+      });
+    }
+
+    return queryBuilder.getMany();
+  }
+
+  async findCategoryUrlsByCategory(
+    categoryId: number,
+    filterDto?: FilterCategoryUrlDto,
+  ): Promise<CategoryUrl[]> {
+    const categoryExists = await this.categoriesRepository.exist({
+      where: { id: categoryId },
+    });
+
+    if (!categoryExists) {
+      throw new NotFoundException('Category not found');
+    }
+
+    return this.findAllCategoryUrls({
+      ...filterDto,
+      category_id: categoryId,
+    });
+  }
+
+  async findOneCategoryUrl(id: number): Promise<CategoryUrl> {
+    const categoryUrl = await this.categoryUrlsRepository.findOne({
+      where: { id },
+      relations: ['category', 'vendor'],
+    });
+
+    if (!categoryUrl) {
+      throw new NotFoundException('Category URL not found');
+    }
+
+    return categoryUrl;
+  }
+
+  async updateCategoryUrl(
+    id: number,
+    updateCategoryUrlDto: UpdateCategoryUrlDto,
+  ): Promise<CategoryUrl> {
+    const categoryUrl = await this.findOneCategoryUrl(id);
+
+    const nextCategoryId =
+      updateCategoryUrlDto.category_id ?? categoryUrl.category_id;
+    const nextVendorId = updateCategoryUrlDto.vendor_id ?? categoryUrl.vendor_id;
+
+    await this.validateCategoryUrlReferences(nextCategoryId, nextVendorId);
+    await this.ensureCategoryUrlPairIsUnique(nextCategoryId, nextVendorId, id);
+
+    Object.assign(categoryUrl, updateCategoryUrlDto, {
+      category_id: nextCategoryId,
+      vendor_id: nextVendorId,
+    });
+
+    await this.categoryUrlsRepository.save(categoryUrl);
+    return this.findOneCategoryUrl(id);
+  }
+
+  async removeCategoryUrl(id: number): Promise<{ message: string }> {
+    const categoryUrl = await this.findOneCategoryUrl(id);
+    await this.categoryUrlsRepository.remove(categoryUrl);
+
+    return { message: 'Category URL deleted successfully' };
+  }
 
   private slugify(text: string): string {
     return text
@@ -113,7 +345,7 @@ export class CategoriesService {
     const nextSortOrder = (maxSortOrder?.max ?? -1) + 1;
 
     // Map parent_id from DTO to parent_id for entity
-    const { parent_id, product_ids, ...rest } = createCategoryDto;
+    const { parent_id, product_ids, attribute_ids, ...rest } = createCategoryDto;
     const slug = await this.generateUniqueSlug(rest.name_en);
 
     const category = this.categoriesRepository.create({
@@ -131,7 +363,11 @@ export class CategoriesService {
       await this.syncProductsToCategory(savedCategory.id, product_ids);
     }
 
-    return savedCategory;
+    if (attribute_ids !== undefined) {
+      await this.syncAttributesToCategory(savedCategory.id, attribute_ids);
+    }
+
+    return this.findOne(savedCategory.id);
   }
 
   /**
@@ -236,6 +472,7 @@ export class CategoriesService {
     queryBuilder.skip((page - 1) * limit).take(limit);
 
     const [data, total] = await queryBuilder.getManyAndCount();
+    await this.attachAttributesToCategories(data);
 
     return {
       data,
@@ -268,6 +505,8 @@ export class CategoriesService {
       .andWhere('category.status = :status', { status: CategoryStatus.ACTIVE })
       .orderBy('category.sortOrder', 'ASC')
       .getMany();
+
+    await this.attachAttributesToCategories(mainCategories);
 
     return mainCategories;
   }
@@ -315,6 +554,7 @@ export class CategoriesService {
     });
     (category as any).products = productsResult.data;
     (category as any).productsMeta = productsResult.meta;
+    await this.attachAttributesToCategories([category]);
 
     return category;
   }
@@ -344,6 +584,7 @@ export class CategoriesService {
     });
     (category as any).products = productsResult.data;
     (category as any).productsMeta = productsResult.meta;
+    await this.attachAttributesToCategories([category]);
 
     return category;
   }
@@ -355,7 +596,7 @@ export class CategoriesService {
     const category = await this.findOne(id);
     const oldImageUrl = category.image;
 
-    const { product_ids, ...updateData } = updateCategoryDto;
+    const { product_ids, attribute_ids, ...updateData } = updateCategoryDto;
 
     if (updateData.name_en && updateData.name_en !== category.name_en) {
       category.slug = await this.generateUniqueSlug(updateData.name_en, id);
@@ -424,6 +665,10 @@ export class CategoriesService {
     // Sync products if provided
     if (product_ids !== undefined) {
       await this.syncProductsToCategory(id, product_ids);
+    }
+
+    if (attribute_ids !== undefined) {
+      await this.syncAttributesToCategory(id, attribute_ids);
     }
 
     // Re-fetch to get updated relations
@@ -960,15 +1205,14 @@ export class CategoriesService {
             'archived_at',
             'archived_by',
           ],
-          relations: ['media'],
+          relations: ['productMedia', 'productMedia.media'],
         });
 
         // Map products to include image from primary media or first media
         const archivedProducts = archivedProductsRaw.map((product) => {
-          const primaryMedia = product.media?.find((m) => m.is_primary);
-          const firstMedia = product.media?.[0];
-          const image = primaryMedia?.url || firstMedia?.url || null;
-          const { media, ...productData } = product;
+          const image = getPrimaryMediaUrl(product);
+          const { media, productMedia, ...productData } =
+            hydrateProductMedia(product, true) as any;
           return { ...productData, image };
         });
 
@@ -1238,7 +1482,8 @@ export class CategoriesService {
       relations: [
         'product',
         'product.vendor',
-        'product.media',
+        'product.productMedia',
+        'product.productMedia.media',
         'product.priceGroups',
       ],
     });
@@ -1246,6 +1491,8 @@ export class CategoriesService {
     const products = productCategories
       .map((pc) => pc.product)
       .filter((p) => p && p.status === ProductStatus.ACTIVE);
+
+    hydrateProductsMedia(products, true);
 
     return {
       category,
@@ -1275,7 +1522,8 @@ export class CategoriesService {
       relations: [
         'product',
         'product.vendor',
-        'product.media',
+        'product.productMedia',
+        'product.productMedia.media',
         'product.priceGroups',
       ],
     });
@@ -1283,6 +1531,8 @@ export class CategoriesService {
     const products = productCategories
       .map((pc) => pc.product)
       .filter((p) => p && p.status === ProductStatus.ARCHIVED);
+
+    hydrateProductsMedia(products, true);
 
     // Add canRestore flag based on vendor status
     const productsWithRestoreInfo = products.map((product) => {

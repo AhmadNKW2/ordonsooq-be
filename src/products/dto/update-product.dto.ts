@@ -1,157 +1,39 @@
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import {
   IsString,
   IsNumber,
   IsOptional,
   IsBoolean,
   IsArray,
+  ArrayUnique,
   ValidateNested,
   MaxLength,
   Min,
-  IsObject,
   IsEnum,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ProductStatus } from '../entities/product.entity';
+import { PreserveRawNumberInput } from '../../common/decorators/preserve-raw-number-input.decorator';
+import { ProductSpecificationInputDto } from './product-specification.dto';
+
+import { ProductAttributeInputDto } from './product-attribute.dto';
 
 // ==================== MEDIA ====================
 
-/**
- * Media item DTO for syncing media with products
- *
- * - media_id: ID from /api/media/upload response (existing uploaded file)
- * - is_primary: Whether this is the primary image (default: false)
- * - sort_order: Display order (default: 0)
- * - combination: Optional - for variant products, maps attribute_id -> attribute_value_id
- *                to assign media to a specific variant group
- */
 export class MediaItemDto {
+  @ApiProperty({ example: 105, description: 'ID of the uploaded media item' })
   @IsNumber()
   media_id: number;
 
+  @ApiPropertyOptional({ example: true, description: 'Is this the primary image?' })
   @IsBoolean()
   @IsOptional()
   is_primary?: boolean;
 
-  @IsBoolean()
-  @IsOptional()
-  is_group_primary?: boolean;
-
+  @ApiPropertyOptional({ example: 1, description: 'Sort order for the images' })
   @IsNumber()
   @IsOptional()
   sort_order?: number;
-
-  @IsObject()
-  @IsOptional()
-  combination?: Record<string, number>;
-}
-
-// ==================== ATTRIBUTES MANAGEMENT ====================
-
-/**
- * Product attribute DTO - handles both add and update
- */
-export class ProductAttributeDto {
-  @IsNumber()
-  attribute_id: number;
-
-  @IsBoolean()
-  @IsOptional()
-  controls_pricing?: boolean;
-
-  @IsBoolean()
-  @IsOptional()
-  controls_media?: boolean;
-
-  @IsBoolean()
-  @IsOptional()
-  controls_weight?: boolean;
-}
-
-// ==================== PRICING ====================
-
-/**
- * Unified price DTO - works for both simple and variant products
- * - For simple products: omit combination or use empty object
- * - For variant products: provide combination mapping attribute_id -> attribute_value_id
- */
-export class PriceDto {
-  @IsObject()
-  @IsOptional()
-  combination?: Record<string, number>;
-
-  @IsNumber()
-  @IsOptional()
-  cost?: number;
-
-  @IsNumber()
-  price: number;
-
-  @IsNumber()
-  @IsOptional()
-  sale_price?: number;
-}
-
-// ==================== WEIGHT ====================
-
-/**
- * Unified weight DTO - works for both simple and variant products
- * - For simple products: omit combination or use empty object
- * - For variant products: provide combination mapping attribute_id -> attribute_value_id
- */
-export class WeightDto {
-  @IsObject()
-  @IsOptional()
-  combination?: Record<string, number>;
-
-  @IsNumber()
-  @IsOptional()
-  weight?: number;
-
-  @IsNumber()
-  @IsOptional()
-  length?: number;
-
-  @IsNumber()
-  @IsOptional()
-  width?: number;
-
-  @IsNumber()
-  @IsOptional()
-  height?: number;
-}
-
-// ==================== STOCK ====================
-
-/**
- * Unified stock DTO - works for both simple and variant products
- * - For simple products: omit combination or use empty object
- * - For variant products: provide combination mapping attribute_id -> attribute_value_id
- */
-export class StockDto {
-  @IsObject()
-  @IsOptional()
-  combination?: Record<string, number>;
-
-  @IsNumber()
-  @Min(0)
-  @IsOptional()
-  quantity?: number;
-
-  @IsBoolean()
-  @IsOptional()
-  is_out_of_stock?: boolean;
-}
-
-// ==================== VARIANT ====================
-
-export class VariantDto {
-  @IsObject()
-  @IsOptional()
-  combination?: Record<string, number>;
-
-  @IsBoolean()
-  @IsOptional()
-  is_active?: boolean;
 }
 
 // ==================== MAIN UPDATE DTO ====================
@@ -162,72 +44,151 @@ export class VariantDto {
  * The payload represents the COMPLETE state of the product.
  * All basic product information is required.
  *
- * For attributes, prices, weights, and stocks:
- * - Existing data is REPLACED with what's in the payload
- * - If a field is not provided or is empty, existing data will be cleared
- * - Media is managed separately via media_management
+ * Uses the same flat field model as CreateProductDto.
+ * - Scalar fields overwrite the existing product values
+ * - Attributes, specifications, media, tags, and linked products are synced from the payload
  */
 export class UpdateProductDto {
   // ============== Basic Product Info (Required) ==============
 
+  @ApiProperty({ example: 'Wireless Headphones Re-Issue', description: 'Product name in English' })
   @IsString()
   @MaxLength(300)
   name_en: string;
 
+  @ApiProperty({ example: 'سماعات البلوتوث المحدثة', description: 'Product name in Arabic' })
   @IsString()
   @MaxLength(300)
   name_ar: string;
 
+  @ApiPropertyOptional({ example: 'WH-PRO-002', description: 'Stock Keeping Unit identifier' })
   @IsString()
   @MaxLength(100)
   @IsOptional()
   sku?: string;
 
+  @ApiPropertyOptional({ example: 'Some extra record or string data', description: 'Any extra string record you want to store' })
+  @IsString()
+  @IsOptional()
+  record?: string;
+
+  @ApiProperty({ example: 'Updated short description in English', description: 'Short description in English' })
   @IsString()
   short_description_en: string;
 
+  @ApiProperty({ example: 'وصف قصير محدث', description: 'Short description in Arabic' })
   @IsString()
   short_description_ar: string;
 
+  @ApiProperty({ example: '<p>Updated full description...</p>', description: 'Full description in English (HTML allowed)' })
   @IsString()
   long_description_en: string;
 
+  @ApiProperty({ example: '<p>وصف طويل محدث...</p>', description: 'Full description in Arabic (HTML allowed)' })
   @IsString()
   long_description_ar: string;
 
+  @ApiPropertyOptional({ example: 'https://example.com/product/123' })
+  @IsString()
+  @IsOptional()
+  reference_link?: string;
+
+  @ApiProperty({ example: [5, 12, 14], description: 'Updated array of category IDs' })
   @IsArray()
   @IsNumber({}, { each: true })
   category_ids: number[];
 
+  @ApiPropertyOptional({ example: 4, description: 'Vendor ID creating the product' })
   @IsNumber()
   @IsOptional()
   vendor_id?: number;
 
+  @ApiPropertyOptional({ example: 8, description: 'Brand ID of the product' })
   @IsNumber()
   @IsOptional()
   brand_id?: number;
 
+  @ApiPropertyOptional({ enum: ProductStatus, example: ProductStatus.ACTIVE })
   @IsEnum(ProductStatus)
   @IsOptional()
   status?: ProductStatus;
 
+  @ApiPropertyOptional({ example: true, description: 'Whether the product is visible in the store' })
   @IsBoolean()
   @IsOptional()
   visible?: boolean;
 
+  // ============== Pricing ==============
+
+  @ApiPropertyOptional({ example: 45.00, description: 'The cost price of the product' })
+  @PreserveRawNumberInput()
+  @IsNumber()
+  @IsOptional()
+  cost?: number;
+
+  @ApiPropertyOptional({ example: 89.99, description: 'The regular selling price' })
+  @PreserveRawNumberInput()
+  @IsNumber()
+  @IsOptional()
+  price?: number;
+
+  @ApiPropertyOptional({ example: 69.99, description: 'The discounted sale price (if applicable)' })
+  @PreserveRawNumberInput()
+  @IsNumber()
+  @IsOptional()
+  sale_price?: number;
+
+  // ============== Weight & Dimensions ==============
+
+  @ApiPropertyOptional({ example: 1.4, description: 'Weight in kg' })
+  @IsNumber()
+  @IsOptional()
+  weight?: number;
+
+  @ApiPropertyOptional({ example: 19, description: 'Length in cm' })
+  @IsNumber()
+  @IsOptional()
+  length?: number;
+
+  @ApiPropertyOptional({ example: 14, description: 'Width in cm' })
+  @IsNumber()
+  @IsOptional()
+  width?: number;
+
+  @ApiPropertyOptional({ example: 4, description: 'Height in cm' })
+  @IsNumber()
+  @IsOptional()
+  height?: number;
+
+  // ============== Stock ==============
+
+  @ApiPropertyOptional({ example: 350, description: 'Current available stock quantity' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  quantity?: number;
+
+  @ApiPropertyOptional({ example: 15, description: 'Threshold to trigger low stock warnings' })
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  low_stock_threshold?: number;
+
+  @ApiPropertyOptional({ example: false, description: 'Manual override to mark product as out of stock' })
+  @IsBoolean()
+  @IsOptional()
+  is_out_of_stock?: boolean;
+
   // ============== Media ==============
 
-  /**
-   * Media array - REPLACES all existing media for this product
-   *
-   * Sync logic:
-   * - Media IDs in payload but not in DB -> Link to product
-   * - Media IDs in DB but not in payload -> Unlink from product
-   * - Media IDs in both -> Update is_primary, sort_order, combination
-   *
-   * If not provided, media is not changed.
-   * If empty array, all media is unlinked.
-   */
+  @ApiPropertyOptional({
+    type: [MediaItemDto],
+    example: [
+      { media_id: 105, is_primary: true, sort_order: 1 },
+      { media_id: 106, is_primary: false, sort_order: 2 }
+    ],
+    description: 'Array of media items (images) linked to this product'
+  })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => MediaItemDto)
@@ -236,76 +197,77 @@ export class UpdateProductDto {
 
   // ============== Attributes Management ==============
 
-  /**
-   * Product attributes - REPLACES all existing attributes
-   * If empty array or not provided, all existing attributes and variants will be removed
-   */
+  @ApiPropertyOptional({
+    type: [ProductAttributeInputDto],
+    example: [{ attribute_id: 21, attribute_value_ids: [81] }, { attribute_id: 22, attribute_value_ids: [90] }],
+  })
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => ProductAttributeDto)
+  @Type(() => ProductAttributeInputDto)
   @IsOptional()
-  attributes?: ProductAttributeDto[];
+  attributes?: ProductAttributeInputDto[];
 
-  // ============== Pricing ==============
+  // ============== Specifications Management ====================
 
-  /**
-   * Unified prices array
-   * - Simple product: [{ cost, price, sale_price }]
-   * - Variant product: [{ combination: { "1": 2 }, cost, price, sale_price }, ...]
-   */
+  @ApiPropertyOptional({
+    type: [ProductSpecificationInputDto],
+    example: [
+      { specification_id: 1, specification_value_ids: [60] },
+      { specification_id: 4, specification_value_ids: [7, 8, 39] },
+    ],
+  })
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => PriceDto)
+  @Type(() => ProductSpecificationInputDto)
   @IsOptional()
-  prices?: PriceDto[];
+  specifications?: ProductSpecificationInputDto[];
 
-  // ============== Weight ==============
+  // ============== Linked Products ==============
 
-  /**
-   * Unified weights array
-   * - Simple product: [{ weight, length, width, height }]
-   * - Variant product: [{ combination: { "1": 2 }, weight, length, width, height }, ...]
-   */
+  @ApiPropertyOptional({
+    type: [Number],
+    example: [12, 18, 27],
+    description:
+      'Existing product IDs to keep linked with this product. Use an empty array to clear links.',
+  })
   @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => WeightDto)
+  @ArrayUnique()
+  @Type(() => Number)
+  @IsNumber({}, { each: true })
   @IsOptional()
-  weights?: WeightDto[];
-
-  // ============== Stock ==============
-
-  /**
-   * Unified stocks array
-   * - Simple product: [{ quantity }]
-   * - Variant product: [{ combination: { "1": 2, "2": 3 }, quantity }, ...]
-   */
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => StockDto)
-  @IsOptional()
-  stocks?: StockDto[];
-
-  // ============== Variants ==============
-
-  /**
-   * Explicit variants array to define is_active and other specific variant statuses.
-   * If not provided, variants will be deduced implicitly from combinations in prices, weights, and stocks.
-   */
-  @IsArray()
-  @ValidateNested({ each: true })
-  @Type(() => VariantDto)
-  @IsOptional()
-  variants?: VariantDto[];
+  linked_product_ids?: number[];
 
   // ============== Tags ==============
 
-  /**
-   * Full replacement list of tag names for this product.
-   * Pass an empty array [] to remove all tags.
-   * Omit the field entirely to leave tags unchanged.
-   */
+  @ApiPropertyOptional({ example: ['electronics', 'headphones', 'wireless', 'accessories'], description: 'Array of tag names' })
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
   tags?: string[];
+
+  // ============== SEO ==============
+
+  @ApiPropertyOptional({ example: 'Wireless Headphones | Ordonsooq', description: 'Meta title EN — max 70 chars. Leave empty for AI generation later.' })
+  @IsString()
+  @MaxLength(70)
+  @IsOptional()
+  meta_title_en?: string;
+
+  @ApiPropertyOptional({ example: 'سماعات لاسلكية | أوردون سوق', description: 'Meta title AR — max 70 chars. Leave empty for AI generation later.' })
+  @IsString()
+  @MaxLength(70)
+  @IsOptional()
+  meta_title_ar?: string;
+
+  @ApiPropertyOptional({ example: 'Buy the best wireless headphones with ANC technology.', description: 'Meta description EN — max 160 chars. Leave empty for AI generation later.' })
+  @IsString()
+  @MaxLength(160)
+  @IsOptional()
+  meta_description_en?: string;
+
+  @ApiPropertyOptional({ example: 'اشترِ أفضل السماعات اللاسلكية بتقنية إلغاء الضوضاء.', description: 'Meta description AR — max 160 chars. Leave empty for AI generation later.' })
+  @IsString()
+  @MaxLength(160)
+  @IsOptional()
+  meta_description_ar?: string;
 }

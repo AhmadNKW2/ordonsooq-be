@@ -80,7 +80,7 @@ export class Order {
   @JoinColumn({ name: 'couponId' })
   coupon: Coupon;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int', nullable: true })
   couponId: number | null;
 
   @Column('jsonb', { nullable: true })

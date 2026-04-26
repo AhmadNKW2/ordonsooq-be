@@ -1,58 +1,25 @@
-import {
-  IsEmail,
-  IsString,
-  MinLength,
-  MaxLength,
-  IsEnum,
-  IsOptional,
-  IsBoolean,
-  IsArray,
-  IsNumber,
-} from 'class-validator';
+import { ApiPropertyOptional, OmitType, PartialType } from '@nestjs/swagger';
+import { IsOptional, IsBoolean, IsArray, IsNumber } from 'class-validator';
 import { Type } from 'class-transformer';
-import { UserRole } from '../entities/user.entity';
+import { CreateUserDto } from './create-user.dto';
 
-export class UpdateUserDto {
-  @IsEmail()
-  @IsOptional()
-  email?: string;
-
-  @IsString()
-  @IsOptional()
-  appleId?: string;
-
-  @IsString()
-  @IsOptional()
-  googleId?: string;
-
-  @IsString()
-  @IsOptional()
-  image?: string;
-
-  @IsString()
-  @MinLength(2)
-  @MaxLength(50)
-  @IsOptional()
-  firstName?: string;
-
-  @IsString()
-  @MinLength(2)
-  @MaxLength(50)
-  @IsOptional()
-  lastName?: string;
-
-  @IsString()
-  @IsOptional()
-  phone?: string;
-
-  @IsEnum(UserRole)
-  @IsOptional()
-  role?: UserRole; // Can update role here
-
+export class UpdateUserDto extends PartialType(
+  OmitType(CreateUserDto, ['password', 'product_ids'] as const),
+) {
+  @ApiPropertyOptional({
+    example: true,
+    description: 'Whether the user account is active.',
+  })
   @IsBoolean()
   @IsOptional()
   isActive?: boolean;
 
+  @ApiPropertyOptional({
+    type: [Number],
+    example: [101, 205],
+    description:
+      'Product ids to sync to the user wishlist. Pass an empty array to clear it.',
+  })
   @IsArray()
   @IsOptional()
   @Type(() => Number)

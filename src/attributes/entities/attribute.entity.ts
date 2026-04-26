@@ -8,8 +8,11 @@ import {
   ManyToOne,
   JoinColumn,
   Index,
+  ManyToMany,
+  JoinTable,
 } from 'typeorm';
 import { AttributeValue } from './attribute-value.entity';
+import { Category } from '../../categories/entities/category.entity';
 
 @Entity('attributes')
 @Index('idx_attributes_is_active', ['is_active'])
@@ -55,9 +58,6 @@ export class Attribute {
   @Column({ default: false })
   is_color: boolean;
 
-  @Column({ type: 'varchar', nullable: true })
-  attribute_type?: string; // 'variant_attribute' | 'spec_attribute'
-
   @Column({ nullable: true, default: false })
   list_separately?: boolean;
 
@@ -67,10 +67,24 @@ export class Attribute {
   @Column({ default: true })
   is_active: boolean;
 
+  @Column({ default: false })
+  for_all_categories: boolean;
+
+  @Column({ default: false })
+  allow_ai_inference: boolean;
+
   @OneToMany(() => AttributeValue, (value) => value.attribute, {
     cascade: true,
   })
   values: AttributeValue[];
+
+  @ManyToMany(() => Category, (category) => category.attributes)
+  @JoinTable({
+    name: 'attribute_categories',
+    joinColumn: { name: 'attribute_id', referencedColumnName: 'id' },
+    inverseJoinColumn: { name: 'category_id', referencedColumnName: 'id' },
+  })
+  categories: Category[];
 
   @CreateDateColumn()
   created_at: Date;

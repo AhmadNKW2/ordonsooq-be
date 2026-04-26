@@ -12,23 +12,41 @@ import {
   JoinColumn,
   BeforeInsert,
   Index,
+  ValueTransformer,
 } from 'typeorm';
 import { Category } from '../../categories/entities/category.entity';
 import { Vendor } from '../../vendors/entities/vendor.entity';
 import { Brand } from '../../brands/entities/brand.entity';
 import { User } from '../../users/entities/user.entity';
-import { ProductVariant } from './product-variant.entity';
-import { ProductPriceGroup } from './product-price-group.entity';
-import { ProductWeightGroup } from './product-weight-group.entity';
 import { Media } from '../../media/entities/media.entity';
-import { ProductMediaGroup } from './product-media-group.entity';
-import { ProductStock } from './product-stock.entity';
 import { ProductAttribute } from './product-attribute.entity';
 import { ProductCategory } from './product-category.entity';
+import { ProductMedia } from './product-media.entity';
+import { ProductSpecificationValue } from './product-specification-value.entity';
+import { GroupProduct } from './group-product.entity';
+
+const decimalNumberTransformer: ValueTransformer = {
+  to(value: number | null | undefined) {
+    if (value === null || value === undefined) {
+      return value;
+    }
+
+    return typeof value === 'number' ? value : Number(value);
+  },
+  from(value: string | number | null | undefined) {
+    if (value === null || value === undefined) {
+      return value;
+    }
+
+    return typeof value === 'number' ? value : Number(value);
+  },
+};
 
 export enum ProductStatus {
   ACTIVE = 'active',
   ARCHIVED = 'archived',
+  UPDATED = 'updated',
+  REVIEW = 'review',
 }
 
 @Entity('products')
@@ -60,7 +78,8 @@ export class Product {
 
   @Column({ nullable: true })
   slug: string;
-
+  @Column({ type: 'text', nullable: true })
+  record: string | null;
   @Column()
   name_ar: string;
 
@@ -78,6 +97,9 @@ export class Product {
 
   @Column('text')
   long_description_ar: string;
+
+  @Column({ type: 'text', nullable: true })
+  reference_link: string | null;
 
   @Column({
     type: 'enum',
@@ -98,7 +120,7 @@ export class Product {
   @JoinColumn({ name: 'category_id' })
   category: Category;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int', nullable: true })
   category_id: number | null;
 
   // Vendor relationship
@@ -117,41 +139,72 @@ export class Product {
   @Column({ nullable: true })
   brand_id: number;
 
-  // Variants relationship (for variant products)
-  @OneToMany(() => ProductVariant, (variant) => variant.product, {
+  // Product-specific media ownership now lives in the join table.
+  @OneToMany(() => ProductMedia, (productMedia) => productMedia.product, {
     cascade: true,
   })
-  variants: ProductVariant[];
+  productMedia: ProductMedia[];
 
-  // Media relationship (unified - works for both simple and variant)
-  @OneToMany(() => Media, (media) => media.product, { cascade: true })
-  media: Media[];
+  media?: Array<Media & { is_primary: boolean; sort_order: number }>;
 
-  // Media groups relationship
-  @OneToMany(() => ProductMediaGroup, (group) => group.product, {
-    cascade: true,
+  // ── Pricing (flat) ────────────────────────────────────────────
+  @Column('decimal', {
+    precision: 10,
+    scale: 2,
+    default: 0,
+    transformer: decimalNumberTransformer,
   })
-  mediaGroups: ProductMediaGroup[];
+  cost: number;
 
-  // Price groups relationship
-  @OneToMany(() => ProductPriceGroup, (group) => group.product, {
-    cascade: true,
+  @Column('decimal', {
+    precision: 10,
+    scale: 2,
+    default: 0,
+    transformer: decimalNumberTransformer,
   })
-  priceGroups: ProductPriceGroup[];
+  price: number;
 
-  // Weight groups relationship
-  @OneToMany(() => ProductWeightGroup, (group) => group.product, {
-    cascade: true,
+  @Column('decimal', {
+    precision: 10,
+    scale: 2,
+    nullable: true,
+    transformer: decimalNumberTransformer,
   })
-  weightGroups: ProductWeightGroup[];
+  sale_price: number | null;
 
-  // Stock relationship (unified - works for both simple and variant)
-  @OneToMany(() => ProductStock, (stock) => stock.product, { cascade: true })
-  stock: ProductStock[];
+  // ── Weight / dimensions (flat) ────────────────────────────────
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  weight: number | null;
+
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  length: number | null;
+
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  width: number | null;
+
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  height: number | null;
+
+  // ── Stock (flat) ──────────────────────────────────────────────
+  @Column({ type: 'int', default: 0 })
+  quantity: number;
+
+  @Column({ type: 'int', default: 10 })
+  low_stock_threshold: number;
+
+  @Column({ type: 'boolean', default: true })
+  is_out_of_stock: boolean;
 
   // Product attributes relationship
   @OneToMany(() => ProductAttribute, (attr) => attr.product, { cascade: true })
   attributes: ProductAttribute[];
+
+  // Product specifications relationship
+  @OneToMany(() => ProductSpecificationValue, (spec) => spec.product, { cascade: true })
+  specifications: ProductSpecificationValue[];
+
+  @OneToMany(() => GroupProduct, (groupProduct) => groupProduct.product)
+  groupProducts: GroupProduct[];
 
   // Tags relationship (many-to-many, drives search term expansion)
   @ManyToMany('Tag', (tag: any) => tag.products, { eager: false })
@@ -184,6 +237,19 @@ export class Product {
   @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
   @JoinColumn({ name: 'created_by' })
   createdByUser: User;
+
+  // ── SEO ────────────────────────────────────────────────────────
+  @Column({ type: 'varchar', length: 70, nullable: true })
+  meta_title_en: string | null;
+
+  @Column({ type: 'varchar', length: 70, nullable: true })
+  meta_title_ar: string | null;
+
+  @Column({ type: 'varchar', length: 160, nullable: true })
+  meta_description_en: string | null;
+
+  @Column({ type: 'varchar', length: 160, nullable: true })
+  meta_description_ar: string | null;
 
   @CreateDateColumn()
   created_at: Date;

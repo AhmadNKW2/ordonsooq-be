@@ -33,7 +33,6 @@ import { TokenBlacklist } from './entities/token-blacklist.entity';
         secret:
           configService.get('JWT_SECRET') ||
           'your-secret-key-change-in-production',
-        signOptions: { expiresIn: '15m' }, // Default expiration, overridden in service
       }),
     }),
   ],

@@ -7,10 +7,9 @@ import {
   ValidateNested,
   IsHexColor,
   IsInt,
-  IsNumber,
-  IsIn,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class AttributeValueDto {
   @IsString()
@@ -36,6 +35,14 @@ export class AttributeValueDto {
   @IsBoolean()
   @IsOptional()
   is_active?: boolean;
+
+  @ApiPropertyOptional({
+    example: 0,
+    description: 'Optional explicit order for this attribute value.',
+  })
+  @IsOptional()
+  @IsInt()
+  sort_order?: number;
 }
 
 export class CreateAttributeDto {
@@ -67,11 +74,6 @@ export class CreateAttributeDto {
   @IsOptional()
   is_color?: boolean;
 
-  @IsString()
-  @IsIn(['variant_attribute', 'spec_attribute'])
-  @IsOptional()
-  attribute_type?: string;
-
   @IsBoolean()
   @IsOptional()
   list_separately?: boolean;
@@ -79,6 +81,28 @@ export class CreateAttributeDto {
   @IsBoolean()
   @IsOptional()
   is_active?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  for_all_categories?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  allow_ai_inference?: boolean;
+
+  @IsString()
+  @IsOptional()
+  attribute_type?: string;
+
+  @ApiPropertyOptional({
+    type: [Number],
+    example: [5, 12],
+    description: 'Category IDs that this attribute can be used with.',
+  })
+  @IsOptional()
+  @IsArray()
+  @IsInt({ each: true })
+  category_ids?: number[];
 
   @IsArray()
   @ValidateNested({ each: true })

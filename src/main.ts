@@ -1,6 +1,7 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, NestApplicationOptions } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
@@ -73,6 +74,10 @@ async function bootstrap() {
     'http://localhost:3002',
     'https://appleid.apple.com',
   ];
+  const isLocalDevOrigin = (origin: string) =>
+    /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?$/i.test(
+      origin,
+    );
 
   console.log('CORS Configuration:');
   console.log('- IS_PRODUCTION:', isProduction);
@@ -86,7 +91,9 @@ async function bootstrap() {
       }
 
       // Check if origin is in allowed list
-      const isAllowed = allowedOrigins.includes(origin);
+      const isAllowed =
+        allowedOrigins.includes(origin) ||
+        (!isProduction && isLocalDevOrigin(origin));
 
       if (isAllowed) {
         return callback(null, true);
@@ -110,8 +117,86 @@ async function bootstrap() {
   // Set global prefix for all routes
   app.setGlobalPrefix('api');
 
+  const swaggerUiPath = 'docs-v2';
+
+  app.use((req, res, next) => {
+    if (req.path === '/docs' || req.path === '/docs/') {
+      res.setHeader(
+        'Cache-Control',
+        'no-store, no-cache, must-revalidate, proxy-revalidate',
+      );
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      res.setHeader('Surrogate-Control', 'no-store');
+      res.redirect(302, `/${swaggerUiPath}`);
+      return;
+    }
+
+    if (
+      req.path === `/${swaggerUiPath}` ||
+      req.path === '/docs-json' ||
+      req.path === '/docs-yaml' ||
+      req.path.startsWith(`/${swaggerUiPath}/`)
+    ) {
+      res.setHeader(
+        'Cache-Control',
+        'no-store, no-cache, must-revalidate, proxy-revalidate',
+      );
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+      res.setHeader('Surrogate-Control', 'no-store');
+    }
+
+    next();
+  });
+
+  const swaggerConfig = new DocumentBuilder()
+    .setTitle('Ordonsooq API')
+    .setDescription('API documentation for the Ordonsooq backend.')
+    .setVersion(process.env.APP_VERSION ?? '0.0.1')
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        description: 'JWT access token for bearer-protected endpoints.',
+      },
+      'bearer',
+    )
+    .addCookieAuth(
+      'access_token',
+      {
+        type: 'apiKey',
+        in: 'cookie',
+        description: 'HTTP-only access token cookie set by auth endpoints.',
+      },
+      'cookieAuth',
+    )
+    .build();
+
+  const swaggerDocument = SwaggerModule.createDocument(app, swaggerConfig, {
+    deepScanRoutes: true,
+  });
+
+  SwaggerModule.setup(swaggerUiPath, app, swaggerDocument, {
+    customSiteTitle: 'Ordonsooq API Docs',
+    jsonDocumentUrl: 'docs-json',
+    yamlDocumentUrl: 'docs-yaml',
+    swaggerUrl: '/docs-json',
+    swaggerOptions: {
+      persistAuthorization: true,
+      withCredentials: true,
+    },
+  });
+
   const port = process.env.PORT || 3000;
   await app.listen(port);
-  console.log(`Application is running on: http://localhost:${port}/api`);
+
+  const appUrl = await app.getUrl();
+  console.log(`Application is running on: ${appUrl}/api`);
+  console.log(`Swagger UI is available at: ${appUrl}/${swaggerUiPath}`);
+  console.log(`Legacy Swagger URL redirects from: ${appUrl}/docs`);
+  console.log(`OpenAPI JSON is available at: ${appUrl}/docs-json`);
+  console.log(`OpenAPI YAML is available at: ${appUrl}/docs-yaml`);
 }
 bootstrap();

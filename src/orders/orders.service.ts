@@ -4,7 +4,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, IsNull } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import {
   Order,
   OrderStatus,
@@ -13,19 +13,21 @@ import {
 } from './entities/order.entity';
 import { OrderItem } from './entities/order-item.entity';
 import { Product } from '../products/entities/product.entity';
-import { ProductVariant } from '../products/entities/product-variant.entity';
-import { ProductStock } from '../products/entities/product-stock.entity';
 import { CouponsService } from '../coupons/coupons.service';
 import { WalletService } from '../wallet/wallet.service';
-import { ProductPriceGroupService } from '../products/product-price-group.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { FilterOrderDto } from './dto/filter-order.dto';
 import { UpdateOrderItemsCostDto } from './dto/update-order-items-cost.dto';
 import { User } from '../users/entities/user.entity';
 import { TransactionSource } from '../wallet/entities/wallet-transaction.entity';
 import { CartService } from '../cart/cart.service';
+import { ProductsService } from '../products/products.service';
 
 // ... imports
+
+function getErrorMessage(error: unknown): string | undefined {
+  return error instanceof Error ? error.message : undefined;
+}
 
 @Injectable()
 export class OrdersService {
@@ -36,8 +38,8 @@ export class OrdersService {
     private orderItemsRepository: Repository<OrderItem>,
     private couponsService: CouponsService,
     private walletService: WalletService,
-    private priceGroupService: ProductPriceGroupService,
     private cartService: CartService,
+    private productsService: ProductsService,
     private dataSource: DataSource,
   ) {}
 
@@ -50,10 +52,22 @@ export class OrdersService {
       // 1. Process items, validate stock, calculate subtotal
       let subtotalAmount = 0;
       const orderItemsToCreate: any[] = [];
+      const touchedProductIds = new Set<number>();
 
-      for (const itemDto of createOrderDto.items) {
+      // Sort items by productId and variantId to avoid deadlocks
+      const sortedItems = [...createOrderDto.items].sort((a, b) => {
+        if (a.productId !== b.productId) {
+          return a.productId - b.productId;
+        }
+        const aVariant = a.variantId || 0;
+        const bVariant = b.variantId || 0;
+        return aVariant - bVariant;
+      });
+
+      for (const itemDto of sortedItems) {
         const product = await queryRunner.manager.findOne(Product, {
           where: { id: itemDto.productId },
+          lock: { mode: 'pessimistic_write' },
         });
 
         if (!product) {
@@ -69,66 +83,30 @@ export class OrdersService {
           );
         }
 
-        let variant: ProductVariant | null = null;
-        if (itemDto.variantId) {
-          variant = await queryRunner.manager.findOne(ProductVariant, {
-            where: { id: itemDto.variantId, product_id: product.id },
-          });
-          if (!variant) {
-            throw new NotFoundException(
-              `Variant #${itemDto.variantId} not found for product`,
-            );
-          }
-          if (!variant.is_active) {
-            throw new BadRequestException(`Variant is not active`);
-          }
-        }
-
-        // Check Stock with Lock
-        const stock = await queryRunner.manager.findOne(ProductStock, {
-          where: {
-            product_id: product.id,
-            variant_id: itemDto.variantId || IsNull(),
-          },
-          lock: { mode: 'pessimistic_write' },
-        });
-
-        if (
-          !stock ||
-          stock.is_out_of_stock ||
-          stock.quantity < itemDto.quantity
-        ) {
+        // Check stock
+        const availableQuantity = Number(product.quantity ?? 0);
+        if (product.is_out_of_stock || availableQuantity < itemDto.quantity) {
           throw new BadRequestException(
             `Insufficient stock for product ${product.name_en}`,
           );
         }
 
-        // Get Price
-        const priceGroup = await this.priceGroupService.getPriceForVariant(
-          product.id,
-          itemDto.variantId,
-        );
-        if (!priceGroup) {
-          throw new BadRequestException(
-            `Price not found for product ${product.name_en}`,
-          );
-        }
-
+        // Get price directly from product
         const unitPrice =
-          priceGroup.sale_price !== null && Number(priceGroup.sale_price) > 0
-            ? Number(priceGroup.sale_price)
-            : Number(priceGroup.price);
+          product.sale_price !== null && Number(product.sale_price) > 0
+            ? Number(product.sale_price)
+            : Number(product.price);
 
         const itemTotal = unitPrice * itemDto.quantity;
         subtotalAmount += itemTotal;
 
         orderItemsToCreate.push({
           product,
-          variant,
+          variant: null,
           vendorId: product.vendor_id,
           quantity: itemDto.quantity,
           price: unitPrice,
-          cost: itemDto.cost ?? priceGroup.cost ?? 0,
+          cost: itemDto.cost ?? product.cost ?? 0,
           totalPrice: itemTotal,
           productSnapshot: {
             name_en: product.name_en,
@@ -137,9 +115,12 @@ export class OrdersService {
           },
         });
 
-        // Decrement Stock
-        stock.quantity -= itemDto.quantity;
-        await queryRunner.manager.save(stock);
+        product.quantity = availableQuantity - itemDto.quantity;
+        if (product.quantity === 0) {
+          product.is_out_of_stock = true;
+        }
+        await queryRunner.manager.save(Product, product);
+        touchedProductIds.add(product.id);
       }
 
       let discountAmount = 0;
@@ -158,7 +139,9 @@ export class OrdersService {
           discountAmount = Number(data.discountAmount);
           couponId = Number(data.coupon.id);
         } catch (e) {
-          throw new BadRequestException(e.message || 'Invalid coupon');
+          throw new BadRequestException(
+            getErrorMessage(e) || 'Invalid coupon',
+          );
         }
       }
 
@@ -237,6 +220,12 @@ export class OrdersService {
 
       await queryRunner.commitTransaction();
 
+      void Promise.allSettled(
+        [...touchedProductIds].map((productId) =>
+          this.productsService.reindexOne(productId),
+        ),
+      );
+
       // Clear Cart
       try {
         await this.cartService.clearCart(user.id);
@@ -256,7 +245,7 @@ export class OrdersService {
   async findOne(id: number) {
     const order = await this.ordersRepository.findOne({
       where: { id },
-      relations: ['items', 'items.product', 'items.variant', 'user'],
+      relations: ['items', 'items.product', 'user'],
     });
     if (!order) throw new NotFoundException('Order not found');
     return order;
@@ -368,21 +357,22 @@ export class OrdersService {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
+    const touchedProductIds = new Set<number>();
 
     try {
       // Restore Stock
       for (const item of order.items) {
-        const stock = await queryRunner.manager.findOne(ProductStock, {
-          where: {
-            product_id: item.productId,
-            variant_id: item.variantId || IsNull(),
-          },
-          lock: { mode: 'pessimistic_write' },
-        });
+        if (item.productId) {
+          const product = await queryRunner.manager.findOne(Product, {
+            where: { id: item.productId },
+            lock: { mode: 'pessimistic_write' },
+          });
 
-        if (stock) {
-          stock.quantity += item.quantity;
-          await queryRunner.manager.save(stock);
+          if (product) {
+            product.quantity += item.quantity;
+            await queryRunner.manager.save(product);
+            touchedProductIds.add(product.id);
+          }
         }
       }
 
@@ -407,6 +397,13 @@ export class OrdersService {
       await queryRunner.manager.save(order);
 
       await queryRunner.commitTransaction();
+
+      void Promise.allSettled(
+        [...touchedProductIds].map((productId) =>
+          this.productsService.reindexOne(productId),
+        ),
+      );
+
       return this.findOne(order.id);
     } catch (error) {
       await queryRunner.rollbackTransaction();

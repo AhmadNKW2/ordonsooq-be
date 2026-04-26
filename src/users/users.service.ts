@@ -12,6 +12,12 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { FilterUserDto } from './dto/filter-user.dto';
 import { Wishlist } from '../wishlist/entities/wishlist.entity';
 import { Product, ProductStatus } from '../products/entities/product.entity';
+import {
+  getPrimaryMediaUrl,
+  hydrateProductMedia,
+} from '../products/utils/product-media.util';
+
+type SanitizedUser = Omit<User, 'password'>;
 
 @Injectable()
 export class UsersService {
@@ -23,6 +29,11 @@ export class UsersService {
     @InjectRepository(Product)
     private productRepository: Repository<Product>,
   ) {}
+
+  sanitizeUser(user: User): SanitizedUser {
+    const { password, ...userWithoutPassword } = user;
+    return userWithoutPassword;
+  }
 
   async create(createUserDto: CreateUserDto): Promise<User> {
     const { product_ids, ...userData } = createUserDto;
@@ -129,18 +140,12 @@ export class UsersService {
       where: { user_id: id },
       relations: [
         'product',
-        'product.media',
+        'product.productMedia',
+        'product.productMedia.media',
         'product.vendor',
         'product.category',
         'product.productCategories',
         'product.productCategories.category',
-        'product.priceGroups',
-        'product.weightGroups',
-        'product.stock',
-        'product.variants',
-        'product.variants.combinations',
-        'product.variants.combinations.attribute_value',
-        'product.variants.combinations.attribute_value.attribute',
         'product.attributes',
         'product.attributes.attribute',
       ],
@@ -149,10 +154,10 @@ export class UsersService {
 
     // Map wishlist items with full product details
     const wishlist = wishlistItems.map((item) => {
-      const product = item.product;
-      const primaryMedia = product?.media?.find((m) => m.is_primary);
-      const firstMedia = product?.media?.[0];
-      const image = primaryMedia?.url || firstMedia?.url || null;
+      const product = item.product
+        ? hydrateProductMedia(item.product, true)
+        : null;
+      const image = getPrimaryMediaUrl(product);
 
       return {
         id: item.id,
@@ -202,21 +207,13 @@ export class UsersService {
                   type: m.type,
                   is_primary: m.is_primary,
                 })) || [],
-              priceGroups: product.priceGroups || [],
-              weightGroups: product.weightGroups || [],
-              stock: product.stock || [],
-              variants:
-                product.variants?.map((v) => ({
-                  id: v.id,
-                  is_active: v.is_active,
-                  combinations: v.combinations,
-                })) || [],
+              price: product.price,
+              sale_price: product.sale_price,
+              quantity: product.quantity,
+              is_out_of_stock: product.is_out_of_stock,
               attributes:
                 product.attributes?.map((attr) => ({
                   id: attr.id,
-                  controls_pricing: attr.controls_pricing,
-                  controls_media: attr.controls_media,
-                  controls_weight: attr.controls_weight,
                   attribute: attr.attribute
                     ? {
                         id: attr.attribute.id,
@@ -231,7 +228,7 @@ export class UsersService {
     });
 
     // Exclude password from response
-    const { password, ...userWithoutPassword } = user;
+    const userWithoutPassword = this.sanitizeUser(user);
 
     return {
       ...userWithoutPassword,

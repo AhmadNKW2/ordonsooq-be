@@ -10,7 +10,7 @@ import { CartItem } from './entities/cart-item.entity';
 import { Product, ProductStatus } from '../products/entities/product.entity';
 import { AddToCartDto } from './dto/add-to-cart.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
-import { ProductPriceGroupService } from '../products/product-price-group.service';
+import { getPrimaryMediaUrl } from '../products/utils/product-media.util';
 
 @Injectable()
 export class CartService {
@@ -21,7 +21,6 @@ export class CartService {
     private cartItemRepository: Repository<CartItem>,
     @InjectRepository(Product)
     private productRepository: Repository<Product>,
-    private priceGroupService: ProductPriceGroupService,
   ) {}
 
   async getCart(userId: number) {
@@ -29,11 +28,8 @@ export class CartService {
       .createQueryBuilder('cart')
       .leftJoinAndSelect('cart.items', 'items')
       .leftJoinAndSelect('items.product', 'product')
-      .leftJoinAndSelect('product.media', 'media')
-      .leftJoinAndSelect('items.variant', 'variant')
-      .leftJoinAndSelect('variant.combinations', 'combinations')
-      .leftJoinAndSelect('combinations.attribute_value', 'attribute_value')
-      .leftJoinAndSelect('attribute_value.attribute', 'attribute')
+      .leftJoinAndSelect('product.productMedia', 'productMedia')
+      .leftJoinAndSelect('productMedia.media', 'media')
       .where('cart.user_id = :userId', { userId })
       .orderBy('items.id', 'ASC')
       .getOne();
@@ -150,50 +146,14 @@ export class CartService {
   }
 
   private async formatCartResponse(cart: Cart) {
-    // Helper to format the cart response consistent with frontend expectations
+    const items = cart.items.map((item) => {
+      const image = getPrimaryMediaUrl(item.product);
 
-    // Optimized: Fetch all prices in one go
-    const priceGroups = await this.priceGroupService.getPricesForCartItems(
-      cart.items.map((item) => ({
-        productId: item.product.id,
-        variantId: item.variant_id ?? null,
-        variant: item.variant,
-      })),
-    );
-
-    const items = cart.items.map((item, index) => {
-      const primaryMedia = item.product?.media?.find((m) => m.is_primary);
-      const firstMedia = item.product?.media?.[0];
-      const image = primaryMedia?.url || firstMedia?.url || null;
-
-      // Get Price (using pre-fetched array, index matches)
-      const priceGroup = priceGroups[index];
-
-      const regularPrice = priceGroup ? Number(priceGroup.price) : 0;
+      const regularPrice = item.product ? Number(item.product.price) : 0;
       const salePrice =
-        priceGroup && priceGroup.sale_price !== null
-          ? Number(priceGroup.sale_price)
+        item.product?.sale_price != null
+          ? Number(item.product.sale_price)
           : null;
-
-      // Format variant details if they exist
-      let variantDetails: any = null;
-      if (item.variant) {
-        variantDetails = {
-          id: item.variant.id,
-          price: regularPrice,
-          sale_price: salePrice,
-          attributes:
-            item.variant.combinations?.map((combo) => ({
-              attribute_id: combo.attribute_value.attribute.id,
-              attribute_name_en: combo.attribute_value.attribute.name_en,
-              attribute_name_ar: combo.attribute_value.attribute.name_ar,
-              value_id: combo.attribute_value.id,
-              value_en: combo.attribute_value.value_en,
-              value_ar: combo.attribute_value.value_ar,
-              color_code: combo.attribute_value.color_code, // If it's a color attribute
-            })) || [],
-        };
-      }
 
       return {
         id: item.id,
@@ -208,7 +168,7 @@ export class CartService {
           sale_price: salePrice,
           image: image,
         },
-        variant: variantDetails,
+        variant: null,
       };
     });
 

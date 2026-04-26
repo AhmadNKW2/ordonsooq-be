@@ -12,12 +12,28 @@ import {
 import { Type, Transform } from 'class-transformer';
 import { ProductStatus } from '../entities/product.entity';
 
+function parseNumericArray(value: unknown): number[] | undefined {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(Number);
+  }
+
+  if (typeof value === 'string') {
+    return value.split(',').map(Number);
+  }
+
+  return [Number(value)];
+}
+
 export class AssignProductsDto {
   @IsArray()
   @ArrayMinSize(1)
   @Type(() => Number)
   @IsNumber({}, { each: true })
-  product_ids: number[];
+  product_ids!: number[];
 }
 
 export enum ProductSortBy {
@@ -33,6 +49,29 @@ export enum ProductSortBy {
 export enum SortOrder {
   ASC = 'ASC',
   DESC = 'DESC',
+}
+
+export function getSingleVendorId(filterDto: {
+  vendorId?: number;
+  vendor_id?: number;
+}) {
+  return filterDto.vendorId ?? filterDto.vendor_id;
+}
+
+export function getCategoryIds(filterDto: {
+  category_ids?: number[];
+  categories_ids?: number[];
+}) {
+  return [
+    ...new Set(
+      [...(filterDto.category_ids ?? []), ...(filterDto.categories_ids ?? [])]
+        .map((categoryId) => Number(categoryId))
+        .filter(
+          (categoryId) =>
+            Number.isInteger(categoryId) && categoryId > 0,
+        ),
+    ),
+  ];
 }
 
 export class FilterProductDto {
@@ -95,21 +134,71 @@ export class FilterProductDto {
 
   /** Multiple category IDs (comma-separated or repeated param) */
   @IsOptional()
-  @Transform(({ value }) => {
-    if (Array.isArray(value)) return value.map(Number);
-    if (typeof value === 'string') return value.split(',').map(Number);
-    return [Number(value)];
-  })
+  @Transform(({ value }) => parseNumericArray(value))
   @IsArray()
   @IsNumber({}, { each: true })
   category_ids?: number[];
 
-  // ─── Vendor filter ───────────────────────────────────
-  /** Single vendor ID (backward compat) */
+  /** Backward-compatible alias for category_ids. */
   @IsOptional()
-  @Type(() => Number)
+  @Transform(({ value }) => parseNumericArray(value))
+  @IsArray()
+  @IsNumber({}, { each: true })
+  categories_ids?: number[];
+
+  // ─── Attribute / Specification filters ──────────────
+  @IsOptional()
+  @Transform(({ value }) => parseNumericArray(value))
+  @IsArray()
+  @IsNumber({}, { each: true })
+  attributes_ids?: number[];
+
+  @IsOptional()
+  @Transform(({ value }) => parseNumericArray(value))
+  @IsArray()
+  @IsNumber({}, { each: true })
+  attributes_values_ids?: number[];
+
+  @IsOptional()
+  @Transform(({ value }) => parseNumericArray(value))
+  @IsArray()
+  @IsNumber({}, { each: true })
+  specifications_ids?: number[];
+
+  @IsOptional()
+  @Transform(({ value }) => parseNumericArray(value))
+  @IsArray()
+  @IsNumber({}, { each: true })
+  specifications_values_ids?: number[];
+
+  // ─── Vendor filter ───────────────────────────────────
+  /** Single vendor ID (backward compat). Accepts vendorId or vendor_id. */
+  @IsOptional()
+  @Transform(({ value, obj }) => {
+    const rawValue = value ?? obj.vendor_id;
+
+    if (rawValue === undefined || rawValue === null || rawValue === '') {
+      return undefined;
+    }
+
+    const numericValue = Number(rawValue);
+    return Number.isNaN(numericValue) ? undefined : numericValue;
+  })
   @IsNumber()
   vendorId?: number;
+
+  /** Backward-compatible alias for vendorId. Prefer vendorId in new clients. */
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') {
+      return undefined;
+    }
+
+    const numericValue = Number(value);
+    return Number.isNaN(numericValue) ? undefined : numericValue;
+  })
+  @IsNumber()
+  vendor_id?: number;
 
   /** Multiple vendor IDs */
   @IsOptional()

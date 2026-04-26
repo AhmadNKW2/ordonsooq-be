@@ -18,20 +18,21 @@ async function createAdmin() {
     await client.connect();
     console.log('Connected to database');
 
-    // Admin credentials
-    const email = 'admin@ordonsooq.com';
-    const password = 'Admin@123456';
-    const firstName = 'Admin';
-    const lastName = 'User';
+    // Constant token admin credentials
+    const email = process.env.CONSTANT_TOKEN_ADMIN_EMAIL || 'khaled@ordonsooq.com';
+    const password = process.env.CONSTANT_TOKEN_ADMIN_PASSWORD || 'Khaled@Password';
+    const firstName = process.env.CONSTANT_TOKEN_ADMIN_FIRST_NAME || 'Khaled';
+    const lastName = process.env.CONSTANT_TOKEN_ADMIN_LAST_NAME || 'Admin';
+    const role = 'constant_token_admin';
 
-    // Check if admin already exists
+    // Check if constant token admin already exists
     const checkResult = await client.query(
       'SELECT * FROM users WHERE email = $1',
       [email]
     );
 
     if (checkResult.rows.length > 0) {
-      console.log('Admin user already exists!');
+      console.log('Constant token admin user already exists!');
       console.log('Email:', checkResult.rows[0].email);
       console.log('Role:', checkResult.rows[0].role);
       await client.end();
@@ -41,15 +42,15 @@ async function createAdmin() {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Insert admin user
+    // Insert constant token admin user
     const result = await client.query(
       `INSERT INTO users ("firstName", "lastName", email, password, role, "isActive", "emailVerified", "createdAt", "updatedAt") 
        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW()) 
        RETURNING id, "firstName", "lastName", email, role`,
-      [firstName, lastName, email, hashedPassword, 'admin', true, true]
+      [firstName, lastName, email, hashedPassword, role, true, true]
     );
 
-    console.log('\n✅ Admin user created successfully!');
+    console.log('\n✅ Constant token admin user created successfully!');
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     console.log('ID:', result.rows[0].id);
     console.log('Name:', result.rows[0].firstName, result.rows[0].lastName);
@@ -57,7 +58,7 @@ async function createAdmin() {
     console.log('Password:', password);
     console.log('Role:', result.rows[0].role);
     console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('\n⚠️  Please change the password after first login!\n');
+    console.log('\n⚠️  This account will receive a constant access token after login.\n');
 
     await client.end();
     console.log('Database connection closed');

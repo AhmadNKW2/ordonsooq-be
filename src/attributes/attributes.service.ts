@@ -2,16 +2,23 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { Attribute } from './entities/attribute.entity';
 import { AttributeValue } from './entities/attribute-value.entity';
+import { Category } from '../categories/entities/category.entity';
 import { CreateAttributeDto } from './dto/create-attribute.dto';
 import { UpdateAttributeDto } from './dto/update-attribute.dto';
 import { ReorderAttributesDto } from './dto/reorder-attributes.dto';
 import { ReorderAttributeValuesDto } from './dto/reorder-attribute-values.dto';
 import { UpdateAttributeValueDto } from './dto/update-attribute-value.dto';
+import {
+  buildNormalizedValueSql,
+  normalizeValueNameForUniqueness,
+  sanitizeValueName,
+} from '../common/utils/value-name-normalization.util';
 
 @Injectable()
 export class AttributesService {
@@ -20,7 +27,180 @@ export class AttributesService {
     private attributeRepository: Repository<Attribute>,
     @InjectRepository(AttributeValue)
     private attributeValueRepository: Repository<AttributeValue>,
+    @InjectRepository(Category)
+    private categoryRepository: Repository<Category>,
   ) {}
+
+  private normalizeCategoryIds(categoryIds?: number[]): number[] {
+    return [
+      ...new Set(
+        (categoryIds ?? [])
+          .map((categoryId) => Number(categoryId))
+          .filter((categoryId) => Number.isInteger(categoryId) && categoryId > 0),
+      ),
+    ];
+  }
+
+  private sanitizeRequiredValueName(value: string, fieldName: string): string {
+    const sanitizedValue = sanitizeValueName(value ?? '');
+
+    if (!sanitizedValue) {
+      throw new BadRequestException(`${fieldName} is required`);
+    }
+
+    return sanitizedValue;
+  }
+
+  private prepareAttributeValuesPayload<
+    T extends { value_en: string; value_ar: string },
+  >(values: T[]): T[] {
+    const seenEnglishNames = new Set<string>();
+    const seenArabicNames = new Set<string>();
+
+    return values.map((value) => {
+      const sanitizedValueEn = this.sanitizeRequiredValueName(
+        value.value_en,
+        'value_en',
+      );
+      const sanitizedValueAr = this.sanitizeRequiredValueName(
+        value.value_ar,
+        'value_ar',
+      );
+      const normalizedValueEn = normalizeValueNameForUniqueness(sanitizedValueEn);
+      const normalizedValueAr = normalizeValueNameForUniqueness(sanitizedValueAr);
+
+      if (
+        seenEnglishNames.has(normalizedValueEn) ||
+        seenArabicNames.has(normalizedValueAr)
+      ) {
+        throw new ConflictException(
+          'Duplicate attribute values are not allowed within the same attribute',
+        );
+      }
+
+      seenEnglishNames.add(normalizedValueEn);
+      seenArabicNames.add(normalizedValueAr);
+
+      return {
+        ...value,
+        value_en: sanitizedValueEn,
+        value_ar: sanitizedValueAr,
+      };
+    });
+  }
+
+  private async ensureAttributeValueUnique(
+    attributeId: number,
+    valueEn: string,
+    valueAr: string,
+    excludeId?: number,
+  ): Promise<void> {
+    const query = this.attributeValueRepository
+      .createQueryBuilder('value')
+      .select('value.id', 'id')
+      .where('value.attribute_id = :attributeId', { attributeId })
+      .andWhere(
+        `(${buildNormalizedValueSql('value.value_en')} = :normalizedValueEn OR ${buildNormalizedValueSql('value.value_ar')} = :normalizedValueAr)`,
+        {
+          normalizedValueEn: normalizeValueNameForUniqueness(valueEn),
+          normalizedValueAr: normalizeValueNameForUniqueness(valueAr),
+        },
+      );
+
+    if (excludeId !== undefined) {
+      query.andWhere('value.id != :excludeId', { excludeId });
+    }
+
+    const existingValue = await query.getRawOne();
+
+    if (existingValue) {
+      throw new ConflictException(
+        'Attribute value with this name already exists for this attribute',
+      );
+    }
+  }
+
+  private async validateAttributeParentValue(
+    attributeId: number,
+    parentValueId?: number | null,
+    currentValueId?: number,
+  ): Promise<void> {
+    if (parentValueId === undefined || parentValueId === null) {
+      return;
+    }
+
+    if (currentValueId !== undefined && parentValueId === currentValueId) {
+      throw new BadRequestException(
+        'parent_value_id cannot reference the same attribute value',
+      );
+    }
+
+    const parentValue = await this.attributeValueRepository.findOne({
+      where: { id: parentValueId, attribute_id: attributeId },
+      select: ['id'],
+    });
+
+    if (!parentValue) {
+      throw new NotFoundException(
+        'Parent attribute value was not found for this attribute',
+      );
+    }
+  }
+
+  private async syncCategoriesForAttribute(
+    attributeId: number,
+    categoryIds: number[],
+  ): Promise<void> {
+    const normalizedCategoryIds = this.normalizeCategoryIds(categoryIds);
+
+    if (normalizedCategoryIds.length > 0) {
+      const categories = await this.categoryRepository.find({
+        where: { id: In(normalizedCategoryIds) },
+        select: ['id'],
+      });
+
+      if (categories.length !== normalizedCategoryIds.length) {
+        throw new NotFoundException('One or more categories not found');
+      }
+    }
+
+    const relation = this.attributeRepository
+      .createQueryBuilder()
+      .relation(Attribute, 'categories')
+      .of(attributeId);
+
+    const currentCategories = (await relation.loadMany()) as Category[];
+    await relation.addAndRemove(
+      normalizedCategoryIds,
+      currentCategories.map((category) => category.id),
+    );
+  }
+
+  private async attachCategoriesToAttributes(
+    attributes: Attribute[],
+  ): Promise<void> {
+    if (attributes.length === 0) {
+      return;
+    }
+
+    const categoryRelations = await this.attributeRepository.find({
+      where: { id: In(attributes.map((attribute) => attribute.id)) },
+      relations: ['categories'],
+    });
+
+    const categoriesByAttributeId = new Map(
+      categoryRelations.map((attribute) => [
+        attribute.id,
+        [...(attribute.categories ?? [])].sort(
+          (left, right) => left.sortOrder - right.sortOrder || left.id - right.id,
+        ),
+      ]),
+    );
+
+    attributes.forEach((attribute) => {
+      attribute.categories = categoriesByAttributeId.get(attribute.id) ?? [];
+    });
+  }
 
   async create(createAttributeDto: CreateAttributeDto): Promise<Attribute> {
     const existing = await this.attributeRepository.findOne({
@@ -40,7 +220,14 @@ export class AttributesService {
 
     // Assign sort_order to values if they exist
     // Destructure values to handle them separately to avoid "Cyclic dependency" error in TypeORM save
-    const { values: valuesDto, ...attributeData } = createAttributeDto;
+    const {
+      values: valuesDto,
+      category_ids,
+      ...attributeData
+    } = createAttributeDto;
+    const preparedValues = valuesDto
+      ? this.prepareAttributeValuesPayload(valuesDto)
+      : [];
 
     const attribute = this.attributeRepository.create({
       ...attributeData,
@@ -49,24 +236,38 @@ export class AttributesService {
 
     const savedAttribute = await this.attributeRepository.save(attribute);
 
-    if (valuesDto && valuesDto.length > 0) {
-      const values = valuesDto.map((value, index) =>
+    if (preparedValues.length > 0) {
+      const values = preparedValues.map((value, index) =>
         this.attributeValueRepository.create({
           ...value,
           attribute: savedAttribute, // Linking explicitly
-          sort_order: index,
+          sort_order: value.sort_order ?? index,
         }),
       );
       await this.attributeValueRepository.save(values);
     }
 
+    if (category_ids !== undefined) {
+      await this.syncCategoriesForAttribute(savedAttribute.id, category_ids);
+    }
+
     return this.findOne(savedAttribute.id);
   }
 
-  async findAll(): Promise<Attribute[]> {
-    const attributes = await this.attributeRepository
+  async findAll(categoryIds?: number[]): Promise<Attribute[]> {
+    const query = this.attributeRepository
       .createQueryBuilder('attribute')
       .leftJoinAndSelect('attribute.values', 'values')
+      .leftJoin('attribute.categories', 'categories');
+
+    if (categoryIds && categoryIds.length > 0) {
+      query.where(
+        '(categories.id IN (:...categoryIds) OR attribute.for_all_categories = :allCats)',
+        { categoryIds, allCats: true },
+      );
+    }
+
+    const attributes = await query
       .orderBy('attribute.sort_order', 'ASC')
       .addOrderBy('attribute.created_at', 'DESC')
       .addOrderBy('values.sort_order', 'ASC')
@@ -93,6 +294,8 @@ export class AttributesService {
         attr.values.forEach((val) => (val.level = level));
       }
     });
+
+    await this.attachCategoriesToAttributes(attributes);
 
     return attributes;
   }
@@ -131,6 +334,8 @@ export class AttributesService {
       attribute.values.forEach((val) => (val.level = level));
     }
 
+    await this.attachCategoriesToAttributes([attribute]);
+
     return attribute;
   }
 
@@ -158,8 +363,16 @@ export class AttributesService {
       }
     }
 
-    Object.assign(attribute, updateAttributeDto);
-    return await this.attributeRepository.save(attribute);
+    const { category_ids, values, ...attributeData } = updateAttributeDto;
+
+    Object.assign(attribute, attributeData);
+    await this.attributeRepository.save(attribute);
+
+    if (category_ids !== undefined) {
+      await this.syncCategoriesForAttribute(id, category_ids);
+    }
+
+    return this.findOne(id);
   }
 
   async remove(id: number): Promise<void> {
@@ -182,6 +395,16 @@ export class AttributesService {
       throw new NotFoundException(`Attribute with ID ${attributeId} not found`);
     }
 
+    const sanitizedValueEn = this.sanitizeRequiredValueName(valueEn, 'value_en');
+    const sanitizedValueAr = this.sanitizeRequiredValueName(valueAr, 'value_ar');
+
+    await this.ensureAttributeValueUnique(
+      attributeId,
+      sanitizedValueEn,
+      sanitizedValueAr,
+    );
+    await this.validateAttributeParentValue(attributeId, parentValueId);
+
     // Get the max sort_order for this attribute's values
     const maxSortOrder = await this.attributeValueRepository
       .createQueryBuilder('value')
@@ -192,8 +415,8 @@ export class AttributesService {
 
     const attributeValue = this.attributeValueRepository.create({
       attribute_id: attributeId,
-      value_en: valueEn,
-      value_ar: valueAr,
+      value_en: sanitizedValueEn,
+      value_ar: sanitizedValueAr,
       parent_value_id: parentValueId,
       sort_order: nextSortOrder,
     });
@@ -227,6 +450,39 @@ export class AttributesService {
       throw new NotFoundException(
         `Attribute value with ID ${valueId} not found`,
       );
+    }
+
+    const nextValueEn =
+      updateDto.value_en !== undefined
+        ? this.sanitizeRequiredValueName(updateDto.value_en, 'value_en')
+        : this.sanitizeRequiredValueName(value.value_en, 'value_en');
+    const nextValueAr =
+      updateDto.value_ar !== undefined
+        ? this.sanitizeRequiredValueName(updateDto.value_ar, 'value_ar')
+        : this.sanitizeRequiredValueName(value.value_ar, 'value_ar');
+    const nextParentValueId =
+      updateDto.parent_value_id !== undefined
+        ? updateDto.parent_value_id
+        : value.parent_value_id;
+
+    await this.ensureAttributeValueUnique(
+      value.attribute_id,
+      nextValueEn,
+      nextValueAr,
+      valueId,
+    );
+    await this.validateAttributeParentValue(
+      value.attribute_id,
+      nextParentValueId,
+      valueId,
+    );
+
+    if (updateDto.value_en !== undefined) {
+      updateDto.value_en = nextValueEn;
+    }
+
+    if (updateDto.value_ar !== undefined) {
+      updateDto.value_ar = nextValueAr;
     }
 
     Object.assign(value, updateDto);

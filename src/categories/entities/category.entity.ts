@@ -4,11 +4,14 @@ import {
   PrimaryGeneratedColumn,
   ManyToOne,
   OneToMany,
+  ManyToMany,
   CreateDateColumn,
   UpdateDateColumn,
   JoinColumn,
   Index,
 } from 'typeorm';
+import { Attribute } from '../../attributes/entities/attribute.entity';
+import { Specification } from '../../specifications/entities/specification.entity';
 
 export enum CategoryStatus {
   ACTIVE = 'active',
@@ -67,7 +70,7 @@ export class Category {
   @JoinColumn({ name: 'parent_id' })
   parent: Category | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'int', nullable: true })
   parent_id: number | null;
 
   // Children categories
@@ -81,6 +84,12 @@ export class Category {
   // Legacy relationship (for backward compatibility)
   @OneToMany('Product', 'category')
   products: any[];
+
+  @ManyToMany(() => Attribute, (attribute) => attribute.categories)
+  attributes: Attribute[];
+
+  @ManyToMany(() => Specification, (specification) => specification.categories)
+  specifications: Specification[];
 
   @Column({ nullable: true, type: 'timestamp' })
   archived_at: Date | null;
