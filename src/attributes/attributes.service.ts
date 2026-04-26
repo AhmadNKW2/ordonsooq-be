@@ -241,7 +241,7 @@ export class AttributesService {
         this.attributeValueRepository.create({
           ...value,
           attribute: savedAttribute, // Linking explicitly
-          sort_order: index,
+          sort_order: value.sort_order ?? index,
         }),
       );
       await this.attributeValueRepository.save(values);

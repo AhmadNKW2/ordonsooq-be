@@ -26,6 +26,14 @@ export class SpecificationValueDto {
   @IsBoolean()
   @IsOptional()
   is_active?: boolean;
+
+  @ApiPropertyOptional({
+    example: 0,
+    description: 'Optional explicit order for this specification value.',
+  })
+  @IsOptional()
+  @IsInt()
+  sort_order?: number;
 }
 
 export class CreateSpecificationDto {

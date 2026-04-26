@@ -35,6 +35,14 @@ export class AttributeValueDto {
   @IsBoolean()
   @IsOptional()
   is_active?: boolean;
+
+  @ApiPropertyOptional({
+    example: 0,
+    description: 'Optional explicit order for this attribute value.',
+  })
+  @IsOptional()
+  @IsInt()
+  sort_order?: number;
 }
 
 export class CreateAttributeDto {

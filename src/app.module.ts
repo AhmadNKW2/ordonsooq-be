@@ -32,6 +32,7 @@ import { BullModule } from '@nestjs/bullmq';
 import typesenseConfig from './config/typesense.config';
 import { LoggingMiddleware } from './common/middleware/logging.middleware';
 import { NotesModule } from './notes/notes.module';
+import { PartnersModule } from './partners/partners.module';
 import { SpecificationsModule } from './specifications/specifications.module';
 
 @Module({
@@ -91,6 +92,7 @@ import { SpecificationsModule } from './specifications/specifications.module';
     CartModule,
     SearchModule,
     NotesModule,
+    PartnersModule,
     SpecificationsModule,
   ],
 })

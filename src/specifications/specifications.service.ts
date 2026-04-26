@@ -238,7 +238,7 @@ export class SpecificationsService {
         this.specificationValueRepository.create({
           ...value,
           specification: savedSpecification,
-          sort_order: index,
+          sort_order: value.sort_order ?? index,
         }),
       );
       await this.specificationValueRepository.save(values);
