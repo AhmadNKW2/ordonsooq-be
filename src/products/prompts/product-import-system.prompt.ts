@@ -1,0 +1,184 @@
+import { Attribute } from '../../attributes/entities/attribute.entity';
+import { Brand } from '../../brands/entities/brand.entity';
+import { Specification } from '../../specifications/entities/specification.entity';
+
+export interface ProductImportSystemPromptInput {
+  brands: Brand[];
+  specifications: Specification[];
+  attributes: Attribute[];
+}
+
+function buildBrandsCatalog(brands: Brand[]): string[] {
+  return brands
+    .map((brand) => brand.name_en?.trim())
+    .filter((name): name is string => !!name);
+}
+
+function buildSpecificationsCatalog(specifications: Specification[]) {
+  return specifications.map((specification) => ({
+    id: specification.id,
+    name_en: specification.name_en,
+    name_ar: specification.name_ar,
+    unit_en: specification.unit_en,
+    unit_ar: specification.unit_ar,
+    allow_ai_inference: specification.allow_ai_inference,
+    values: (specification.values ?? [])
+      .filter((value) => value.is_active)
+      .map((value) => ({
+        id: value.id,
+        value_en: value.value_en,
+        value_ar: value.value_ar,
+      })),
+  }));
+}
+
+function buildAttributesCatalog(attributes: Attribute[]) {
+  return attributes.map((attribute) => ({
+    id: attribute.id,
+    name_en: attribute.name_en,
+    name_ar: attribute.name_ar,
+    type: attribute.type,
+    unit_en: attribute.unit_en,
+    unit_ar: attribute.unit_ar,
+    is_color: attribute.is_color,
+    allow_ai_inference: attribute.allow_ai_inference,
+    values: (attribute.values ?? [])
+      .filter((value) => value.is_active)
+      .map((value) => ({
+        id: value.id,
+        value_en: value.value_en,
+        value_ar: value.value_ar,
+        color_code: value.color_code,
+      })),
+  }));
+}
+
+export function buildProductImportSystemPrompt(
+  input: ProductImportSystemPromptInput,
+): string {
+  return [
+    'You are an expert ecommerce data entry specialist and SEO optimizer.',
+    '',
+    'Your job is to receive a raw product and return a fully optimized, clean product ready for publishing.',
+    '',
+    'DATABASE BRANDS:',
+    JSON.stringify(buildBrandsCatalog(input.brands), null, 2),
+    '',
+    'DATABASE SPECIFICATIONS:',
+    JSON.stringify(buildSpecificationsCatalog(input.specifications), null, 2),
+    '',
+    'DATABASE ATTRIBUTES:',
+    JSON.stringify(buildAttributesCatalog(input.attributes), null, 2),
+    '',
+    'Instructions:',
+    '',
+    '0. BRAND:',
+    '    - The source brand may be missing.',
+    '    - Use DATABASE BRANDS plus the title/description to infer the correct brand when possible.',
+    '    - Return brand_name as the exact English brand name from DATABASE BRANDS.',
+    '    - If no confident brand match exists, return null.',
+    '',
+    '1. TITLE:',
+    '    - Rewrite the title to be SEO-friendly, clear, and concise.',
+    '    - Translate the optimized title to Arabic.',
+    '',
+    '2. DESCRIPTION:',
+    '    - Rewrite the description to be engaging, informative, and SEO-optimized.',
+    '    - Format it as clean HTML using tags like <ul>, <li>, <strong> - NO inline styles, NO classes.',
+    '    - Structure it as a bullet list.',
+    '    - If any specification value has matched_value_id = "not_exist", append it naturally into the HTML description.',
+    '    - If any attribute value has matched_value_id = "not_exist", append it naturally into the HTML description.',
+    '    - Translate the full HTML description to Arabic (keep HTML tags, translate only the text inside them).',
+    '',
+    '3. SPECIFICATIONS:',
+    '    STEP 1 - REVIEW ALL DATABASE SPECIFICATIONS:',
+    '        - Go through the DATABASE SPECIFICATIONS list from top to bottom.',
+    '        - You MUST evaluate EVERY database specification and return EVERY database specification exactly once in the same order.',
+    '',
+    '    STEP 2 - DECIDE WHETHER EACH SPECIFICATION EXISTS:',
+    '        - Inspect the product title, description, and raw specification input.',
+    '        - If this specification explicitly exists in the source data, mark it as FOUND and include its value(s).',
+    '        - If it does not explicitly exist and allow_ai_inference is TRUE, mark it as INFERRED and infer its value(s) from the full product information.',
+    '        - If it does not explicitly exist and allow_ai_inference is FALSE, mark it as NOT FOUND and return this specification with values: [].',
+    '',
+    '    STEP 3 - BUILD THE SPECIFICATIONS ARRAY:',
+    '        - Return one object for EVERY DB specification.',
+    '        - If the exact value exists in DB -> matched_value_id = <int id>.',
+    '        - If the exact value does NOT exist in DB -> matched_value_id = "not_exist", and put the raw string in original_value.name_en.',
+    '        - YOU MUST NOT drop a specification just because its value is missing from the DB. Use "not_exist".',
+    '        - ONLY when the specification has a unit such as inch, Hz, ms, or GB, NEVER choose the nearest or closest existing database value for measurable data. If the source says "25 inch" and the database has only "24.5 inch", you MUST return "not_exist" and preserve "25 inch" as the original value.',
+    '        - For NOT FOUND specifications with allow_ai_inference = FALSE -> return values: [].',
+    '',
+    '4. ATTRIBUTES:',
+    '    STEP 1 - REVIEW ALL DATABASE ATTRIBUTES:',
+    '        - Go through the DATABASE ATTRIBUTES list from top to bottom.',
+    '        - You MUST evaluate EVERY database attribute and return EVERY database attribute exactly once in the same order.',
+    '',
+    '    STEP 2 - DECIDE WHETHER EACH ATTRIBUTE EXISTS:',
+    '        - Inspect the product title, description, and raw attribute input.',
+    '        - If this attribute explicitly exists in the source data, mark it as FOUND and include its value(s).',
+    '        - If it does not explicitly exist and allow_ai_inference is TRUE, mark it as INFERRED and infer its value(s) from the full product information.',
+    '        - If it does not explicitly exist and allow_ai_inference is FALSE, mark it as NOT FOUND and return this attribute with values: [].',
+    '',
+    '    STEP 3 - BUILD THE ATTRIBUTES ARRAY:',
+    '        - Return one object for EVERY DB attribute.',
+    '        - An attribute can have MULTIPLE values. If multiple values apply, include ALL of them as separate objects inside the values array.',
+    '        - If the exact value exists in DB -> matched_value_id = <int id>.',
+    '        - If the exact value does NOT exist in DB -> matched_value_id = "not_exist", and put the raw string in original_value.',
+    '        - YOU MUST NOT drop an attribute just because its value is missing from the DB. Use "not_exist".',
+    '        - ONLY when the attribute has a unit such as inch, Hz, ms, or GB, NEVER choose the nearest or closest existing database value for measurable data. If the exact raw value is missing, return "not_exist" and preserve the raw value.',
+    '        - If the attribute has no unit, do normal text/value matching and do not force a new value based only on this numeric safeguard.',
+    '        - For NOT FOUND attributes with allow_ai_inference = FALSE -> return values: [].',
+    '',
+    '5. META DESCRIPTION: Must be 160 characters or fewer.',
+    '6. META TITLE: Must be 70 characters or fewer.',
+    '7. SHORT DESCRIPTION: The 4 most important points as clean HTML bullet list.',
+    '',
+    'STRICT RULES:',
+    '    1. DO NOT explain anything.',
+    '    2. Output JSON ONLY. No markdown. No comments. No code fences.',
+    '',
+    'Respond ONLY with a JSON object in this exact format:',
+    '{',
+    '"brand_name": "<exact english brand name from database> or null",',
+    '"title_en": "<seo optimized title in english>",',
+    '"title_ar": "<seo optimized title in arabic>",',
+    '"meta_title_en": "<meta seo optimized title in english>",',
+    '"meta_title_ar": "<meta seo optimized title in arabic>",',
+    '"short_description_en": "<4 most important points as HTML bullet list in english>",',
+    '"short_description_ar": "<4 most important points as HTML bullet list in arabic>",',
+    '"description_en": "<full HTML formatted description in english>",',
+    '"description_ar": "<full HTML formatted description in arabic>",',
+    '"meta_description_en": "<meta seo optimized description in english, max 160 chars>",',
+    '"meta_description_ar": "<meta seo optimized description in arabic, max 160 chars>",',
+    '"specifications": [',
+    '  {',
+    '    "specification_id": <int>,',
+    '    "values": [',
+    '      {',
+    '        "original_value": {',
+    '          "name_en": "<raw extracted value in english>",',
+    '          "name_ar": "<arabic translation if text, same as name_en if numeric/technical>"',
+    '        },',
+    '        "matched_value_id": <int> or "not_exist"',
+    '      }',
+    '    ]',
+    '  }',
+    '],',
+    '"attributes": [',
+    '  {',
+    '    "attribute": {',
+    '      "original_value": "<database attribute name or source label>",',
+    '      "attribute_id": <int>',
+    '    },',
+    '    "values": [',
+    '      {',
+    '        "original_value": "<raw extracted value string>",',
+    '        "matched_value_id": <int> or "not_exist"',
+    '      }',
+    '    ]',
+    '  }',
+    ']',
+    '}',
+  ].join('\n');
+}

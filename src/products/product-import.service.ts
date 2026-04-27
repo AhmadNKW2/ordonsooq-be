@@ -1,8 +1,4 @@
-import {
-  BadRequestException,
-  Injectable,
-  Logger,
-} from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { appendFile, mkdir } from 'fs/promises';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -17,13 +13,12 @@ import { Specification } from '../specifications/entities/specification.entity';
 import { SpecificationsService } from '../specifications/specifications.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { ProductStatus } from './entities/product.entity';
+import { buildProductImportSystemPrompt } from './prompts/product-import-system.prompt';
 import { ProductsService } from './products.service';
 
-const NOT_EXIST = 'not_exist';
+const OPEN_AI_NOT_EXIST_SENTINEL = 'not_exist';
+const INTERNAL_NEW_VALUE_MATCH = Symbol('internal_new_value_match');
 const NUMERIC_TOKEN_REGEX = /\d+(?:\.\d+)?/g;
-const LOOKUP_TOKEN_REGEX = /[\p{L}\p{N}]+/gu;
-const DEFINITION_MATCH_THRESHOLD = 0.78;
-const MISSING_VALUE_MARKERS = new Set(['', '-', '--', 'n/a', 'na', 'none', 'null']);
 const DEFAULT_OPENAI_LOG_PATH = resolvePath(
   process.cwd(),
   'logs',
@@ -74,7 +69,11 @@ interface NormalizedImportPayload {
   record?: string | null;
 }
 
-interface ImportAiSpecificationValue {
+interface InternalDefinitionValueState {
+  [INTERNAL_NEW_VALUE_MATCH]?: true;
+}
+
+interface ImportAiSpecificationValue extends InternalDefinitionValueState {
   original_value?: unknown;
   matched_value_id?: unknown;
 }
@@ -84,7 +83,7 @@ interface ImportAiSpecification {
   values?: ImportAiSpecificationValue[];
 }
 
-interface ImportAiAttributeValue {
+interface ImportAiAttributeValue extends InternalDefinitionValueState {
   original_value?: unknown;
   matched_value_id?: unknown;
 }
@@ -113,6 +112,63 @@ interface ImportAiResult {
   attributes?: ImportAiAttribute[];
 }
 
+type ImportAiDefinitionValue =
+  | ImportAiSpecificationValue
+  | ImportAiAttributeValue;
+
+interface ParsedDefinitionValue {
+  displayValue: string;
+  rawCandidates: string[];
+  createValueNameEn: string;
+  createValueNameAr: string;
+}
+
+interface ProductImportCatalog {
+  brands: Brand[];
+  specifications: Specification[];
+  attributes: Attribute[];
+}
+
+interface OpenAiInputMessage {
+  role: 'system' | 'user';
+  content: string;
+}
+
+interface OpenAiHttpResponse {
+  ok: boolean;
+  status: number;
+  responseText: string;
+  responseBody: unknown;
+}
+
+interface ParsedOpenAiResponse {
+  rawOutputText: string;
+  parsedOutput: ImportAiResult;
+}
+
+interface OpenAiLogContext {
+  model: string;
+  openAiInput: OpenAiInputMessage[];
+  rawProductInput: NormalizedImportPayload;
+  sourceFile: string | null;
+  openAiResponse?: unknown;
+  rawOutputText?: string | null;
+  parsedOutput?: ImportAiResult;
+  errorMessage?: string;
+}
+
+type ValueMatch =
+  | { type: 'existing'; matchedValueId: number }
+  | { type: 'new' };
+
+type DefinitionValueMatch = ValueMatch & {
+  rawValue: string;
+};
+
+type DefinitionValueReference = InternalDefinitionValueState & {
+  matched_value_id?: number;
+};
+
 function getErrorMessage(error: unknown): string {
   if (error instanceof Error) {
     return error.message;
@@ -135,146 +191,21 @@ export class ProductImportService {
     private readonly brandsService: BrandsService,
   ) {}
 
-  async importFromRequest(
-    body: Record<string, unknown>,
-    userId?: number,
-  ) {
+  async importFromRequest(body: Record<string, unknown>, userId?: number) {
     try {
       const request = this.parseRequest(body);
-      const brands = await this.brandsRepository.find({
-        where: { status: BrandStatus.ACTIVE },
-        order: { name_en: 'ASC' },
-      });
-      const specifications = (await this.specificationsService.findAll([
-        request.categoryId,
-      ])).filter((specification) => specification.is_active);
-      const attributes = (await this.attributesService.findAll([
-        request.categoryId,
-      ])).filter((attribute) => attribute.is_active);
+      const catalog = await this.loadImportCatalog(request.categoryId);
       const aiResult = await this.callOpenAi(
         request.payload,
-        brands,
-        specifications,
-        attributes,
+        catalog,
         request.model,
         request.sourceFile,
       );
-      const enforcedSpecifications = this.enforceRequiredSpecifications(
-        request.payload,
-        aiResult.specifications ?? [],
-        specifications,
+      const createProductDto = await this.buildCreateProductDto(
+        request,
+        aiResult,
+        catalog,
       );
-      const enforcedAttributes = this.enforceRequiredAttributes(
-        request.payload,
-        aiResult.attributes ?? [],
-        attributes,
-      );
-      const { brandId, brandName, brandCreated } = await this.resolveOrCreateBrand(
-        brands,
-        request.payload,
-        aiResult.brand_name,
-      );
-      if (brandId !== null && brandName) {
-        this.logger.log(
-          `${brandCreated ? 'Created' : 'Resolved'} brand '${brandName}' -> id=${brandId}`,
-        );
-      } else {
-        this.logger.log(
-          'No brand resolved from source data or AI; creating product without brand_id.',
-        );
-      }
-      const specificationsPayload = await this.resolveSpecifications(
-        enforcedSpecifications,
-        specifications,
-      );
-      const attributesPayload = await this.resolveAttributes(
-        enforcedAttributes,
-        attributes,
-      );
-      const media = await this.buildMedia(request.payload);
-      const pricing = this.resolvePricing(request.payload);
-      const isOutOfStock = this.resolveOutOfStock(request.payload);
-      const quantity = this.resolveQuantity(request.payload, isOutOfStock);
-      const metaTitleEn = this.requireOptionalString(aiResult.meta_title_en);
-      const metaTitleAr = this.requireOptionalString(aiResult.meta_title_ar);
-      const metaDescriptionEn = this.requireOptionalString(
-        aiResult.meta_description_en,
-      );
-      const metaDescriptionAr = this.requireOptionalString(
-        aiResult.meta_description_ar,
-      );
-      const referenceLink = request.payload.reference_link ?? undefined;
-
-      const createProductDto: CreateProductDto = {
-        name_en: this.requireString(aiResult.title_en, 'AI title_en'),
-        name_ar: this.requireString(aiResult.title_ar, 'AI title_ar'),
-        status: ProductStatus.REVIEW,
-        short_description_en: this.requireString(
-          aiResult.short_description_en,
-          'AI short_description_en',
-        ),
-        short_description_ar: this.requireString(
-          aiResult.short_description_ar,
-          'AI short_description_ar',
-        ),
-        long_description_en: this.requireString(
-          aiResult.description_en,
-          'AI description_en',
-        ),
-        long_description_ar: this.requireString(
-          aiResult.description_ar,
-          'AI description_ar',
-        ),
-        category_ids: [request.categoryId],
-        vendor_id: request.vendorId,
-        visible: true,
-        specifications: specificationsPayload,
-        attributes: attributesPayload,
-        price: pricing.price,
-        quantity,
-        is_out_of_stock: isOutOfStock,
-        media,
-        linked_product_ids: [],
-      };
-
-      if (metaTitleEn) {
-        createProductDto.meta_title_en = metaTitleEn;
-      }
-
-      if (metaTitleAr) {
-        createProductDto.meta_title_ar = metaTitleAr;
-      }
-
-      if (metaDescriptionEn) {
-        createProductDto.meta_description_en = metaDescriptionEn;
-      }
-
-      if (metaDescriptionAr) {
-        createProductDto.meta_description_ar = metaDescriptionAr;
-      }
-
-      if (referenceLink) {
-        createProductDto.reference_link = referenceLink;
-      }
-
-      if (pricing.salePrice !== null) {
-        createProductDto.sale_price = pricing.salePrice;
-      }
-
-      const sku = this.requireOptionalString(request.payload.sku);
-      if (sku) {
-        createProductDto.sku = sku;
-      }
-
-      const record = this.requireOptionalString(request.payload.record);
-      if (record) {
-        createProductDto.record = record;
-      }
-
-      if (brandId !== null) {
-        createProductDto.brand_id = brandId;
-      }
-
       return this.productsService.create(createProductDto, userId);
     } catch (error) {
       if (error instanceof BadRequestException) {
@@ -306,6 +237,7 @@ export class ProductImportService {
       this.requireOptionalString(body.model) ??
       this.requireOptionalString(rawPayload.model) ??
       process.env.PRODUCT_IMPORT_OPENAI_MODEL?.trim() ??
+      process.env.OPENAI_MODEL?.trim() ??
       'gpt-5.4';
     const sourceFile =
       this.requireOptionalString(body.source_file) ??
@@ -421,101 +353,53 @@ export class ProductImportService {
 
   private async callOpenAi(
     payload: NormalizedImportPayload,
-    brands: Brand[],
-    specifications: Specification[],
-    attributes: Attribute[],
+    catalog: ProductImportCatalog,
     model: string,
     sourceFile: string | null,
   ): Promise<ImportAiResult> {
-    const openaiKey = process.env.OPENAI_API_KEY?.trim();
-
-    if (!openaiKey) {
-      throw new BadRequestException(
-        'Missing OPENAI_API_KEY environment variable.',
-      );
-    }
-
-    const openaiInput = [
-      {
-        role: 'system',
-        content: this.buildSystemPrompt(brands, specifications, attributes),
-      },
-      {
-        role: 'user',
-        content: JSON.stringify(
-          {
-            brand: payload.brand,
-            title: payload.title,
-            description: payload.description,
-            specification: payload.specification,
-            attributes: payload.attributes,
-          },
-          null,
-          2,
-        ),
-      },
-    ] satisfies Array<{ role: string; content: string }>;
+    const openAiInput = this.buildOpenAiInput(payload, catalog);
 
     let openAiResponse: unknown = null;
     let rawOutputText: string | null = null;
 
     try {
-      const response = await fetch('https://api.openai.com/v1/responses', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${openaiKey}`,
-        },
-        body: JSON.stringify({
-          model,
-          input: openaiInput,
-        }),
-      });
-
-      const responseText = await response.text();
-      openAiResponse = this.tryParseJson(responseText) ?? responseText;
+      const response = await this.fetchOpenAiResponse(
+        model,
+        openAiInput,
+        this.getOpenAiApiKey(),
+      );
+      openAiResponse = response.responseBody;
 
       if (!response.ok) {
         throw new BadRequestException(
-          `OpenAI error ${response.status}: ${responseText}`,
+          `OpenAI error ${response.status}: ${response.responseText}`,
         );
       }
 
-      const body = this.getObject(openAiResponse);
-      if (!body) {
-        throw new BadRequestException(
-          'OpenAI response was not a JSON object.',
-        );
-      }
+      const parsedResponse = this.parseOpenAiResponse(openAiResponse);
+      rawOutputText = parsedResponse.rawOutputText;
 
-      rawOutputText = this.stripCodeFences(this.extractOpenAiText(body));
-      const parsedOutput = JSON.parse(rawOutputText) as ImportAiResult;
+      await this.logOpenAiInteraction({
+        model,
+        openAiInput,
+        rawProductInput: payload,
+        sourceFile,
+        openAiResponse,
+        rawOutputText,
+        parsedOutput: parsedResponse.parsedOutput,
+      });
 
-      await this.appendOpenAiLog(
-        this.buildOpenAiLogEntry({
-          model,
-          openAiInput: openaiInput,
-          rawProductInput: payload,
-          sourceFile,
-          openAiResponse,
-          rawOutputText,
-          parsedOutput,
-        }),
-      );
-
-      return parsedOutput;
+      return parsedResponse.parsedOutput;
     } catch (error) {
-      await this.appendOpenAiLog(
-        this.buildOpenAiLogEntry({
-          model,
-          openAiInput: openaiInput,
-          rawProductInput: payload,
-          sourceFile,
-          openAiResponse,
-          rawOutputText,
-          errorMessage: getErrorMessage(error),
-        }),
-      );
+      await this.logOpenAiInteraction({
+        model,
+        openAiInput,
+        rawProductInput: payload,
+        sourceFile,
+        openAiResponse,
+        rawOutputText,
+        errorMessage: getErrorMessage(error),
+      });
 
       if (error instanceof BadRequestException) {
         throw error;
@@ -525,6 +409,268 @@ export class ProductImportService {
         `OpenAI returned invalid JSON: ${getErrorMessage(error)}`,
       );
     }
+  }
+
+  private async loadImportCatalog(
+    categoryId: number,
+  ): Promise<ProductImportCatalog> {
+    const [brands, specifications, attributes] = await Promise.all([
+      this.findActiveBrands(),
+      this.specificationsService.findAll([categoryId]),
+      this.attributesService.findAll([categoryId]),
+    ]);
+
+    return {
+      brands,
+      specifications: specifications.filter(
+        (specification) => specification.is_active,
+      ),
+      attributes: attributes.filter((attribute) => attribute.is_active),
+    };
+  }
+
+  private async buildCreateProductDto(
+    request: ParsedImportRequest,
+    aiResult: ImportAiResult,
+    catalog: ProductImportCatalog,
+  ): Promise<CreateProductDto> {
+    const enforcedSpecifications = this.enforceRequiredSpecifications(
+      request.payload,
+      aiResult.specifications ?? [],
+      catalog.specifications,
+    );
+    const enforcedAttributes = this.enforceRequiredAttributes(
+      request.payload,
+      aiResult.attributes ?? [],
+      catalog.attributes,
+    );
+    const [specificationsPayload, attributesPayload, media, brandId] =
+      await Promise.all([
+        this.resolveSpecifications(
+          enforcedSpecifications,
+          catalog.specifications,
+        ),
+        this.resolveAttributes(enforcedAttributes, catalog.attributes),
+        this.buildMedia(request.payload),
+        this.resolveBrandForImport(
+          catalog.brands,
+          request.payload,
+          aiResult.brand_name,
+        ),
+      ]);
+    const pricing = this.resolvePricing(request.payload);
+    const isOutOfStock = this.resolveOutOfStock(request.payload);
+    const quantity = this.resolveQuantity(request.payload, isOutOfStock);
+
+    const createProductDto: CreateProductDto = {
+      name_en: this.requireString(aiResult.title_en, 'AI title_en'),
+      name_ar: this.requireString(aiResult.title_ar, 'AI title_ar'),
+      status: ProductStatus.REVIEW,
+      short_description_en: this.requireString(
+        aiResult.short_description_en,
+        'AI short_description_en',
+      ),
+      short_description_ar: this.requireString(
+        aiResult.short_description_ar,
+        'AI short_description_ar',
+      ),
+      long_description_en: this.requireString(
+        aiResult.description_en,
+        'AI description_en',
+      ),
+      long_description_ar: this.requireString(
+        aiResult.description_ar,
+        'AI description_ar',
+      ),
+      category_ids: [request.categoryId],
+      vendor_id: request.vendorId,
+      visible: true,
+      specifications: specificationsPayload,
+      attributes: attributesPayload,
+      price: pricing.price,
+      quantity,
+      is_out_of_stock: isOutOfStock,
+      media,
+      linked_product_ids: [],
+    };
+
+    this.applyAiMetadata(createProductDto, aiResult);
+    this.applyPayloadMetadata(createProductDto, request.payload);
+    this.applyCommercialFields(createProductDto, pricing.salePrice, brandId);
+
+    return createProductDto;
+  }
+
+  private applyAiMetadata(
+    createProductDto: CreateProductDto,
+    aiResult: ImportAiResult,
+  ): void {
+    const metaTitleEn = this.requireOptionalString(aiResult.meta_title_en);
+    const metaTitleAr = this.requireOptionalString(aiResult.meta_title_ar);
+    const metaDescriptionEn = this.requireOptionalString(
+      aiResult.meta_description_en,
+    );
+    const metaDescriptionAr = this.requireOptionalString(
+      aiResult.meta_description_ar,
+    );
+
+    if (metaTitleEn) {
+      createProductDto.meta_title_en = metaTitleEn;
+    }
+
+    if (metaTitleAr) {
+      createProductDto.meta_title_ar = metaTitleAr;
+    }
+
+    if (metaDescriptionEn) {
+      createProductDto.meta_description_en = metaDescriptionEn;
+    }
+
+    if (metaDescriptionAr) {
+      createProductDto.meta_description_ar = metaDescriptionAr;
+    }
+  }
+
+  private applyPayloadMetadata(
+    createProductDto: CreateProductDto,
+    payload: NormalizedImportPayload,
+  ): void {
+    const sku = this.requireOptionalString(payload.sku);
+    const record = this.requireOptionalString(payload.record);
+
+    if (payload.reference_link) {
+      createProductDto.reference_link = payload.reference_link;
+    }
+
+    if (sku) {
+      createProductDto.sku = sku;
+    }
+
+    if (record) {
+      createProductDto.record = record;
+    }
+  }
+
+  private applyCommercialFields(
+    createProductDto: CreateProductDto,
+    salePrice: number | null,
+    brandId: number | null,
+  ): void {
+    if (salePrice !== null) {
+      createProductDto.sale_price = salePrice;
+    }
+
+    if (brandId !== null) {
+      createProductDto.brand_id = brandId;
+    }
+  }
+
+  private async resolveBrandForImport(
+    brands: Brand[],
+    payload: NormalizedImportPayload,
+    aiBrandName: unknown,
+  ): Promise<number | null> {
+    const { brandId, brandName, brandCreated } =
+      await this.resolveOrCreateBrand(brands, payload, aiBrandName);
+
+    if (brandId !== null && brandName) {
+      this.logger.log(
+        `${brandCreated ? 'Created' : 'Resolved'} brand '${brandName}' -> id=${brandId}`,
+      );
+      return brandId;
+    }
+
+    this.logger.log(
+      'No brand resolved from source data or AI; creating product without brand_id.',
+    );
+
+    return null;
+  }
+
+  private buildOpenAiInput(
+    payload: NormalizedImportPayload,
+    catalog: ProductImportCatalog,
+  ): OpenAiInputMessage[] {
+    return [
+      {
+        role: 'system',
+        content: buildProductImportSystemPrompt(catalog),
+      },
+      {
+        role: 'user',
+        content: this.buildOpenAiUserPrompt(payload),
+      },
+    ];
+  }
+
+  private buildOpenAiUserPrompt(payload: NormalizedImportPayload): string {
+    return JSON.stringify(
+      {
+        brand: payload.brand,
+        title: payload.title,
+        description: payload.description,
+        specification: payload.specification,
+        attributes: payload.attributes,
+      },
+      null,
+      2,
+    );
+  }
+
+  private getOpenAiApiKey(): string {
+    const openAiKey = process.env.OPENAI_API_KEY?.trim();
+
+    if (!openAiKey) {
+      throw new BadRequestException(
+        'Missing OPENAI_API_KEY environment variable.',
+      );
+    }
+
+    return openAiKey;
+  }
+
+  private async fetchOpenAiResponse(
+    model: string,
+    input: OpenAiInputMessage[],
+    openAiKey: string,
+  ): Promise<OpenAiHttpResponse> {
+    const response = await fetch('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${openAiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        input,
+      }),
+    });
+    const responseText = await response.text();
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      responseText,
+      responseBody: this.tryParseJson(responseText) ?? responseText,
+    };
+  }
+
+  private parseOpenAiResponse(responseBody: unknown): ParsedOpenAiResponse {
+    const body = this.getObject(responseBody);
+    if (!body) {
+      throw new BadRequestException('OpenAI response was not a JSON object.');
+    }
+
+    const rawOutputText = this.stripCodeFences(this.extractOpenAiText(body));
+
+    return {
+      rawOutputText,
+      parsedOutput: JSON.parse(rawOutputText) as ImportAiResult,
+    };
+  }
+
+  private async logOpenAiInteraction(input: OpenAiLogContext): Promise<void> {
+    await this.appendOpenAiLog(this.buildOpenAiLogEntry(input));
   }
 
   private tryParseJson(value: string): unknown | null {
@@ -570,7 +716,9 @@ export class ProductImportService {
       }
     }
 
-    throw new BadRequestException('OpenAI response did not include text output.');
+    throw new BadRequestException(
+      'OpenAI response did not include text output.',
+    );
   }
 
   private stripCodeFences(value: string): string {
@@ -618,7 +766,11 @@ export class ProductImportService {
     brandName: string | null;
     brandCreated: boolean;
   }> {
-    const resolvedBrand = this.resolveOptionalBrand(brands, payload, aiBrandName);
+    const resolvedBrand = this.resolveOptionalBrand(
+      brands,
+      payload,
+      aiBrandName,
+    );
 
     if (resolvedBrand.brandId !== null) {
       return {
@@ -649,10 +801,7 @@ export class ProductImportService {
         brandCreated: true,
       };
     } catch (error) {
-      const refreshedBrands = await this.brandsRepository.find({
-        where: { status: BrandStatus.ACTIVE },
-        order: { name_en: 'ASC' },
-      });
+      const refreshedBrands = await this.findActiveBrands();
       const refreshedBrand = this.resolveOptionalBrand(
         refreshedBrands,
         payload,
@@ -741,201 +890,12 @@ export class ProductImportService {
     return deduped;
   }
 
-  private isMissingTextValue(value: string): boolean {
-    return MISSING_VALUE_MARKERS.has(value.trim().toLowerCase());
-  }
-
-  private tokenizeLookupText(value: string): Set<string> {
-    return new Set(
-      (value.toLowerCase().match(LOOKUP_TOKEN_REGEX) ?? []).filter(Boolean),
-    );
-  }
-
-  private calculateEditSimilarity(left: string, right: string): number {
-    if (left === right) {
-      return 1;
-    }
-
-    if (!left.length || !right.length) {
-      return 0;
-    }
-
-    const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
-
-    for (let leftIndex = 1; leftIndex <= left.length; leftIndex += 1) {
-      let diagonal = previous[0];
-      previous[0] = leftIndex;
-
-      for (let rightIndex = 1; rightIndex <= right.length; rightIndex += 1) {
-        const temp = previous[rightIndex];
-        const substitutionCost =
-          left[leftIndex - 1] === right[rightIndex - 1] ? 0 : 1;
-        previous[rightIndex] = Math.min(
-          previous[rightIndex] + 1,
-          previous[rightIndex - 1] + 1,
-          diagonal + substitutionCost,
-        );
-        diagonal = temp;
-      }
-    }
-
-    const distance = previous[right.length];
-    return 1 - distance / Math.max(left.length, right.length);
-  }
-
-  private calculateLookupSimilarity(left: string, right: string): number {
-    const normalizedLeft = this.normalizeLookupText(left);
-    const normalizedRight = this.normalizeLookupText(right);
-
-    if (!normalizedLeft || !normalizedRight) {
-      return 0;
-    }
-
-    if (normalizedLeft === normalizedRight) {
-      return 1;
-    }
-
-    const leftTokens = this.tokenizeLookupText(left);
-    const rightTokens = this.tokenizeLookupText(right);
-    let tokenScore = 0;
-
-    if (leftTokens.size && rightTokens.size) {
-      const overlap = [...leftTokens].filter((token) => rightTokens.has(token)).length;
-      if (overlap) {
-        tokenScore = overlap / new Set([...leftTokens, ...rightTokens]).size;
-        if (overlap === Math.min(leftTokens.size, rightTokens.size) && overlap >= 2) {
-          tokenScore = Math.max(tokenScore, 0.85);
-        }
-      }
-    }
-
-    let containmentScore = 0;
-    if (
-      normalizedLeft.includes(normalizedRight) ||
-      normalizedRight.includes(normalizedLeft)
-    ) {
-      const shorter = Math.min(normalizedLeft.length, normalizedRight.length);
-      const longer = Math.max(normalizedLeft.length, normalizedRight.length);
-      if (shorter >= 6) {
-        containmentScore = shorter / longer;
-      }
-    }
-
-    return Math.max(
-      tokenScore,
-      containmentScore,
-      this.calculateEditSimilarity(normalizedLeft, normalizedRight),
-    );
-  }
-
-  private extractSourceFieldNames(entry: unknown): string[] {
-    const entryObject = this.getObject(entry);
-
-    if (!entryObject) {
-      return [];
-    }
-
-    return this.dedupeNonEmptyStrings(
-      ['key', 'name', 'name_en', 'name_ar', 'label', 'title']
-        .map((key) => this.requireOptionalString(entryObject[key]))
-        .filter((value): value is string => !!value && !this.isMissingTextValue(value)),
-    );
-  }
-
-  private extractSourceValueTexts(value: unknown): string[] {
-    if (value === null || value === undefined) {
-      return [];
-    }
-
-    if (Array.isArray(value)) {
-      return this.dedupeNonEmptyStrings(
-        value.flatMap((item) => this.extractSourceValueTexts(item)),
-      );
-    }
-
-    const valueObject = this.getObject(value);
-    if (valueObject) {
-      if (valueObject.value !== undefined) {
-        return this.extractSourceValueTexts(valueObject.value);
-      }
-
-      if (valueObject.values !== undefined) {
-        return this.extractSourceValueTexts(valueObject.values);
-      }
-
-      return this.dedupeNonEmptyStrings(
-        ['translate', 'value_en', 'value_ar', 'name_en', 'name_ar', 'value', 'name']
-          .filter((key) => valueObject[key] !== undefined)
-          .flatMap((key) => this.extractSourceValueTexts(valueObject[key])),
-      );
-    }
-
-    const normalized = String(value).trim();
-    if (!normalized || this.isMissingTextValue(normalized)) {
-      return [];
-    }
-
-    return [normalized];
-  }
-
   private getDefinitionDisplayName(definition: ImportDefinition): string {
-    return definition.name_en?.trim() || definition.name_ar?.trim() || String(definition.id);
-  }
-
-  private buildDefinitionAliases(definition: ImportDefinition): string[] {
-    return this.dedupeNonEmptyStrings([
-      definition.name_en ?? '',
-      definition.name_ar ?? '',
-    ]);
-  }
-
-  private mapSourceValuesByDefinition<T extends ImportDefinition>(
-    sourceEntries: unknown[],
-    availableDefinitions: T[],
-  ): Map<number, string[]> {
-    const valuesByDefinition = new Map<number, string[]>();
-
-    for (const entry of sourceEntries) {
-      const fieldNames = this.extractSourceFieldNames(entry);
-      const sourceValues = this.extractSourceValueTexts(entry);
-      if (!fieldNames.length || !sourceValues.length) {
-        continue;
-      }
-
-      let bestDefinition: T | null = null;
-      let bestScore = 0;
-      for (const definition of availableDefinitions) {
-        const aliases = this.buildDefinitionAliases(definition);
-        if (!aliases.length) {
-          continue;
-        }
-
-        const score = Math.max(
-          ...fieldNames.flatMap((fieldName) =>
-            aliases.map((alias) => this.calculateLookupSimilarity(fieldName, alias)),
-          ),
-        );
-        if (score > bestScore) {
-          bestScore = score;
-          bestDefinition = definition;
-        }
-      }
-
-      if (!bestDefinition || bestScore < DEFINITION_MATCH_THRESHOLD) {
-        continue;
-      }
-
-      valuesByDefinition.set(bestDefinition.id, [
-        ...(valuesByDefinition.get(bestDefinition.id) ?? []),
-        ...sourceValues,
-      ]);
-    }
-
-    for (const [definitionId, values] of valuesByDefinition.entries()) {
-      valuesByDefinition.set(definitionId, this.dedupeNonEmptyStrings(values));
-    }
-
-    return valuesByDefinition;
+    return (
+      definition.name_en?.trim() ||
+      definition.name_ar?.trim() ||
+      String(definition.id)
+    );
   }
 
   private extractDefinitionUnits(definition: ImportDefinition): string[] {
@@ -966,20 +926,27 @@ export class ProductImportService {
     return this.dedupeNonEmptyStrings([
       ...baseCandidates,
       ...baseCandidates.flatMap((baseCandidate) =>
-        unitCandidates.map((unitCandidate) => `${baseCandidate} ${unitCandidate}`),
+        unitCandidates.map(
+          (unitCandidate) => `${baseCandidate} ${unitCandidate}`,
+        ),
       ),
     ]);
   }
 
   private extractNumericSignature(value: string): string[] {
-    return (value.replace(/,/g, '').match(NUMERIC_TOKEN_REGEX) ?? []).filter(Boolean);
+    return (value.replace(/,/g, '').match(NUMERIC_TOKEN_REGEX) ?? []).filter(
+      Boolean,
+    );
   }
 
-  private buildExistingValueMap(definition: ImportDefinition): Map<number, ImportDefinitionValue> {
+  private buildExistingValueMap(
+    definition: ImportDefinition,
+  ): Map<number, ImportDefinitionValue> {
     return new Map(
       (definition.values ?? [])
-        .filter((value): value is ImportDefinitionValue & { id: number } =>
-          typeof value.id === 'number',
+        .filter(
+          (value): value is ImportDefinitionValue & { id: number } =>
+            typeof value.id === 'number',
         )
         .map((value) => [value.id, value]),
     );
@@ -990,7 +957,8 @@ export class ProductImportService {
     rawValue: string,
   ): number | null {
     const normalizedRawValue = this.normalizeLookupText(rawValue);
-    const rawNumericSignature = this.extractNumericSignature(rawValue).join('|');
+    const rawNumericSignature =
+      this.extractNumericSignature(rawValue).join('|');
 
     for (const value of definition.values ?? []) {
       if (typeof value.id !== 'number') {
@@ -998,8 +966,8 @@ export class ProductImportService {
       }
 
       const normalizedCandidates = new Set(
-        this.buildDefinitionValueCandidates(definition, value).map((candidate) =>
-          this.normalizeLookupText(candidate),
+        this.buildDefinitionValueCandidates(definition, value).map(
+          (candidate) => this.normalizeLookupText(candidate),
         ),
       );
       if (normalizedCandidates.has(normalizedRawValue)) {
@@ -1009,7 +977,9 @@ export class ProductImportService {
       if (this.hasDefinedUnit(definition) && rawNumericSignature) {
         const candidateSignatures = new Set(
           this.buildDefinitionValueCandidates(definition, value)
-            .map((candidate) => this.extractNumericSignature(candidate).join('|'))
+            .map((candidate) =>
+              this.extractNumericSignature(candidate).join('|'),
+            )
             .filter(Boolean),
         );
         if (candidateSignatures.has(rawNumericSignature)) {
@@ -1019,36 +989,6 @@ export class ProductImportService {
     }
 
     return null;
-  }
-
-  private buildValueTextCandidates(
-    value: ImportAiSpecificationValue | ImportAiAttributeValue,
-    definition: ImportDefinition,
-    matchedValues: Map<number, ImportDefinitionValue>,
-    localized: boolean,
-  ): string[] {
-    const candidates: string[] = [];
-
-    try {
-      if (localized) {
-        const localizedValue = this.extractLocalizedValue(value.original_value);
-        candidates.push(localizedValue.name_en, localizedValue.name_ar);
-      } else {
-        candidates.push(this.extractSimpleText(value.original_value));
-      }
-    } catch {
-      // Ignore invalid AI original_value fields here; later validation still applies.
-    }
-
-    const matchedValueId = this.extractPositiveInteger(value.matched_value_id);
-    if (matchedValueId) {
-      const matchedValue = matchedValues.get(matchedValueId);
-      if (matchedValue) {
-        candidates.push(...this.buildDefinitionValueCandidates(definition, matchedValue));
-      }
-    }
-
-    return this.dedupeNonEmptyStrings(candidates);
   }
 
   private analyzeApproximateMatch(
@@ -1084,7 +1024,8 @@ export class ProductImportService {
       ) {
         return {
           shouldReplace: false,
-          reason: 'raw value matches an existing database value after normalization',
+          reason:
+            'raw value matches an existing database value after normalization',
         };
       }
 
@@ -1112,41 +1053,226 @@ export class ProductImportService {
 
     return {
       shouldReplace: false,
-      reason: 'raw value has no measurable token; approximate numeric safeguard not applied',
+      reason:
+        'raw value has no measurable token; approximate numeric safeguard not applied',
     };
   }
 
-  private valuesOverlap(
-    sourceValues: string[],
-    candidateValues: string[],
-    allowNumericSignature: boolean,
-  ): boolean {
-    const normalizedSourceValues = new Set(
-      sourceValues
-        .map((sourceValue) => this.normalizeLookupText(sourceValue))
-        .filter(Boolean),
-    );
-    const sourceNumericSignatures = new Set(
-      sourceValues
-        .map((sourceValue) => this.extractNumericSignature(sourceValue).join('|'))
-        .filter(Boolean),
-    );
+  private resolveValueMatch(value: ImportAiDefinitionValue): ValueMatch | null {
+    const matchedValueId = this.extractPositiveInteger(value.matched_value_id);
 
-    for (const candidateValue of candidateValues) {
-      const normalizedCandidate = this.normalizeLookupText(candidateValue);
-      if (normalizedSourceValues.has(normalizedCandidate)) {
-        return true;
+    if (matchedValueId) {
+      return {
+        type: 'existing',
+        matchedValueId,
+      };
+    }
+
+    if (this.hasInternalNewValueMatch(value)) {
+      return { type: 'new' };
+    }
+
+    if (this.isOpenAiNotExistSentinel(value.matched_value_id)) {
+      return { type: 'new' };
+    }
+
+    return null;
+  }
+
+  private hasInternalNewValueMatch(value: ImportAiDefinitionValue): boolean {
+    return value[INTERNAL_NEW_VALUE_MATCH] === true;
+  }
+
+  private collectAiValuesByDefinition<TEntry, TValue>(
+    entries: TEntry[],
+    getDefinitionId: (entry: TEntry) => number | null,
+    getValues: (entry: TEntry) => TValue[] | undefined,
+  ): Map<number, TValue[]> {
+    const valuesByDefinition = new Map<number, TValue[]>();
+
+    for (const entry of entries) {
+      const definitionId = getDefinitionId(entry);
+      if (!definitionId) {
+        continue;
       }
 
-      if (allowNumericSignature) {
-        const candidateSignature = this.extractNumericSignature(candidateValue).join('|');
-        if (candidateSignature && sourceNumericSignatures.has(candidateSignature)) {
-          return true;
+      valuesByDefinition.set(definitionId, [
+        ...(valuesByDefinition.get(definitionId) ?? []),
+        ...(getValues(entry) ?? []),
+      ]);
+    }
+
+    return valuesByDefinition;
+  }
+
+  private enforceRequiredDefinitionValues<
+    TDefinition extends ImportDefinition,
+    TAiEntry,
+    TValue extends ImportAiDefinitionValue,
+    TResult,
+  >(
+    aiEntries: TAiEntry[],
+    availableDefinitions: TDefinition[],
+    input: {
+      getDefinitionId: (entry: TAiEntry) => number | null;
+      getValues: (entry: TAiEntry) => TValue[] | undefined;
+      definitionKind: 'specification' | 'attribute';
+      buildResult: (definition: TDefinition, values: TValue[]) => TResult;
+    },
+  ): TResult[] {
+    const aiValuesByDefinition = this.collectAiValuesByDefinition(
+      aiEntries,
+      input.getDefinitionId,
+      input.getValues,
+    );
+    const mergedDefinitions: TResult[] = [];
+    const missingInferenceDefinitions: string[] = [];
+
+    for (const definition of availableDefinitions) {
+      const values = [...(aiValuesByDefinition.get(definition.id) ?? [])];
+
+      if (!values.length) {
+        if (definition.allow_ai_inference) {
+          missingInferenceDefinitions.push(
+            this.getDefinitionDisplayName(definition),
+          );
+        }
+
+        continue;
+      }
+
+      mergedDefinitions.push(input.buildResult(definition, values));
+    }
+
+    if (missingInferenceDefinitions.length) {
+      throw new BadRequestException(
+        `AI inference is required but missing for ${input.definitionKind}s: ${missingInferenceDefinitions.join(', ')}`,
+      );
+    }
+
+    return mergedDefinitions;
+  }
+
+  private async resolveDefinitionValues<
+    TDefinition extends ImportDefinition,
+    TAiEntry,
+    TValue extends ImportAiDefinitionValue,
+    TResult,
+  >(
+    aiEntries: TAiEntry[],
+    availableDefinitions: TDefinition[],
+    input: {
+      getDefinitionId: (entry: TAiEntry) => number | null;
+      getValues: (entry: TAiEntry) => TValue[] | undefined;
+      definitionKind: 'specification' | 'attribute';
+      parseValue: (value: TValue) => ParsedDefinitionValue;
+      createValue: (
+        definitionId: number,
+        parsedValue: ParsedDefinitionValue,
+      ) => Promise<number>;
+      buildResult: (definitionId: number, valueIds: number[]) => TResult;
+    },
+  ): Promise<TResult[]> {
+    const definitionLookup = new Map(
+      availableDefinitions.map((definition) => [definition.id, definition]),
+    );
+    const definitionMap = new Map<number, Set<number>>();
+    const definitionKindLabel =
+      input.definitionKind.charAt(0).toUpperCase() +
+      input.definitionKind.slice(1);
+
+    for (const entry of aiEntries) {
+      const definitionId = input.getDefinitionId(entry);
+
+      if (!definitionId) {
+        continue;
+      }
+
+      if (!definitionLookup.has(definitionId)) {
+        this.logger.log(
+          `Skipping unknown ${input.definitionKind} id=${definitionId} returned by AI.`,
+        );
+        continue;
+      }
+
+      if (!definitionMap.has(definitionId)) {
+        definitionMap.set(definitionId, new Set<number>());
+      }
+
+      const matchedDefinition = definitionLookup.get(definitionId);
+      if (!matchedDefinition) {
+        continue;
+      }
+
+      const valueLookup = this.buildExistingValueMap(matchedDefinition);
+
+      for (const value of input.getValues(entry) ?? []) {
+        const valueMatch = this.resolveValueMatch(value);
+        let matchedValueId =
+          valueMatch?.type === 'existing' ? valueMatch.matchedValueId : null;
+        let shouldCreateValue = valueMatch?.type === 'new';
+        const parsedValue = input.parseValue(value);
+
+        if (matchedValueId) {
+          const matchedValue = valueLookup.get(matchedValueId);
+
+          if (!matchedValue) {
+            this.logger.log(
+              `${definitionKindLabel} ${definitionId}: AI returned unknown value id=${matchedValueId} for '${parsedValue.displayValue}'; creating new value.`,
+            );
+            matchedValueId = null;
+            shouldCreateValue = true;
+          } else if (this.hasDefinedUnit(matchedDefinition)) {
+            const matchDecision = this.analyzeApproximateMatch(
+              parsedValue.rawCandidates,
+              this.buildDefinitionValueCandidates(
+                matchedDefinition,
+                matchedValue,
+              ),
+            );
+
+            if (matchDecision.shouldReplace) {
+              this.logger.log(
+                `${definitionKindLabel} ${definitionId}: rejecting approximate match id=${matchedValueId} for raw value '${parsedValue.displayValue}'; creating exact value (${matchDecision.reason}).`,
+              );
+              matchedValueId = null;
+              shouldCreateValue = true;
+            } else {
+              this.logger.log(
+                `${definitionKindLabel} ${definitionId}: keeping matched value id=${matchedValueId} for raw value '${parsedValue.displayValue}' (${matchDecision.reason}).`,
+              );
+            }
+          } else {
+            this.logger.log(
+              `${definitionKindLabel} ${definitionId}: keeping matched value id=${matchedValueId} for raw value '${parsedValue.displayValue}' (no unit defined; approximate numeric safeguard not applied).`,
+            );
+          }
+        }
+
+        if (!matchedValueId && shouldCreateValue) {
+          this.logger.log(
+            `${definitionKindLabel} ${definitionId}: creating missing value '${parsedValue.displayValue}'.`,
+          );
+          matchedValueId = await input.createValue(definitionId, parsedValue);
+          this.logger.log(
+            `${definitionKindLabel} ${definitionId}: created value id=${matchedValueId}`,
+          );
+        }
+
+        if (matchedValueId) {
+          definitionMap.get(definitionId)?.add(matchedValueId);
         }
       }
     }
 
-    return false;
+    return Array.from(definitionMap.entries())
+      .filter(([, valueIds]) => valueIds.size > 0)
+      .map(([definitionId, valueIds]) =>
+        input.buildResult(
+          definitionId,
+          Array.from(valueIds).sort((left, right) => left - right),
+        ),
+      );
   }
 
   private enforceRequiredSpecifications(
@@ -1154,98 +1280,22 @@ export class ProductImportService {
     aiSpecifications: ImportAiSpecification[],
     availableSpecifications: Specification[],
   ): ImportAiSpecification[] {
-    const sourceValuesBySpecification = this.mapSourceValuesByDefinition(
-      payload.specification,
+    void payload;
+
+    return this.enforceRequiredDefinitionValues(
+      aiSpecifications,
       availableSpecifications,
-    );
-    const aiValuesBySpecification = new Map<number, ImportAiSpecificationValue[]>();
-
-    for (const specification of aiSpecifications) {
-      const specificationId = this.extractPositiveInteger(
-        specification.specification_id,
-      );
-      if (!specificationId) {
-        continue;
-      }
-
-      aiValuesBySpecification.set(specificationId, [
-        ...(aiValuesBySpecification.get(specificationId) ?? []),
-        ...(specification.values ?? []),
-      ]);
-    }
-
-    const mergedSpecifications: ImportAiSpecification[] = [];
-    const missingInferenceSpecifications: string[] = [];
-
-    for (const specification of availableSpecifications) {
-      const sourceValues = sourceValuesBySpecification.get(specification.id) ?? [];
-      const allowAiInference = !!specification.allow_ai_inference;
-      const matchedValues = this.buildExistingValueMap(specification);
-      let values = [...(aiValuesBySpecification.get(specification.id) ?? [])];
-
-      if (sourceValues.length && !allowAiInference) {
-        values = values.filter((value) =>
-          this.valuesOverlap(
-            sourceValues,
-            this.buildValueTextCandidates(value, specification, matchedValues, true),
-            this.hasDefinedUnit(specification),
-          ),
-        );
-      }
-
-      if (sourceValues.length) {
-        const currentValueCandidates = this.dedupeNonEmptyStrings(
-          values.flatMap((value) =>
-            this.buildValueTextCandidates(value, specification, matchedValues, true),
-          ),
-        );
-        const missingSourceValues = sourceValues.filter(
-          (sourceValue) =>
-            !this.valuesOverlap(
-              [sourceValue],
-              currentValueCandidates,
-              this.hasDefinedUnit(specification),
-            ),
-        );
-
-        if (missingSourceValues.length) {
-          this.logger.log(
-            `Backfilling source specification '${this.getDefinitionDisplayName(specification)}' with values ${missingSourceValues.join(', ')}`,
-          );
-          values.push(
-            ...missingSourceValues.map((rawValue) => ({
-              original_value: {
-                name_en: rawValue,
-                name_ar: rawValue,
-              },
-              matched_value_id:
-                this.findExactMatchedValueId(specification, rawValue) ?? NOT_EXIST,
-            })),
-          );
-        }
-      } else if (!allowAiInference) {
-        values = [];
-      } else if (!values.length) {
-        missingInferenceSpecifications.push(
-          this.getDefinitionDisplayName(specification),
-        );
-      }
-
-      if (values.length) {
-        mergedSpecifications.push({
+      {
+        getDefinitionId: (specification) =>
+          this.extractPositiveInteger(specification.specification_id),
+        getValues: (specification) => specification.values,
+        definitionKind: 'specification',
+        buildResult: (specification, values) => ({
           specification_id: specification.id,
           values,
-        });
-      }
-    }
-
-    if (missingInferenceSpecifications.length) {
-      throw new BadRequestException(
-        `AI inference is required but missing for specifications: ${missingInferenceSpecifications.join(', ')}`,
-      );
-    }
-
-    return mergedSpecifications;
+        }),
+      },
+    );
   }
 
   private enforceRequiredAttributes(
@@ -1253,94 +1303,25 @@ export class ProductImportService {
     aiAttributes: ImportAiAttribute[],
     availableAttributes: Attribute[],
   ): ImportAiAttribute[] {
-    const sourceValuesByAttribute = this.mapSourceValuesByDefinition(
-      payload.attributes,
+    void payload;
+
+    return this.enforceRequiredDefinitionValues(
+      aiAttributes,
       availableAttributes,
-    );
-    const aiValuesByAttribute = new Map<number, ImportAiAttributeValue[]>();
-
-    for (const attribute of aiAttributes) {
-      const attributeId = this.extractPositiveInteger(attribute.attribute?.attribute_id);
-      if (!attributeId) {
-        continue;
-      }
-
-      aiValuesByAttribute.set(attributeId, [
-        ...(aiValuesByAttribute.get(attributeId) ?? []),
-        ...(attribute.values ?? []),
-      ]);
-    }
-
-    const mergedAttributes: ImportAiAttribute[] = [];
-    const missingInferenceAttributes: string[] = [];
-
-    for (const attribute of availableAttributes) {
-      const sourceValues = sourceValuesByAttribute.get(attribute.id) ?? [];
-      const allowAiInference = !!attribute.allow_ai_inference;
-      const matchedValues = this.buildExistingValueMap(attribute);
-      let values = [...(aiValuesByAttribute.get(attribute.id) ?? [])];
-
-      if (sourceValues.length && !allowAiInference) {
-        values = values.filter((value) =>
-          this.valuesOverlap(
-            sourceValues,
-            this.buildValueTextCandidates(value, attribute, matchedValues, false),
-            this.hasDefinedUnit(attribute),
-          ),
-        );
-      }
-
-      if (sourceValues.length) {
-        const currentValueCandidates = this.dedupeNonEmptyStrings(
-          values.flatMap((value) =>
-            this.buildValueTextCandidates(value, attribute, matchedValues, false),
-          ),
-        );
-        const missingSourceValues = sourceValues.filter(
-          (sourceValue) =>
-            !this.valuesOverlap(
-              [sourceValue],
-              currentValueCandidates,
-              this.hasDefinedUnit(attribute),
-            ),
-        );
-
-        if (missingSourceValues.length) {
-          this.logger.log(
-            `Backfilling source attribute '${this.getDefinitionDisplayName(attribute)}' with values ${missingSourceValues.join(', ')}`,
-          );
-          values.push(
-            ...missingSourceValues.map((rawValue) => ({
-              original_value: rawValue,
-              matched_value_id:
-                this.findExactMatchedValueId(attribute, rawValue) ?? NOT_EXIST,
-            })),
-          );
-        }
-      } else if (!allowAiInference) {
-        values = [];
-      } else if (!values.length) {
-        missingInferenceAttributes.push(this.getDefinitionDisplayName(attribute));
-      }
-
-      if (values.length) {
-        mergedAttributes.push({
+      {
+        getDefinitionId: (attribute) =>
+          this.extractPositiveInteger(attribute.attribute?.attribute_id),
+        getValues: (attribute) => attribute.values,
+        definitionKind: 'attribute',
+        buildResult: (attribute, values) => ({
           attribute: {
             attribute_id: attribute.id,
             original_value: this.getDefinitionDisplayName(attribute),
           },
           values,
-        });
-      }
-    }
-
-    if (missingInferenceAttributes.length) {
-      throw new BadRequestException(
-        `AI inference is required but missing for attributes: ${missingInferenceAttributes.join(', ')}`,
-      );
-    }
-
-    return mergedAttributes;
+        }),
+      },
+    );
   }
 
   private async resolveSpecifications(
@@ -1352,110 +1333,40 @@ export class ProductImportService {
       specification_value_ids: number[];
     }>
   > {
-    const specificationLookup = new Map(
-      availableSpecifications.map((specification) => [
-        specification.id,
-        specification,
-      ]),
-    );
-    const specificationMap = new Map<number, Set<number>>();
-
-    for (const specification of aiSpecifications) {
-      const specificationId = this.extractPositiveInteger(
-        specification.specification_id,
-      );
-
-      if (!specificationId) {
-        continue;
-      }
-
-      if (!specificationLookup.has(specificationId)) {
-        this.logger.log(
-          `Skipping unknown specification id=${specificationId} returned by AI.`,
-        );
-        continue;
-      }
-
-      if (!specificationMap.has(specificationId)) {
-        specificationMap.set(specificationId, new Set<number>());
-      }
-
-      const matchedSpecification = specificationLookup.get(specificationId);
-      if (!matchedSpecification) {
-        continue;
-      }
-
-      const valueLookup = this.buildExistingValueMap(matchedSpecification);
-
-      for (const value of specification.values ?? []) {
-        let matchedValueId = this.extractPositiveInteger(value.matched_value_id);
-        let shouldCreateValue = this.isNotExist(value.matched_value_id);
-        const localizedValue = this.extractLocalizedValue(value.original_value);
-
-        if (matchedValueId) {
-          const matchedValue = valueLookup.get(matchedValueId);
-
-          if (!matchedValue) {
-            this.logger.log(
-              `Specification ${specificationId}: AI returned unknown value id=${matchedValueId} for '${localizedValue.name_en}'; creating new value.`,
-            );
-            matchedValueId = null;
-            shouldCreateValue = true;
-          } else if (this.hasDefinedUnit(matchedSpecification)) {
-            const matchDecision = this.analyzeApproximateMatch(
-              [localizedValue.name_en, localizedValue.name_ar],
-              this.buildDefinitionValueCandidates(
-                matchedSpecification,
-                matchedValue,
-              ),
-            );
-
-            if (matchDecision.shouldReplace) {
-              this.logger.log(
-                `Specification ${specificationId}: rejecting approximate match id=${matchedValueId} for raw value '${localizedValue.name_en}'; creating exact value (${matchDecision.reason}).`,
-              );
-              matchedValueId = null;
-              shouldCreateValue = true;
-            } else {
-              this.logger.log(
-                `Specification ${specificationId}: keeping matched value id=${matchedValueId} for raw value '${localizedValue.name_en}' (${matchDecision.reason}).`,
-              );
-            }
-          } else {
-            this.logger.log(
-              `Specification ${specificationId}: keeping matched value id=${matchedValueId} for raw value '${localizedValue.name_en}' (no unit defined; approximate numeric safeguard not applied).`,
-            );
-          }
-        }
-
-        if (!matchedValueId && shouldCreateValue) {
-          this.logger.log(
-            `Specification ${specificationId}: creating missing value '${localizedValue.name_en}'.`,
+    return this.resolveDefinitionValues(
+      aiSpecifications,
+      availableSpecifications,
+      {
+        getDefinitionId: (specification) =>
+          this.extractPositiveInteger(specification.specification_id),
+        getValues: (specification) => specification.values,
+        definitionKind: 'specification',
+        parseValue: (value) => {
+          const localizedValue = this.extractLocalizedValue(
+            value.original_value,
           );
-          matchedValueId = (
+
+          return {
+            displayValue: localizedValue.name_en,
+            rawCandidates: [localizedValue.name_en, localizedValue.name_ar],
+            createValueNameEn: localizedValue.name_en,
+            createValueNameAr: localizedValue.name_ar,
+          };
+        },
+        createValue: async (specificationId, parsedValue) =>
+          (
             await this.specificationsService.addValue(
               specificationId,
-              localizedValue.name_en,
-              localizedValue.name_ar,
+              parsedValue.createValueNameEn,
+              parsedValue.createValueNameAr,
             )
-          ).id;
-          this.logger.log(
-            `Specification ${specificationId}: created value id=${matchedValueId}`,
-          );
-        }
-
-        if (matchedValueId) {
-          specificationMap.get(specificationId)?.add(matchedValueId);
-        }
-      }
-    }
-
-    return Array.from(specificationMap.entries())
-      .map(([specification_id, valueIds]) => ({
-        specification_id,
-        specification_value_ids: Array.from(valueIds).sort((left, right) => left - right),
-      }))
-      .filter((specification) => specification.specification_value_ids.length > 0);
+          ).id,
+        buildResult: (specificationId, valueIds) => ({
+          specification_id: specificationId,
+          specification_value_ids: valueIds,
+        }),
+      },
+    );
   }
 
   private async resolveAttributes(
@@ -1467,109 +1378,40 @@ export class ProductImportService {
       attribute_value_ids: number[];
     }>
   > {
-    const attributeLookup = new Map(
-      availableAttributes.map((attribute) => [attribute.id, attribute]),
-    );
-    const attributeMap = new Map<number, Set<number>>();
-
-    for (const attribute of aiAttributes) {
-      const attributeId = this.extractPositiveInteger(
-        attribute.attribute?.attribute_id,
-      );
-
-      if (!attributeId) {
-        continue;
-      }
-
-      if (!attributeLookup.has(attributeId)) {
-        this.logger.log(
-          `Skipping unknown attribute id=${attributeId} returned by AI.`,
-        );
-        continue;
-      }
-
-      if (!attributeMap.has(attributeId)) {
-        attributeMap.set(attributeId, new Set<number>());
-      }
-
-      const matchedAttribute = attributeLookup.get(attributeId);
-      if (!matchedAttribute) {
-        continue;
-      }
-
-      const valueLookup = this.buildExistingValueMap(matchedAttribute);
-
-      for (const value of attribute.values ?? []) {
-        let matchedValueId = this.extractPositiveInteger(value.matched_value_id);
-        let shouldCreateValue = this.isNotExist(value.matched_value_id);
+    return this.resolveDefinitionValues(aiAttributes, availableAttributes, {
+      getDefinitionId: (attribute) =>
+        this.extractPositiveInteger(attribute.attribute?.attribute_id),
+      getValues: (attribute) => attribute.values,
+      definitionKind: 'attribute',
+      parseValue: (value) => {
         const rawValue = this.extractSimpleText(value.original_value);
 
-        if (matchedValueId) {
-          const matchedValue = valueLookup.get(matchedValueId);
-
-          if (!matchedValue) {
-            this.logger.log(
-              `Attribute ${attributeId}: AI returned unknown value id=${matchedValueId} for '${rawValue}'; creating new value.`,
-            );
-            matchedValueId = null;
-            shouldCreateValue = true;
-          } else if (this.hasDefinedUnit(matchedAttribute)) {
-            const matchDecision = this.analyzeApproximateMatch(
-              [rawValue],
-              this.buildDefinitionValueCandidates(matchedAttribute, matchedValue),
-            );
-
-            if (matchDecision.shouldReplace) {
-              this.logger.log(
-                `Attribute ${attributeId}: rejecting approximate match id=${matchedValueId} for raw value '${rawValue}'; creating exact value (${matchDecision.reason}).`,
-              );
-              matchedValueId = null;
-              shouldCreateValue = true;
-            } else {
-              this.logger.log(
-                `Attribute ${attributeId}: keeping matched value id=${matchedValueId} for raw value '${rawValue}' (${matchDecision.reason}).`,
-              );
-            }
-          } else {
-            this.logger.log(
-              `Attribute ${attributeId}: keeping matched value id=${matchedValueId} for raw value '${rawValue}' (no unit defined; approximate numeric safeguard not applied).`,
-            );
-          }
-        }
-
-        if (!matchedValueId && shouldCreateValue) {
-          this.logger.log(
-            `Attribute ${attributeId}: creating missing value '${rawValue}'.`,
-          );
-          matchedValueId = (
-            await this.attributesService.addValue(
-              attributeId,
-              rawValue,
-              rawValue,
-            )
-          ).id;
-          this.logger.log(
-            `Attribute ${attributeId}: created value id=${matchedValueId}`,
-          );
-        }
-
-        if (matchedValueId) {
-          attributeMap.get(attributeId)?.add(matchedValueId);
-        }
-      }
-    }
-
-    return Array.from(attributeMap.entries())
-      .map(([attribute_id, valueIds]) => ({
-        attribute_id,
-        attribute_value_ids: Array.from(valueIds).sort((left, right) => left - right),
-      }))
-      .filter((attribute) => attribute.attribute_value_ids.length > 0);
+        return {
+          displayValue: rawValue,
+          rawCandidates: [rawValue],
+          createValueNameEn: rawValue,
+          createValueNameAr: rawValue,
+        };
+      },
+      createValue: async (attributeId, parsedValue) =>
+        (
+          await this.attributesService.addValue(
+            attributeId,
+            parsedValue.createValueNameEn,
+            parsedValue.createValueNameAr,
+          )
+        ).id,
+      buildResult: (attributeId, valueIds) => ({
+        attribute_id: attributeId,
+        attribute_value_ids: valueIds,
+      }),
+    });
   }
 
-  private isNotExist(value: unknown): boolean {
+  private isOpenAiNotExistSentinel(value: unknown): boolean {
     return (
-      typeof value === 'string' && value.trim().toLowerCase() === NOT_EXIST
+      typeof value === 'string' &&
+      value.trim().toLowerCase() === OPEN_AI_NOT_EXIST_SENTINEL
     );
   }
 
@@ -1581,9 +1423,7 @@ export class ProductImportService {
     const nameEn =
       this.requireOptionalString(valueObject?.name_en) ??
       this.extractSimpleText(value);
-    const nameAr =
-      this.requireOptionalString(valueObject?.name_ar) ??
-      nameEn;
+    const nameAr = this.requireOptionalString(valueObject?.name_ar) ?? nameEn;
 
     return {
       name_en: nameEn,
@@ -1607,7 +1447,9 @@ export class ProductImportService {
       this.requireOptionalString(valueObject?.value);
 
     if (!candidate) {
-      throw new BadRequestException('AI returned an empty attribute/specification value.');
+      throw new BadRequestException(
+        'AI returned an empty attribute/specification value.',
+      );
     }
 
     return candidate;
@@ -1615,7 +1457,9 @@ export class ProductImportService {
 
   private async buildMedia(
     payload: NormalizedImportPayload,
-  ): Promise<Array<{ media_id: number; is_primary: boolean; sort_order: number }>> {
+  ): Promise<
+    Array<{ media_id: number; is_primary: boolean; sort_order: number }>
+  > {
     const directMedia = this.normalizeDirectMedia(payload.media);
     if (directMedia.length > 0) {
       return directMedia;
@@ -1695,8 +1539,7 @@ export class ProductImportService {
           typeof mediaObject?.is_primary === 'boolean'
             ? mediaObject.is_primary
             : normalized.length === 0,
-        sort_order:
-          this.extractNumber(mediaObject?.sort_order) ?? index,
+        sort_order: this.extractNumber(mediaObject?.sort_order) ?? index,
       });
     }
 
@@ -1833,7 +1676,10 @@ export class ProductImportService {
     price: number;
     salePrice: number | null;
   } {
-    const explicitPrice = this.firstDefinedValue([payload.price, payload.new_price]);
+    const explicitPrice = this.firstDefinedValue([
+      payload.price,
+      payload.new_price,
+    ]);
     const explicitSalePrice = this.firstDefinedValue([payload.sale_price]);
 
     if (explicitPrice !== undefined && explicitSalePrice !== undefined) {
@@ -1868,7 +1714,10 @@ export class ProductImportService {
     }
 
     const stockValue = this.requireOptionalString(payload.stock)?.toLowerCase();
-    return !!stockValue && ['none', '0', 'false', 'out_of_stock'].includes(stockValue);
+    return (
+      !!stockValue &&
+      ['none', '0', 'false', 'out_of_stock'].includes(stockValue)
+    );
   }
 
   private resolveQuantity(
@@ -1907,7 +1756,9 @@ export class ProductImportService {
     }
 
     if (typeof candidate !== 'string') {
-      throw new BadRequestException(`Invalid price value: ${String(candidate)}`);
+      throw new BadRequestException(
+        `Invalid price value: ${String(candidate)}`,
+      );
     }
 
     const normalized = candidate.trim();
@@ -1941,187 +1792,6 @@ export class ProductImportService {
     return false;
   }
 
-  private buildSystemPrompt(
-    brands: Brand[],
-    specifications: Specification[],
-    attributes: Attribute[],
-  ): string {
-    const brandsCatalog = brands
-      .map((brand) => brand.name_en?.trim())
-      .filter((name): name is string => !!name);
-    const specificationsCatalog = specifications.map((specification) => ({
-      id: specification.id,
-      name_en: specification.name_en,
-      name_ar: specification.name_ar,
-      unit_en: specification.unit_en,
-      unit_ar: specification.unit_ar,
-      allow_ai_inference: specification.allow_ai_inference,
-      values: (specification.values ?? [])
-        .filter((value) => value.is_active)
-        .map((value) => ({
-          id: value.id,
-          value_en: value.value_en,
-          value_ar: value.value_ar,
-        })),
-    }));
-    const attributesCatalog = attributes.map((attribute) => ({
-      id: attribute.id,
-      name_en: attribute.name_en,
-      name_ar: attribute.name_ar,
-      type: attribute.type,
-      unit_en: attribute.unit_en,
-      unit_ar: attribute.unit_ar,
-      is_color: attribute.is_color,
-      allow_ai_inference: attribute.allow_ai_inference,
-      values: (attribute.values ?? [])
-        .filter((value) => value.is_active)
-        .map((value) => ({
-          id: value.id,
-          value_en: value.value_en,
-          value_ar: value.value_ar,
-          color_code: value.color_code,
-        })),
-    }));
-
-    return [
-      'You are an expert ecommerce data entry specialist and SEO optimizer.',
-      '',
-      'Your job is to receive a raw product and return a fully optimized, clean product ready for publishing.',
-      '',
-      'DATABASE BRANDS:',
-      JSON.stringify(brandsCatalog, null, 2),
-      '',
-      'DATABASE SPECIFICATIONS:',
-      JSON.stringify(specificationsCatalog, null, 2),
-      '',
-      'DATABASE ATTRIBUTES:',
-      JSON.stringify(attributesCatalog, null, 2),
-      '',
-      'Instructions:',
-      '',
-      '0. BRAND:',
-      '    - The source brand may be missing.',
-      '    - Use DATABASE BRANDS plus the title/description to infer the correct brand when possible.',
-      '    - Return brand_name as the exact English brand name from DATABASE BRANDS.',
-      '    - If no confident brand match exists, return null.',
-      '',
-      '1. TITLE:',
-      '    - Rewrite the title to be SEO-friendly, clear, and concise.',
-      '    - Translate the optimized title to Arabic.',
-      '',
-      '2. DESCRIPTION:',
-      '    - Rewrite the description to be engaging, informative, and SEO-optimized.',
-      '    - Format it as clean HTML using tags like <ul>, <li>, <strong> - NO inline styles, NO classes.',
-      '    - Structure it as a bullet list.',
-      '    - If any specification has no match in the database (specification_id = "not_exist"), append it naturally into the HTML description.',
-      '    - If any attribute has no match in the database (attribute_id = "not_exist"), append it naturally into the HTML description.',
-      '    - Translate the full HTML description to Arabic (keep HTML tags, translate only the text inside them).',
-      '',
-      '3. SPECIFICATIONS:',
-      '    STEP 1 - EXTRACT (do this first, before any matching):',
-      '        - Read the product title word by word. Pull out every measurable or descriptive value.',
-      '        - Read the product description sentence by sentence. Pull out every measurable or descriptive value.',
-      '        - Read every raw specification key-value pair.',
-      '        - Combine all extracted values into a single master list.',
-      '        - DO NOT skip this step.',
-      '',
-      '    STEP 2 - CLASSIFY AND MATCH (CRITICAL RULE):',
-      '        - Go through the DATABASE SPECIFICATIONS list from top to bottom.',
-      '        - Pay STRICT attention to the "allow_ai_inference" flag for each specification:',
-      '            * If allow_ai_inference is FALSE: The metric MUST exist in the source data. You ARE EXPLICITLY ALLOWED to match synonyms, typos, and slight naming variations (e.g., source "Response Time" maps to DB "Responsive Time"). This is NOT considered guessing. If the spec name exists in the source but its specific value (e.g., "4ms") is missing from the DB values list, DO NOT skip the specification.',
-      '            * If allow_ai_inference is TRUE: You MUST deduce the value based on other specifications, even if the exact word is not explicitly written in the source text.',
-      '        - If a category specification has an explicit source value, you MUST include it in the output and MUST NOT omit it.',
-      '        - If a category specification has no explicit source value and allow_ai_inference is FALSE, omit it.',
-      '        - If a category specification has no explicit source value and allow_ai_inference is TRUE, you MUST infer it and include it.',
-      '        - Mark each DB spec as: FOUND, INFERRED, or NOT FOUND.',
-      '',
-      '    STEP 3 - BUILD the specifications array:',
-      '        - For every FOUND or INFERRED DB spec:',
-      '            * If the exact value exists in DB -> matched_value_id = <int id>.',
-      '            * If the exact value does NOT exist in DB -> matched_value_id = "not_exist", and put the raw string in original_value.name_en.',
-      '            * YOU MUST NOT drop a specification just because its value is missing from the DB. Use "not_exist".',
-      '            * ONLY when the specification has a unit such as inch, Hz, ms, or GB, NEVER choose the nearest or closest existing database value for measurable data. If the source says "25 inch" and the database has only "24.5 inch", you MUST return "not_exist" and preserve "25 inch" as the original value.',
-      '        - For every NOT FOUND DB spec -> skip it entirely.',
-      '',
-      '4. ATTRIBUTES:',
-      '    STEP 1 - EXTRACT:',
-      '        - Read the product title/description for color, size, material, language, or variant.',
-      '        - Read every raw attribute field.',
-      '        - Combine all extracted values into a single master list.',
-      '',
-      '    STEP 2 - CLASSIFY AND MATCH (CRITICAL RULE):',
-      '        - Go through the DATABASE ATTRIBUTES list from top to bottom.',
-      '        - Pay STRICT attention to the "allow_ai_inference" flag for each attribute:',
-      '            * If allow_ai_inference is FALSE: The value MUST exist in the source data. You ARE EXPLICITLY ALLOWED to match synonyms, typos, and slight naming variations. This is NOT considered guessing. If the attribute exists in the source but its specific value is missing from the DB values list, DO NOT skip the attribute.',
-      '            * If allow_ai_inference is TRUE: You MUST deduce ALL applicable values based on context (e.g., if a monitor has "Game Mode" and is a "Business Monitor", you MUST infer BOTH "Gaming" and "Office" usages).',
-      '        - If a category attribute has an explicit source value, you MUST include it in the output and MUST NOT omit it.',
-      '        - If a category attribute has no explicit source value and allow_ai_inference is FALSE, omit it.',
-      '        - If a category attribute has no explicit source value and allow_ai_inference is TRUE, you MUST infer it and include it.',
-      '        - Mark each DB attribute as: FOUND, INFERRED, or NOT FOUND.',
-      '',
-      '    STEP 3 - BUILD the attributes array:',
-      '        - For every FOUND or INFERRED DB attribute:',
-      '            * An attribute can have MULTIPLE values. If multiple values apply (like multiple Usages or multiple Ports), include ALL of them as separate objects inside the "values" array.',
-      '            * If the exact value exists in DB -> matched_value_id = <int id>.',
-      '            * If the exact value does NOT exist in DB -> matched_value_id = "not_exist", and put the raw string in original_value.name_en.',
-      '            * YOU MUST NOT drop an attribute just because its value is missing from the DB. Use "not_exist".',
-      '            * ONLY when the attribute has a unit such as inch, Hz, ms, or GB, NEVER choose the nearest or closest existing database value for measurable data. If the exact raw value is missing, return "not_exist" and preserve the raw value.',
-      '            * If the attribute has no unit, do normal text/value matching and do not force a new value based only on this numeric safeguard.',
-      '        - For every NOT FOUND DB attribute -> skip it entirely.',
-      '',
-      '5. META DESCRIPTION: Must be 160 characters or fewer.',
-      '6. META TITLE: Must be 70 characters or fewer.',
-      '7. SHORT DESCRIPTION: The 4 most important points as clean HTML bullet list.',
-      '',
-      'STRICT RULES:',
-      '    1. DO NOT explain anything.',
-      '    2. Output JSON ONLY. No markdown. No comments. No code fences.',
-      '',
-      'Respond ONLY with a JSON object in this exact format:',
-      '{',
-      '"brand_name": "<exact english brand name from database> or null",',
-      '"title_en": "<seo optimized title in english>",',
-      '"title_ar": "<seo optimized title in arabic>",',
-      '"meta_title_en": "<meta seo optimized title in english>",',
-      '"meta_title_ar": "<meta seo optimized title in arabic>",',
-      '"short_description_en": "<4 most important points as HTML bullet list in english>",',
-      '"short_description_ar": "<4 most important points as HTML bullet list in arabic>",',
-      '"description_en": "<full HTML formatted description in english>",',
-      '"description_ar": "<full HTML formatted description in arabic>",',
-      '"meta_description_en": "<meta seo optimized description in english, max 160 chars>",',
-      '"meta_description_ar": "<meta seo optimized description in arabic, max 160 chars>",',
-      '"specifications": [',
-      '    {',
-      '    "specification_id": <int>,',
-      '    "values": [',
-      '        {',
-      '            "original_value": {',
-      '                "name_en": "<raw extracted value in english>",',
-      '                "name_ar": "<arabic translation if text, same as name_en if numeric/technical>"',
-      '            },',
-      '            "matched_value_id": <int> or "not_exist"',
-      '        }',
-      '    ]',
-      '    }',
-      '],',
-      '"attributes": [',
-      '    {',
-      '        "attribute": {',
-      '            "original_value": "<string>",',
-      '            "attribute_id": <int>',
-      '        },',
-      '        "values": [',
-      '            {',
-      '            "original_value": "<raw extracted value string>",',
-      '            "matched_value_id": <int> or "not_exist"',
-      '            }',
-      '        ]',
-      '    }',
-      ']',
-      '}',
-    ].join('\n');
-  }
-
   private getObject(value: unknown): Record<string, unknown> | null {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       return null;
@@ -2151,6 +1821,13 @@ export class ProductImportService {
     return undefined;
   }
 
+  private async findActiveBrands(): Promise<Brand[]> {
+    return this.brandsRepository.find({
+      where: { status: BrandStatus.ACTIVE },
+      order: { name_en: 'ASC' },
+    });
+  }
+
   private getOpenAiLogPath(): string {
     const configuredPath = process.env.PRODUCT_IMPORT_OPENAI_LOG_PATH?.trim();
 
@@ -2163,16 +1840,9 @@ export class ProductImportService {
       : resolvePath(process.cwd(), configuredPath);
   }
 
-  private buildOpenAiLogEntry(input: {
-    model: string;
-    openAiInput: Array<{ role: string; content: string }>;
-    rawProductInput: NormalizedImportPayload;
-    sourceFile: string | null;
-    openAiResponse?: unknown;
-    rawOutputText?: string | null;
-    parsedOutput?: ImportAiResult;
-    errorMessage?: string;
-  }): Record<string, unknown> {
+  private buildOpenAiLogEntry(
+    input: OpenAiLogContext,
+  ): Record<string, unknown> {
     return {
       timestamp: new Date().toISOString(),
       source_file: input.sourceFile,
@@ -2201,7 +1871,9 @@ export class ProductImportService {
   private requireString(value: unknown, fieldName: string): string {
     const normalized = this.requireOptionalString(value);
     if (!normalized) {
-      throw new BadRequestException(`${fieldName} is missing in the AI response.`);
+      throw new BadRequestException(
+        `${fieldName} is missing in the AI response.`,
+      );
     }
 
     return normalized;
