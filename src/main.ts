@@ -66,6 +66,7 @@ async function bootstrap() {
   const isProduction = process.env.IS_PRODUCTION === 'true';
   const allowedOrigins = [
     'https://addmin.ordonsooq.com',
+    'https://api.ordonsooq.com',
     'https://ordonsooq-public.vercel.app',
     'https://ordonsooq.com',
     'https://www.ordonsooq.com',

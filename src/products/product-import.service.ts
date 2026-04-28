@@ -67,6 +67,7 @@ interface NormalizedImportPayload {
   stock?: unknown;
   sku?: string | null;
   record?: string | null;
+  raw_data: Record<string, unknown>;
 }
 
 interface InternalDefinitionValueState {
@@ -323,7 +324,50 @@ export class ProductImportService {
       stock: mergedPayload.stock ?? mergedPayload.in_stock,
       sku: this.requireOptionalString(mergedPayload.sku),
       record: this.requireOptionalString(mergedPayload.record),
+      raw_data: this.extractAdditionalRawData(mergedPayload),
     };
+  }
+
+  private extractAdditionalRawData(
+    mergedPayload: Record<string, unknown>,
+  ): Record<string, unknown> {
+    const normalizedKeys = new Set([
+      'title',
+      'name_en',
+      'title_en',
+      'description',
+      'long_description_en',
+      'short_description_en',
+      'new_price',
+      'old_price',
+      'price',
+      'sale_price',
+      'brand',
+      'image',
+      'images',
+      'media',
+      'specification',
+      'specifications',
+      'attributes',
+      'reference_link',
+      'url',
+      'link',
+      'quantity',
+      'stock',
+      'in_stock',
+      'sku',
+      'record',
+      'data',
+      'category_id',
+      'category_ids',
+      'vendor_id',
+      'model',
+      'source_file',
+    ]);
+
+    return Object.fromEntries(
+      Object.entries(mergedPayload).filter(([key]) => !normalizedKeys.has(key)),
+    );
   }
 
   private normalizeInputCollection(value: unknown): unknown[] {
@@ -581,7 +625,7 @@ export class ProductImportService {
     }
 
     this.logger.log(
-      'No brand resolved from source data or AI; creating product without brand_id.',
+      'No brand resolved from AI, payload.brand fallback, or backend text detection; creating product without brand_id.',
     );
 
     return null;
@@ -604,17 +648,7 @@ export class ProductImportService {
   }
 
   private buildOpenAiUserPrompt(payload: NormalizedImportPayload): string {
-    return JSON.stringify(
-      {
-        brand: payload.brand,
-        title: payload.title,
-        description: payload.description,
-        specification: payload.specification,
-        attributes: payload.attributes,
-      },
-      null,
-      2,
-    );
+    return JSON.stringify(payload, null, 2);
   }
 
   private getOpenAiApiKey(): string {
@@ -728,32 +762,38 @@ export class ProductImportService {
       .trim();
   }
 
-  private resolveOptionalBrand(
+  private selectBrandCandidate(
     brands: Brand[],
     payload: NormalizedImportPayload,
     aiBrandName: unknown,
-  ): { brandId: number | null; brandName: string | null } {
-    const sourceBrand = this.requireOptionalString(payload.brand);
-    const detectedBrand = this.detectBrandNameFromText(brands, payload);
+  ): string | null {
     const aiBrand = this.requireOptionalString(aiBrandName);
 
-    for (const candidate of [sourceBrand, detectedBrand, aiBrand]) {
-      if (!candidate) {
-        continue;
-      }
+    if (aiBrand) {
+      return aiBrand;
+    }
 
-      const brandId = this.findBrandIdByName(brands, candidate);
-      if (brandId !== null) {
-        return {
-          brandId,
-          brandName: candidate,
-        };
-      }
+    const sourceBrand = this.requireOptionalString(payload.brand);
+    if (sourceBrand) {
+      return sourceBrand;
+    }
+
+    return this.detectBrandNameFromText(brands, payload);
+  }
+
+  private resolveBrandCatalogMatch(
+    brands: Brand[],
+    brandName: string,
+  ): { brandId: number; brandName: string } | null {
+    const matchedBrand = this.findBrandByName(brands, brandName);
+
+    if (!matchedBrand) {
+      return null;
     }
 
     return {
-      brandId: null,
-      brandName: null,
+      brandId: matchedBrand.id,
+      brandName: this.getBrandDisplayName(matchedBrand, brandName),
     };
   }
 
@@ -766,21 +806,13 @@ export class ProductImportService {
     brandName: string | null;
     brandCreated: boolean;
   }> {
-    const resolvedBrand = this.resolveOptionalBrand(
+    const brandCandidate = this.selectBrandCandidate(
       brands,
       payload,
       aiBrandName,
     );
 
-    if (resolvedBrand.brandId !== null) {
-      return {
-        ...resolvedBrand,
-        brandCreated: false,
-      };
-    }
-
-    const sourceBrandName = this.requireOptionalString(payload.brand);
-    if (!sourceBrandName) {
+    if (!brandCandidate) {
       return {
         brandId: null,
         brandName: null,
@@ -788,27 +820,34 @@ export class ProductImportService {
       };
     }
 
+    const resolvedBrand = this.resolveBrandCatalogMatch(brands, brandCandidate);
+    if (resolvedBrand) {
+      return {
+        ...resolvedBrand,
+        brandCreated: false,
+      };
+    }
+
     try {
       const createdBrand = await this.brandsService.create({
-        name_en: sourceBrandName,
-        name_ar: sourceBrandName,
+        name_en: brandCandidate,
+        name_ar: brandCandidate,
       });
       brands.push(createdBrand);
 
       return {
         brandId: createdBrand.id,
-        brandName: createdBrand.name_en?.trim() || sourceBrandName,
+        brandName: this.getBrandDisplayName(createdBrand, brandCandidate),
         brandCreated: true,
       };
     } catch (error) {
       const refreshedBrands = await this.findActiveBrands();
-      const refreshedBrand = this.resolveOptionalBrand(
+      const refreshedBrand = this.resolveBrandCatalogMatch(
         refreshedBrands,
-        payload,
-        aiBrandName,
+        brandCandidate,
       );
 
-      if (refreshedBrand.brandId !== null) {
+      if (refreshedBrand) {
         return {
           ...refreshedBrand,
           brandCreated: false,
@@ -850,7 +889,7 @@ export class ProductImportService {
     return null;
   }
 
-  private findBrandIdByName(brands: Brand[], brandName: string): number | null {
+  private findBrandByName(brands: Brand[], brandName: string): Brand | null {
     const normalizedBrandName = this.normalizeLookupText(brandName);
 
     for (const brand of brands) {
@@ -860,11 +899,19 @@ export class ProductImportService {
         .map((name) => this.normalizeLookupText(name));
 
       if (brandNames.includes(normalizedBrandName)) {
-        return brand.id;
+        return brand;
       }
     }
 
     return null;
+  }
+
+  private getBrandDisplayName(brand: Brand, fallback: string): string {
+    return (
+      this.requireOptionalString(brand.name_en) ??
+      this.requireOptionalString(brand.name_ar) ??
+      fallback
+    );
   }
 
   private normalizeLookupText(value: string): string {
