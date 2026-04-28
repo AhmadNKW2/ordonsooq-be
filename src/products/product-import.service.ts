@@ -767,6 +767,15 @@ export class ProductImportService {
     payload: NormalizedImportPayload,
     aiBrandName: unknown,
   ): string | null {
+    const corroboratedSourceBrand = this.resolveCorroboratedSourceBrand(
+      brands,
+      payload,
+    );
+
+    if (corroboratedSourceBrand) {
+      return corroboratedSourceBrand.brandName;
+    }
+
     const aiBrand = this.requireOptionalString(aiBrandName);
 
     if (aiBrand) {
@@ -779,6 +788,40 @@ export class ProductImportService {
     }
 
     return this.detectBrandNameFromText(brands, payload);
+  }
+
+  private resolveCorroboratedSourceBrand(
+    brands: Brand[],
+    payload: NormalizedImportPayload,
+  ): { brandId: number; brandName: string } | null {
+    const sourceBrand = this.requireOptionalString(payload.brand);
+
+    if (!sourceBrand) {
+      return null;
+    }
+
+    const matchedSourceBrand = this.resolveBrandCatalogMatch(
+      brands,
+      sourceBrand,
+    );
+
+    if (!matchedSourceBrand) {
+      return null;
+    }
+
+    const normalizedSearchText = this.normalizeLookupText(
+      this.buildBrandSearchableText(payload),
+    );
+
+    if (!normalizedSearchText) {
+      return null;
+    }
+
+    return normalizedSearchText.includes(
+      this.normalizeLookupText(matchedSourceBrand.brandName),
+    )
+      ? matchedSourceBrand
+      : null;
   }
 
   private resolveBrandCatalogMatch(
@@ -862,13 +905,7 @@ export class ProductImportService {
     brands: Brand[],
     payload: NormalizedImportPayload,
   ): string | null {
-    const searchableText = [
-      payload.title,
-      payload.description,
-      payload.reference_link,
-    ]
-      .filter((value): value is string => !!value)
-      .join(' ');
+    const searchableText = this.buildBrandSearchableText(payload);
     const normalizedText = this.normalizeLookupText(searchableText);
 
     if (!normalizedText) {
@@ -887,6 +924,21 @@ export class ProductImportService {
     }
 
     return null;
+  }
+
+  private buildBrandSearchableText(payload: NormalizedImportPayload): string {
+    return [
+      payload.title,
+      payload.description,
+      payload.reference_link,
+      JSON.stringify(payload.specification),
+      JSON.stringify(payload.attributes),
+      Object.keys(payload.raw_data).length
+        ? JSON.stringify(payload.raw_data)
+        : null,
+    ]
+      .filter((value): value is string => !!value)
+      .join(' ');
   }
 
   private findBrandByName(brands: Brand[], brandName: string): Brand | null {
@@ -954,6 +1006,92 @@ export class ProductImportService {
 
   private hasDefinedUnit(definition: ImportDefinition): boolean {
     return this.extractDefinitionUnits(definition).length > 0;
+  }
+
+  private buildDefinitionRawCandidates(
+    definition: ImportDefinition,
+    rawValues: string[],
+  ): string[] {
+    const candidates = this.dedupeNonEmptyStrings(rawValues);
+
+    if (!this.hasDefinedUnit(definition)) {
+      return candidates;
+    }
+
+    return this.dedupeNonEmptyStrings([
+      ...candidates,
+      ...candidates.map((candidate) =>
+        this.normalizeDefinitionValueForStorage(definition, candidate),
+      ),
+    ]);
+  }
+
+  private getDefinitionUnitVariants(definition: ImportDefinition): string[] {
+    const variants = new Set<string>();
+
+    for (const unit of this.extractDefinitionUnits(definition)) {
+      const normalizedUnit = unit.trim();
+
+      if (!normalizedUnit) {
+        continue;
+      }
+
+      variants.add(normalizedUnit);
+
+      if (/^[a-z]+$/i.test(normalizedUnit)) {
+        variants.add(`${normalizedUnit}s`);
+      }
+
+      if (normalizedUnit.toLowerCase() === 'inch') {
+        variants.add('inches');
+      }
+    }
+
+    return Array.from(variants);
+  }
+
+  private normalizeDefinitionValueForStorage(
+    definition: ImportDefinition,
+    rawValue: string,
+  ): string {
+    const trimmedValue = rawValue.trim();
+
+    if (!trimmedValue || !this.hasDefinedUnit(definition)) {
+      return trimmedValue;
+    }
+
+    let normalizedValue = trimmedValue;
+
+    for (const unit of this.getDefinitionUnitVariants(definition)) {
+      const escapedUnit = this.escapeRegExp(unit);
+
+      normalizedValue = normalizedValue
+        .replace(
+          new RegExp(
+            `(\\d+(?:\\.\\d+)?)\\s*[-/]*\\s*${escapedUnit}\\b`,
+            'giu',
+          ),
+          '$1',
+        )
+        .replace(
+          new RegExp(
+            `\\b${escapedUnit}\\s*[-/]*\\s*(\\d+(?:\\.\\d+)?)`,
+            'giu',
+          ),
+          '$1',
+        );
+    }
+
+    const numericSignature = this.extractNumericSignature(normalizedValue);
+
+    if (numericSignature.length === 1) {
+      return numericSignature[0];
+    }
+
+    return normalizedValue
+      .replace(/\s*[-/]\s*/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
   }
 
   private buildDefinitionValueCandidates(
@@ -1036,6 +1174,28 @@ export class ProductImportService {
     }
 
     return null;
+  }
+
+  private findExactMatchedValueIdFromCandidates(
+    definition: ImportDefinition,
+    rawCandidates: string[],
+  ): number | null {
+    for (const rawCandidate of rawCandidates) {
+      const matchedValueId = this.findExactMatchedValueId(
+        definition,
+        rawCandidate,
+      );
+
+      if (matchedValueId) {
+        return matchedValueId;
+      }
+    }
+
+    return null;
+  }
+
+  private escapeRegExp(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   }
 
   private analyzeApproximateMatch(
@@ -1212,7 +1372,10 @@ export class ProductImportService {
       getDefinitionId: (entry: TAiEntry) => number | null;
       getValues: (entry: TAiEntry) => TValue[] | undefined;
       definitionKind: 'specification' | 'attribute';
-      parseValue: (value: TValue) => ParsedDefinitionValue;
+      parseValue: (
+        definition: TDefinition,
+        value: TValue,
+      ) => ParsedDefinitionValue;
       createValue: (
         definitionId: number,
         parsedValue: ParsedDefinitionValue,
@@ -1258,7 +1421,7 @@ export class ProductImportService {
         let matchedValueId =
           valueMatch?.type === 'existing' ? valueMatch.matchedValueId : null;
         let shouldCreateValue = valueMatch?.type === 'new';
-        const parsedValue = input.parseValue(value);
+        const parsedValue = input.parseValue(matchedDefinition, value);
 
         if (matchedValueId) {
           const matchedValue = valueLookup.get(matchedValueId);
@@ -1292,6 +1455,21 @@ export class ProductImportService {
           } else {
             this.logger.log(
               `${definitionKindLabel} ${definitionId}: keeping matched value id=${matchedValueId} for raw value '${parsedValue.displayValue}' (no unit defined; approximate numeric safeguard not applied).`,
+            );
+          }
+        }
+
+        if (!matchedValueId && shouldCreateValue) {
+          const exactMatchedValueId = this.findExactMatchedValueIdFromCandidates(
+            matchedDefinition,
+            parsedValue.rawCandidates,
+          );
+
+          if (exactMatchedValueId) {
+            matchedValueId = exactMatchedValueId;
+            shouldCreateValue = false;
+            this.logger.log(
+              `${definitionKindLabel} ${definitionId}: reused existing value id=${matchedValueId} for raw value '${parsedValue.displayValue}' after exact unit-aware normalization.`,
             );
           }
         }
@@ -1388,16 +1566,26 @@ export class ProductImportService {
           this.extractPositiveInteger(specification.specification_id),
         getValues: (specification) => specification.values,
         definitionKind: 'specification',
-        parseValue: (value) => {
+        parseValue: (definition, value) => {
           const localizedValue = this.extractLocalizedValue(
             value.original_value,
           );
+          const rawCandidates = this.buildDefinitionRawCandidates(definition, [
+            localizedValue.name_en,
+            localizedValue.name_ar,
+          ]);
+          const canonicalValue = this.hasDefinedUnit(definition)
+            ? this.normalizeDefinitionValueForStorage(
+                definition,
+                localizedValue.name_en,
+              )
+            : null;
 
           return {
             displayValue: localizedValue.name_en,
-            rawCandidates: [localizedValue.name_en, localizedValue.name_ar],
-            createValueNameEn: localizedValue.name_en,
-            createValueNameAr: localizedValue.name_ar,
+            rawCandidates,
+            createValueNameEn: canonicalValue ?? localizedValue.name_en,
+            createValueNameAr: canonicalValue ?? localizedValue.name_ar,
           };
         },
         createValue: async (specificationId, parsedValue) =>
@@ -1430,14 +1618,20 @@ export class ProductImportService {
         this.extractPositiveInteger(attribute.attribute?.attribute_id),
       getValues: (attribute) => attribute.values,
       definitionKind: 'attribute',
-      parseValue: (value) => {
+      parseValue: (definition, value) => {
         const rawValue = this.extractSimpleText(value.original_value);
+        const rawCandidates = this.buildDefinitionRawCandidates(definition, [
+          rawValue,
+        ]);
+        const canonicalValue = this.hasDefinedUnit(definition)
+          ? this.normalizeDefinitionValueForStorage(definition, rawValue)
+          : null;
 
         return {
           displayValue: rawValue,
-          rawCandidates: [rawValue],
-          createValueNameEn: rawValue,
-          createValueNameAr: rawValue,
+          rawCandidates,
+          createValueNameEn: canonicalValue ?? rawValue,
+          createValueNameAr: canonicalValue ?? rawValue,
         };
       },
       createValue: async (attributeId, parsedValue) =>
