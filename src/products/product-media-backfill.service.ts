@@ -38,6 +38,7 @@ export class ProductMediaBackfillService implements OnApplicationBootstrap {
           COALESCE(media.created_at, NOW()),
           COALESCE(media.updated_at, NOW())
         FROM media
+        INNER JOIN products ON products.id = media.product_id
         WHERE media.product_id IS NOT NULL
         ON CONFLICT (product_id, media_id) DO NOTHING
         RETURNING id
