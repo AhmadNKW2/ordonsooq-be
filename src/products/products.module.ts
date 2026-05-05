@@ -11,6 +11,7 @@ import { ProductAttributeValue } from './entities/product-attribute-value.entity
 import { ProductGroup } from './entities/product-group.entity';
 import { GroupProduct } from './entities/group-product.entity';
 import { ProductMedia } from './entities/product-media.entity';
+import { ProductInputJson } from './entities/product-input-json.entity';
 import { AttributesModule } from '../attributes/attributes.module';
 import { AttributeValue } from '../attributes/entities/attribute-value.entity';
 import { Attribute } from '../attributes/entities/attribute.entity';
@@ -36,6 +37,7 @@ import { BrandsModule } from '../brands/brands.module';
       ProductAttributeValue,
       ProductCategory,
       ProductMedia,
+      ProductInputJson,
       ProductSpecificationValue,
       ProductGroup,
       GroupProduct,

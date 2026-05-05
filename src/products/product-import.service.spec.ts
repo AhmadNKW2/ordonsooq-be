@@ -3,11 +3,16 @@ import { ProductImportService } from './product-import.service';
 
 describe('ProductImportService', () => {
   let service: ProductImportService;
+  let productInputJsonRepository: { create: jest.Mock; save: jest.Mock };
   let specificationsService: { addValue: jest.Mock };
   let attributesService: { addValue: jest.Mock };
   let brandsService: { create: jest.Mock };
 
   beforeEach(() => {
+    productInputJsonRepository = {
+      create: jest.fn((value) => value),
+      save: jest.fn(),
+    };
     specificationsService = {
       addValue: jest.fn(),
     };
@@ -20,12 +25,106 @@ describe('ProductImportService', () => {
 
     service = new ProductImportService(
       { find: jest.fn() } as never,
+      productInputJsonRepository as never,
       { create: jest.fn() } as never,
       specificationsService as never,
       attributesService as never,
       { uploadAndCreate: jest.fn() } as never,
       brandsService as never,
     );
+  });
+
+  it('stores the raw import request body after creating the product', async () => {
+    const inputBody = {
+      payload: {
+        title: 'Imported Monitor',
+        description: 'Imported description',
+        new_price: '99.99',
+      },
+      category_id: 9,
+      vendor_id: 2,
+    };
+    const createProductDto = {
+      name_en: 'Imported Monitor',
+      name_ar: 'شاشة مستوردة',
+    };
+    const createdProduct = {
+      product: {
+        id: 321,
+      },
+      message: 'Product created successfully.',
+    };
+    const createMock = jest.fn().mockResolvedValue(createdProduct);
+
+    service = new ProductImportService(
+      { find: jest.fn() } as never,
+      productInputJsonRepository as never,
+      { create: createMock } as never,
+      specificationsService as never,
+      attributesService as never,
+      { uploadAndCreate: jest.fn() } as never,
+      brandsService as never,
+    );
+
+    jest
+      .spyOn(service as any, 'parseRequest')
+      .mockReturnValue({
+        payload: {
+          title: 'Imported Monitor',
+          description: 'Imported description',
+          new_price: '99.99',
+          old_price: undefined,
+          price: undefined,
+          sale_price: undefined,
+          brand: null,
+          image: null,
+          images: [],
+          media: [],
+          specification: [],
+          attributes: [],
+          reference_link: null,
+          quantity: undefined,
+          stock: undefined,
+          sku: null,
+          record: null,
+          raw_data: {},
+        },
+        categoryId: 9,
+        vendorId: 2,
+        model: 'gpt-5.4',
+        sourceFile: null,
+      });
+    jest.spyOn(service as any, 'loadImportCatalog').mockResolvedValue({
+      brands: [],
+      specifications: [],
+      attributes: [],
+    });
+    jest.spyOn(service as any, 'callOpenAi').mockResolvedValue({
+      title_en: 'Imported Monitor',
+      title_ar: 'شاشة مستوردة',
+      short_description_en: 'Imported short description',
+      short_description_ar: 'وصف قصير مستورد',
+      description_en: 'Imported long description',
+      description_ar: 'وصف طويل مستورد',
+      specifications: [],
+      attributes: [],
+    });
+    jest
+      .spyOn(service as any, 'buildCreateProductDto')
+      .mockResolvedValue(createProductDto);
+
+    const result = await service.importFromRequest(inputBody);
+
+    expect(createMock).toHaveBeenCalledWith(createProductDto, undefined);
+    expect(productInputJsonRepository.create).toHaveBeenCalledWith({
+      product_id: 321,
+      input_json: inputBody,
+    });
+    expect(productInputJsonRepository.save).toHaveBeenCalledWith({
+      product_id: 321,
+      input_json: inputBody,
+    });
+    expect(result).toBe(createdProduct);
   });
 
   it('prefers a corroborated payload brand over a conflicting AI brand', async () => {

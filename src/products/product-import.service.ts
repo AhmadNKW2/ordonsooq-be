@@ -12,6 +12,7 @@ import { Brand, BrandStatus } from '../brands/entities/brand.entity';
 import { Specification } from '../specifications/entities/specification.entity';
 import { SpecificationsService } from '../specifications/specifications.service';
 import { CreateProductDto } from './dto/create-product.dto';
+import { ProductInputJson } from './entities/product-input-json.entity';
 import { ProductStatus } from './entities/product.entity';
 import { buildProductImportSystemPrompt } from './prompts/product-import-system.prompt';
 import { ProductsService } from './products.service';
@@ -189,6 +190,8 @@ export class ProductImportService {
   constructor(
     @InjectRepository(Brand)
     private readonly brandsRepository: Repository<Brand>,
+    @InjectRepository(ProductInputJson)
+    private readonly productInputJsonRepository: Repository<ProductInputJson>,
     private readonly productsService: ProductsService,
     private readonly specificationsService: SpecificationsService,
     private readonly attributesService: AttributesService,
@@ -211,7 +214,21 @@ export class ProductImportService {
         aiResult,
         catalog,
       );
-      return this.productsService.create(createProductDto, userId);
+      const createdProduct = await this.productsService.create(
+        createProductDto,
+        userId,
+      );
+      const createdProductId = this.extractCreatedProductId(createdProduct);
+
+      if (!createdProductId) {
+        throw new BadRequestException(
+          'Failed to determine the created product id for input JSON storage.',
+        );
+      }
+
+      await this.storeImportedInputJson(createdProductId, body);
+
+      return createdProduct;
     } catch (error) {
       if (error instanceof BadRequestException) {
         throw error;
@@ -224,6 +241,36 @@ export class ProductImportService {
         `Failed to import product payload: ${getErrorMessage(error)}`,
       );
     }
+  }
+
+  private extractCreatedProductId(result: unknown): number | null {
+    if (!result || typeof result !== 'object') {
+      return null;
+    }
+
+    const product = (result as { product?: unknown }).product;
+
+    if (!product || typeof product !== 'object') {
+      return null;
+    }
+
+    const id = (product as { id?: unknown }).id;
+
+    return typeof id === 'number' && Number.isInteger(id) && id > 0
+      ? id
+      : null;
+  }
+
+  private async storeImportedInputJson(
+    productId: number,
+    inputJson: Record<string, unknown>,
+  ): Promise<void> {
+    await this.productInputJsonRepository.save(
+      this.productInputJsonRepository.create({
+        product_id: productId,
+        input_json: inputJson,
+      }),
+    );
   }
 
   private parseRequest(body: Record<string, unknown>): ParsedImportRequest {

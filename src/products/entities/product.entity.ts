@@ -5,6 +5,7 @@ import {
   ManyToOne,
   ManyToMany,
   OneToMany,
+  OneToOne,
   JoinTable,
   CreateDateColumn,
   UpdateDateColumn,
@@ -22,6 +23,7 @@ import { Media } from '../../media/entities/media.entity';
 import { ProductAttribute } from './product-attribute.entity';
 import { ProductCategory } from './product-category.entity';
 import { ProductMedia } from './product-media.entity';
+import { ProductInputJson } from './product-input-json.entity';
 import { ProductSpecificationValue } from './product-specification-value.entity';
 import { GroupProduct } from './group-product.entity';
 
@@ -205,6 +207,12 @@ export class Product {
 
   @OneToMany(() => GroupProduct, (groupProduct) => groupProduct.product)
   groupProducts: GroupProduct[];
+
+  @OneToOne(
+    () => ProductInputJson,
+    (productInputJson) => productInputJson.product,
+  )
+  product_input_json?: ProductInputJson | null;
 
   // Tags relationship (many-to-many, drives search term expansion)
   @ManyToMany('Tag', (tag: any) => tag.products, { eager: false })
