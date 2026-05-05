@@ -245,7 +245,7 @@ export class VendorsController {
     type: ApiErrorResponseDto,
   })
   @ApiConflictResponse({
-    description: 'Duplicate vendor category reference link exists in the payload or vendor tree.',
+    description: 'Request conflicts with the current vendor category tree.',
     type: ApiErrorResponseDto,
   })
   @ApiNotFoundResponse({

@@ -278,4 +278,65 @@ describe('VendorsService vendor categories', () => {
       category_ids: [],
     });
   });
+
+  it('allows duplicate reference_link values in one vendor category tree payload', async () => {
+    vendorRepository.findOne.mockResolvedValue({ id: 5, name_en: 'Vendor 5' });
+    categoriesRepository.find.mockResolvedValue([]);
+    vendorCategoryRepository.find.mockResolvedValue([
+      {
+        id: 101,
+        title: 'Displays',
+        reference_link: '/shared-link',
+        vendor_id: 5,
+        parent_id: null,
+        sort_order: 0,
+        created_at: new Date('2026-05-05T00:00:00.000Z'),
+        updated_at: new Date('2026-05-05T00:00:00.000Z'),
+        categories: [],
+      },
+      {
+        id: 102,
+        title: 'OLED',
+        reference_link: '/shared-link',
+        vendor_id: 5,
+        parent_id: 101,
+        sort_order: 0,
+        created_at: new Date('2026-05-05T00:00:00.000Z'),
+        updated_at: new Date('2026-05-05T00:00:00.000Z'),
+        categories: [],
+      },
+    ]);
+
+    const result = await service.replaceVendorCategoriesTree(5, {
+      categories: [
+        {
+          title: 'Displays',
+          reference_link: '/shared-link',
+          children: [
+            {
+              title: 'OLED',
+              reference_link: '/shared-link',
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(transactionVendorCategoryRepository.save).toHaveBeenNthCalledWith(1, {
+      vendor_id: 5,
+      title: 'Displays',
+      reference_link: '/shared-link',
+      parent_id: null,
+      sort_order: 0,
+    });
+    expect(transactionVendorCategoryRepository.save).toHaveBeenNthCalledWith(2, {
+      vendor_id: 5,
+      title: 'OLED',
+      reference_link: '/shared-link',
+      parent_id: 101,
+      sort_order: 0,
+    });
+    expect(result[0].reference_link).toBe('/shared-link');
+    expect(result[0].children[0].reference_link).toBe('/shared-link');
+  });
 });

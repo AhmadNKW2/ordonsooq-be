@@ -106,7 +106,6 @@ export class VendorsService {
   private normalizeVendorCategoryTreePayload(
     nodes: ReplaceVendorCategoryTreeNodeDto[],
     pathPrefix = 'categories',
-    seenUrls = new Set<string>(),
   ): {
     nodes: NormalizedVendorCategoryTreeNode[];
     categoryIds: number[];
@@ -128,14 +127,6 @@ export class VendorsService {
         throw new BadRequestException(`${path}.reference_link is required`);
       }
 
-      if (seenUrls.has(referenceLink)) {
-        throw new ConflictException(
-          `Vendor category reference_link '${referenceLink}' is duplicated in the tree payload`,
-        );
-      }
-
-      seenUrls.add(referenceLink);
-
       const normalizedCategoryIds = this.normalizeVendorCategoryIds(
         node.category_ids,
       );
@@ -144,7 +135,6 @@ export class VendorsService {
       const childResult = this.normalizeVendorCategoryTreePayload(
         node.children ?? [],
         `${path}.children`,
-        seenUrls,
       );
       childResult.categoryIds.forEach((categoryId) => categoryIds.add(categoryId));
 
@@ -176,23 +166,6 @@ export class VendorsService {
 
     if (categories.length !== categoryIds.length) {
       throw new NotFoundException('One or more mapped categories were not found');
-    }
-  }
-
-  private async ensureVendorCategoryReferenceLinkIsUnique(
-    vendorId: number,
-    referenceLink: string,
-    currentId?: number,
-  ): Promise<void> {
-    const existing = await this.vendorCategoryRepository.findOne({
-      where: { vendor_id: vendorId, reference_link: referenceLink },
-      select: ['id'],
-    });
-
-    if (existing && existing.id !== currentId) {
-      throw new ConflictException(
-        'Vendor category with this reference_link already exists for this vendor',
-      );
     }
   }
 
@@ -630,10 +603,6 @@ export class VendorsService {
     );
 
     const referenceLink = createVendorCategoryDto.reference_link.trim();
-    await this.ensureVendorCategoryReferenceLinkIsUnique(
-      vendorId,
-      referenceLink,
-    );
 
     const vendorCategory = this.vendorCategoryRepository.create({
       vendor_id: vendorId,
@@ -746,11 +715,6 @@ export class VendorsService {
     const nextReferenceLink = (
       updateVendorCategoryDto.reference_link ?? vendorCategory.reference_link
     ).trim();
-    await this.ensureVendorCategoryReferenceLinkIsUnique(
-      vendorId,
-      nextReferenceLink,
-      vendorCategoryId,
-    );
 
     vendorCategory.title = (updateVendorCategoryDto.title ?? vendorCategory.title).trim();
     vendorCategory.reference_link = nextReferenceLink;

@@ -9,14 +9,12 @@ import {
   ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
-  Unique,
   UpdateDateColumn,
 } from 'typeorm';
 import { Category } from '../../categories/entities/category.entity';
 import { Vendor } from './vendor.entity';
 
 @Entity('vendor_categories')
-@Unique('uq_vendor_categories_vendor_url', ['vendor_id', 'reference_link'])
 @Index('idx_vendor_categories_vendor_id', ['vendor_id'])
 @Index('idx_vendor_categories_parent_id', ['parent_id'])
 @Index('idx_vendor_categories_sort_order', ['sort_order'])
