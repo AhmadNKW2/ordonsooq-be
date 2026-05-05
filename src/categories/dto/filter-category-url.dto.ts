@@ -11,13 +11,4 @@ export class FilterCategoryUrlDto {
   @Type(() => Number)
   @IsInt()
   category_id?: number;
-
-  @ApiPropertyOptional({
-    example: 2,
-    description: 'Filter category URLs by vendor id.',
-  })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  vendor_id?: number;
 }

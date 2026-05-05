@@ -25,7 +25,6 @@ import {
 import { Product, ProductStatus } from '../products/entities/product.entity';
 import { ProductCategory } from '../products/entities/product-category.entity';
 import { ProductsService } from '../products/products.service';
-import { Vendor } from '../vendors/entities/vendor.entity';
 import { VendorStatus } from '../vendors/entities/vendor.entity';
 import { R2StorageService } from '../common/services/r2-storage.service';
 import { Attribute } from '../attributes/entities/attribute.entity';
@@ -52,8 +51,6 @@ export class CategoriesService {
     private productsRepository: Repository<Product>,
     @InjectRepository(ProductCategory)
     private productCategoriesRepository: Repository<ProductCategory>,
-    @InjectRepository(Vendor)
-    private vendorsRepository: Repository<Vendor>,
     @InjectRepository(Attribute)
     private attributesRepository: Repository<Attribute>,
     private r2StorageService: R2StorageService,
@@ -136,54 +133,40 @@ export class CategoriesService {
     });
   }
 
-  private async validateCategoryUrlReferences(
-    categoryId: number,
-    vendorId: number,
-  ): Promise<void> {
-    const [categoryExists, vendorExists] = await Promise.all([
-      this.categoriesRepository.exist({ where: { id: categoryId } }),
-      this.vendorsRepository.exist({ where: { id: vendorId } }),
-    ]);
+  private async validateCategoryUrlReferences(categoryId: number): Promise<void> {
+    const categoryExists = await this.categoriesRepository.exist({
+      where: { id: categoryId },
+    });
 
     if (!categoryExists) {
       throw new NotFoundException('Category not found');
-    }
-
-    if (!vendorExists) {
-      throw new NotFoundException('Vendor not found');
     }
   }
 
   private async ensureCategoryUrlPairIsUnique(
     categoryId: number,
-    vendorId: number,
     url: string,
     currentId?: number,
   ): Promise<void> {
     const existing = await this.categoryUrlsRepository.findOne({
       where: {
         category_id: categoryId,
-        vendor_id: vendorId,
         url,
       },
     });
 
     if (existing && existing.id !== currentId) {
       throw new ConflictException(
-        'A category URL already exists for this category, vendor, and URL',
+        'A category URL already exists for this category and URL',
       );
     }
   }
 
-  private async getNextCategoryUrlSortOrder(
-    categoryId: number,
-    vendorId: number,
-  ): Promise<number> {
+  private async getNextCategoryUrlSortOrder(categoryId: number): Promise<number> {
     const maxSortOrder = await this.categoryUrlsRepository
       .createQueryBuilder('categoryUrl')
       .select('MAX(categoryUrl.sort_order)', 'max')
       .where('categoryUrl.category_id = :categoryId', { categoryId })
-      .andWhere('categoryUrl.vendor_id = :vendorId', { vendorId })
       .getRawOne<{ max: string | number | null }>();
 
     return Number(maxSortOrder?.max ?? -1) + 1;
@@ -192,22 +175,15 @@ export class CategoriesService {
   async createCategoryUrl(
     createCategoryUrlDto: CreateCategoryUrlDto,
   ): Promise<CategoryUrl> {
-    await this.validateCategoryUrlReferences(
-      createCategoryUrlDto.category_id,
-      createCategoryUrlDto.vendor_id,
-    );
+    await this.validateCategoryUrlReferences(createCategoryUrlDto.category_id);
     await this.ensureCategoryUrlPairIsUnique(
       createCategoryUrlDto.category_id,
-      createCategoryUrlDto.vendor_id,
       createCategoryUrlDto.url,
     );
 
     const sort_order =
       createCategoryUrlDto.sort_order ??
-      (await this.getNextCategoryUrlSortOrder(
-        createCategoryUrlDto.category_id,
-        createCategoryUrlDto.vendor_id,
-      ));
+      (await this.getNextCategoryUrlSortOrder(createCategoryUrlDto.category_id));
 
     const categoryUrl = this.categoryUrlsRepository.create({
       ...createCategoryUrlDto,
@@ -224,19 +200,12 @@ export class CategoriesService {
     const queryBuilder = this.categoryUrlsRepository
       .createQueryBuilder('categoryUrl')
       .leftJoinAndSelect('categoryUrl.category', 'category')
-      .leftJoinAndSelect('categoryUrl.vendor', 'vendor')
       .orderBy('categoryUrl.sort_order', 'ASC')
       .addOrderBy('categoryUrl.id', 'ASC');
 
     if (filterDto?.category_id !== undefined) {
       queryBuilder.andWhere('categoryUrl.category_id = :categoryId', {
         categoryId: filterDto.category_id,
-      });
-    }
-
-    if (filterDto?.vendor_id !== undefined) {
-      queryBuilder.andWhere('categoryUrl.vendor_id = :vendorId', {
-        vendorId: filterDto.vendor_id,
       });
     }
 
@@ -264,7 +233,7 @@ export class CategoriesService {
   async findOneCategoryUrl(id: number): Promise<CategoryUrl> {
     const categoryUrl = await this.categoryUrlsRepository.findOne({
       where: { id },
-      relations: ['category', 'vendor'],
+      relations: ['category'],
     });
 
     if (!categoryUrl) {
@@ -282,21 +251,18 @@ export class CategoriesService {
 
     const nextCategoryId =
       updateCategoryUrlDto.category_id ?? categoryUrl.category_id;
-    const nextVendorId = updateCategoryUrlDto.vendor_id ?? categoryUrl.vendor_id;
     const nextUrl = updateCategoryUrlDto.url ?? categoryUrl.url;
     const nextSortOrder = updateCategoryUrlDto.sort_order ?? categoryUrl.sort_order;
 
-    await this.validateCategoryUrlReferences(nextCategoryId, nextVendorId);
+    await this.validateCategoryUrlReferences(nextCategoryId);
     await this.ensureCategoryUrlPairIsUnique(
       nextCategoryId,
-      nextVendorId,
       nextUrl,
       id,
     );
 
     Object.assign(categoryUrl, updateCategoryUrlDto, {
       category_id: nextCategoryId,
-      vendor_id: nextVendorId,
       url: nextUrl,
       sort_order: nextSortOrder,
     });

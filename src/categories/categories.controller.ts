@@ -162,12 +162,11 @@ export class CategoriesController {
   @ApiBody({
     type: CreateCategoryUrlDto,
     examples: {
-      vendor_category_url: {
-        summary: 'Add one URL for a vendor/category pair',
+      category_url: {
+        summary: 'Add one URL for a category',
         value: {
-          url: 'https://vendor.example.com/monitors/gaming-monitors',
+          url: 'https://store.example.com/monitors/gaming-monitors',
           category_id: 9,
-          vendor_id: 2,
           sort_order: 0,
         },
       },
@@ -178,12 +177,11 @@ export class CategoriesController {
     type: ApiErrorResponseDto,
   })
   @ApiConflictResponse({
-    description:
-      'The same category, vendor, and URL mapping already exists.',
+    description: 'The same category and URL mapping already exists.',
     type: ApiErrorResponseDto,
   })
   @ApiNotFoundResponse({
-    description: 'Category or vendor not found.',
+    description: 'Category not found.',
     type: ApiErrorResponseDto,
   })
   createCategoryUrl(@Body() createCategoryUrlDto: CreateCategoryUrlDto) {
@@ -198,23 +196,6 @@ export class CategoriesController {
   })
   findAllCategoryUrls(@Query() filterDto: FilterCategoryUrlDto) {
     return this.categoriesService.findAllCategoryUrls(filterDto);
-  }
-
-  @Get('vendor/:vendorId/urls')
-  @ApiOperation({ summary: 'List category URL mappings for one vendor' })
-  @ApiParam({ name: 'vendorId', example: 2, description: 'Vendor id' })
-  @ApiBadRequestResponse({
-    description: 'Invalid query parameters.',
-    type: ApiErrorResponseDto,
-  })
-  findCategoryUrlsByVendor(
-    @Param('vendorId', ParseIntPipe) vendorId: number,
-    @Query() filterDto: FilterCategoryUrlDto,
-  ) {
-    return this.categoriesService.findAllCategoryUrls({
-      ...filterDto,
-      vendor_id: vendorId,
-    });
   }
 
   @Get('urls/:urlId')
@@ -237,15 +218,9 @@ export class CategoriesController {
     type: UpdateCategoryUrlDto,
     examples: {
       update_url_only: {
-        summary: 'Update only the vendor URL',
+        summary: 'Update only the category URL',
         value: {
-          url: 'https://vendor.example.com/displays/oled-monitors',
-        },
-      },
-      move_to_another_vendor: {
-        summary: 'Move the URL mapping to another vendor',
-        value: {
-          vendor_id: 5,
+          url: 'https://store.example.com/displays/oled-monitors',
         },
       },
       update_sort_order: {
@@ -261,12 +236,11 @@ export class CategoriesController {
     type: ApiErrorResponseDto,
   })
   @ApiConflictResponse({
-    description:
-      'The same category, vendor, and URL mapping already exists.',
+    description: 'The same category and URL mapping already exists.',
     type: ApiErrorResponseDto,
   })
   @ApiNotFoundResponse({
-    description: 'Category URL, category, or vendor not found.',
+    description: 'Category URL or category not found.',
     type: ApiErrorResponseDto,
   })
   updateCategoryUrl(

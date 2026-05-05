@@ -120,31 +120,167 @@ export class AttributesService {
     }
   }
 
-  private async validateAttributeParentValue(
+  private async ensureAttributeValueBelongsToAttribute(
+    valueId: number,
     attributeId: number,
-    parentValueId?: number | null,
-    currentValueId?: number,
+    errorMessage: string,
   ): Promise<void> {
+    const parentValue = await this.attributeValueRepository.findOne({
+      where: { id: valueId, attribute_id: attributeId },
+      select: ['id'],
+    });
+
+    if (!parentValue) {
+      throw new NotFoundException(errorMessage);
+    }
+  }
+
+  private async validateAttributeDefinitionParent(
+    parentAttributeId?: number | null,
+    parentValueId?: number | null,
+  ): Promise<void> {
+    if (
+      (parentValueId !== undefined && parentValueId !== null) &&
+      (parentAttributeId === undefined || parentAttributeId === null)
+    ) {
+      throw new BadRequestException(
+        'parent_value_id cannot be set without parent_id',
+      );
+    }
+
+    if (parentAttributeId === undefined || parentAttributeId === null) {
+      return;
+    }
+
+    const parentAttribute = await this.attributeRepository.findOne({
+      where: { id: parentAttributeId },
+      select: ['id'],
+    });
+
+    if (!parentAttribute) {
+      throw new NotFoundException(
+        `Parent attribute with ID ${parentAttributeId} not found`,
+      );
+    }
+
     if (parentValueId === undefined || parentValueId === null) {
       return;
     }
 
+    await this.ensureAttributeValueBelongsToAttribute(
+      parentValueId,
+      parentAttributeId,
+      'parent_value_id must belong to the parent attribute',
+    );
+  }
+
+  private async validateAttributeValuesForParent(
+    parentAttributeId: number | null | undefined,
+    values: Array<{ parent_value_id?: number | null }>,
+  ): Promise<void> {
+    if (
+      parentAttributeId === undefined ||
+      parentAttributeId === null ||
+      values.length === 0
+    ) {
+      return;
+    }
+
+    for (const value of values) {
+      if (value.parent_value_id === undefined || value.parent_value_id === null) {
+        throw new BadRequestException(
+          'Every value of a child attribute must define parent_value_id',
+        );
+      }
+
+      await this.ensureAttributeValueBelongsToAttribute(
+        value.parent_value_id,
+        parentAttributeId,
+        'Attribute value parent_value_id must belong to the parent attribute',
+      );
+    }
+  }
+
+  private async validateExistingAttributeValuesForParent(
+    attributeId: number,
+    parentAttributeId?: number | null,
+  ): Promise<void> {
+    if (parentAttributeId === undefined || parentAttributeId === null) {
+      return;
+    }
+
+    const values = await this.attributeValueRepository.find({
+      where: { attribute_id: attributeId },
+      select: ['id', 'parent_value_id'],
+    });
+
+    for (const value of values) {
+      if (value.parent_value_id === undefined || value.parent_value_id === null) {
+        throw new BadRequestException(
+          'All existing values of a child attribute must define parent_value_id',
+        );
+      }
+
+      await this.ensureAttributeValueBelongsToAttribute(
+        value.parent_value_id,
+        parentAttributeId,
+        'Attribute value parent_value_id must belong to the parent attribute',
+      );
+    }
+  }
+
+  private async validateAttributeParentValueForAttribute(
+    attribute: Pick<Attribute, 'id' | 'parent_id'>,
+    parentValueId?: number | null,
+    currentValueId?: number,
+  ): Promise<void> {
     if (currentValueId !== undefined && parentValueId === currentValueId) {
       throw new BadRequestException(
         'parent_value_id cannot reference the same attribute value',
       );
     }
 
-    const parentValue = await this.attributeValueRepository.findOne({
-      where: { id: parentValueId, attribute_id: attributeId },
-      select: ['id'],
-    });
+    const isChildAttribute =
+      attribute.parent_id !== undefined && attribute.parent_id !== null;
 
-    if (!parentValue) {
-      throw new NotFoundException(
-        'Parent attribute value was not found for this attribute',
+    if (isChildAttribute && (parentValueId === undefined || parentValueId === null)) {
+      throw new BadRequestException(
+        'parent_value_id is required for values of a child attribute',
       );
     }
+
+    if (parentValueId === undefined || parentValueId === null) {
+      return;
+    }
+
+    await this.ensureAttributeValueBelongsToAttribute(
+      parentValueId,
+      isChildAttribute ? attribute.parent_id : attribute.id,
+      isChildAttribute
+        ? 'Parent attribute value was not found for the parent attribute'
+        : 'Parent attribute value was not found for this attribute',
+    );
+  }
+
+  private async validateAttributeParentValue(
+    attributeId: number,
+    parentValueId?: number | null,
+    currentValueId?: number,
+  ): Promise<void> {
+    const attribute = await this.attributeRepository.findOne({
+      where: { id: attributeId },
+      select: ['id', 'parent_id'],
+    });
+
+    if (!attribute) {
+      throw new NotFoundException(`Attribute with ID ${attributeId} not found`);
+    }
+
+    await this.validateAttributeParentValueForAttribute(
+      attribute,
+      parentValueId,
+      currentValueId,
+    );
   }
 
   private async syncCategoriesForAttribute(
@@ -211,13 +347,6 @@ export class AttributesService {
       throw new ConflictException('Attribute with this name already exists');
     }
 
-    // Get the max sort_order and assign the next one
-    const maxSortOrder = await this.attributeRepository
-      .createQueryBuilder('attribute')
-      .select('MAX(attribute.sort_order)', 'max')
-      .getRawOne();
-    const nextSortOrder = (maxSortOrder?.max ?? -1) + 1;
-
     // Assign sort_order to values if they exist
     // Destructure values to handle them separately to avoid "Cyclic dependency" error in TypeORM save
     const {
@@ -228,6 +357,22 @@ export class AttributesService {
     const preparedValues = valuesDto
       ? this.prepareAttributeValuesPayload(valuesDto)
       : [];
+
+    await this.validateAttributeDefinitionParent(
+      createAttributeDto.parent_id,
+      createAttributeDto.parent_value_id,
+    );
+    await this.validateAttributeValuesForParent(
+      createAttributeDto.parent_id,
+      preparedValues,
+    );
+
+    // Get the max sort_order and assign the next one
+    const maxSortOrder = await this.attributeRepository
+      .createQueryBuilder('attribute')
+      .select('MAX(attribute.sort_order)', 'max')
+      .getRawOne();
+    const nextSortOrder = (maxSortOrder?.max ?? -1) + 1;
 
     const attribute = this.attributeRepository.create({
       ...attributeData,
@@ -363,6 +508,21 @@ export class AttributesService {
       }
     }
 
+    const nextParentId =
+      updateAttributeDto.parent_id !== undefined
+        ? updateAttributeDto.parent_id
+        : attribute.parent_id;
+    const nextParentValueId =
+      updateAttributeDto.parent_value_id !== undefined
+        ? updateAttributeDto.parent_value_id
+        : attribute.parent_value_id;
+
+    await this.validateAttributeDefinitionParent(
+      nextParentId,
+      nextParentValueId,
+    );
+    await this.validateExistingAttributeValuesForParent(id, nextParentId);
+
     const { category_ids, values, ...attributeData } = updateAttributeDto;
 
     Object.assign(attribute, attributeData);
@@ -398,12 +558,16 @@ export class AttributesService {
     const sanitizedValueEn = this.sanitizeRequiredValueName(valueEn, 'value_en');
     const sanitizedValueAr = this.sanitizeRequiredValueName(valueAr, 'value_ar');
 
+    await this.validateAttributeParentValueForAttribute(
+      attribute,
+      parentValueId,
+    );
+
     await this.ensureAttributeValueUnique(
       attributeId,
       sanitizedValueEn,
       sanitizedValueAr,
     );
-    await this.validateAttributeParentValue(attributeId, parentValueId);
 
     // Get the max sort_order for this attribute's values
     const maxSortOrder = await this.attributeValueRepository
@@ -465,15 +629,27 @@ export class AttributesService {
         ? updateDto.parent_value_id
         : value.parent_value_id;
 
+    const attribute = await this.attributeRepository.findOne({
+      where: { id: value.attribute_id },
+      select: ['id', 'parent_id'],
+    });
+
+    if (!attribute) {
+      throw new NotFoundException(
+        `Attribute with ID ${value.attribute_id} not found`,
+      );
+    }
+
+    await this.validateAttributeParentValueForAttribute(
+      attribute,
+      nextParentValueId,
+      valueId,
+    );
+
     await this.ensureAttributeValueUnique(
       value.attribute_id,
       nextValueEn,
       nextValueAr,
-      valueId,
-    );
-    await this.validateAttributeParentValue(
-      value.attribute_id,
-      nextParentValueId,
       valueId,
     );
 

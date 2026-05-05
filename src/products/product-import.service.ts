@@ -29,6 +29,7 @@ interface ImportDefinitionValue {
   id?: number | null;
   value_en?: string | null;
   value_ar?: string | null;
+  parent_value_id?: number | null;
 }
 
 interface ImportDefinition {
@@ -37,6 +38,9 @@ interface ImportDefinition {
   name_ar?: string | null;
   unit_en?: string | null;
   unit_ar?: string | null;
+  parent_id?: number | null;
+  parent_value_id?: number | null;
+  level?: number | null;
   allow_ai_inference?: boolean | null;
   values?: ImportDefinitionValue[];
 }
@@ -1312,6 +1316,114 @@ export class ProductImportService {
     return valuesByDefinition;
   }
 
+  private getDefinitionLevel<TDefinition extends ImportDefinition>(
+    definition: TDefinition,
+    definitionLookup: Map<number, TDefinition>,
+  ): number {
+    if (
+      typeof definition.level === 'number' &&
+      Number.isInteger(definition.level) &&
+      definition.level >= 0
+    ) {
+      return definition.level;
+    }
+
+    let level = 0;
+    let currentParentId = this.extractPositiveInteger(definition.parent_id);
+    let depth = 0;
+    const maxDepth = 20;
+
+    while (currentParentId && depth < maxDepth) {
+      level += 1;
+      currentParentId = this.extractPositiveInteger(
+        definitionLookup.get(currentParentId)?.parent_id,
+      );
+      depth += 1;
+    }
+
+    return level;
+  }
+
+  private orderDefinitionEntriesByDepth<
+    TDefinition extends ImportDefinition,
+    TAiEntry,
+  >(
+    entries: TAiEntry[],
+    definitionLookup: Map<number, TDefinition>,
+    getDefinitionId: (entry: TAiEntry) => number | null,
+  ): TAiEntry[] {
+    return [...entries].sort((left, right) => {
+      const leftDefinitionId = getDefinitionId(left);
+      const rightDefinitionId = getDefinitionId(right);
+      const leftDefinition = leftDefinitionId
+        ? definitionLookup.get(leftDefinitionId)
+        : undefined;
+      const rightDefinition = rightDefinitionId
+        ? definitionLookup.get(rightDefinitionId)
+        : undefined;
+
+      const leftLevel = leftDefinition
+        ? this.getDefinitionLevel(leftDefinition, definitionLookup)
+        : Number.MAX_SAFE_INTEGER;
+      const rightLevel = rightDefinition
+        ? this.getDefinitionLevel(rightDefinition, definitionLookup)
+        : Number.MAX_SAFE_INTEGER;
+
+      if (leftLevel !== rightLevel) {
+        return leftLevel - rightLevel;
+      }
+
+      return (leftDefinitionId ?? Number.MAX_SAFE_INTEGER) -
+        (rightDefinitionId ?? Number.MAX_SAFE_INTEGER);
+    });
+  }
+
+  private resolveDefinitionParentValueId<
+    TDefinition extends ImportDefinition,
+  >(
+    definition: TDefinition,
+    definitionLookup: Map<number, TDefinition>,
+    resolvedValueIdsByDefinition: Map<number, Set<number>>,
+    definitionKind: 'specification' | 'attribute',
+  ): number | undefined {
+    const parentDefinitionId = this.extractPositiveInteger(definition.parent_id);
+
+    if (!parentDefinitionId) {
+      return undefined;
+    }
+
+    const configuredParentValueId = this.extractPositiveInteger(
+      definition.parent_value_id,
+    );
+
+    if (configuredParentValueId) {
+      return configuredParentValueId;
+    }
+
+    const parentDefinition = definitionLookup.get(parentDefinitionId);
+    const resolvedParentValueIds = [
+      ...(resolvedValueIdsByDefinition.get(parentDefinitionId) ?? new Set()),
+    ];
+    const definitionLabel = this.getDefinitionDisplayName(definition);
+    const parentDefinitionLabel = parentDefinition
+      ? this.getDefinitionDisplayName(parentDefinition)
+      : String(parentDefinitionId);
+
+    if (resolvedParentValueIds.length === 1) {
+      return resolvedParentValueIds[0];
+    }
+
+    if (resolvedParentValueIds.length === 0) {
+      throw new BadRequestException(
+        `Cannot create values for child ${definitionKind} '${definitionLabel}' because no parent value was resolved for '${parentDefinitionLabel}'.`,
+      );
+    }
+
+    throw new BadRequestException(
+      `Cannot create values for child ${definitionKind} '${definitionLabel}' because parent '${parentDefinitionLabel}' resolved multiple values and parent_value_id is ambiguous.`,
+    );
+  }
+
   private enforceRequiredDefinitionValues<
     TDefinition extends ImportDefinition,
     TAiEntry,
@@ -1379,6 +1491,7 @@ export class ProductImportService {
       createValue: (
         definitionId: number,
         parsedValue: ParsedDefinitionValue,
+        parentValueId?: number,
       ) => Promise<number>;
       buildResult: (definitionId: number, valueIds: number[]) => TResult;
     },
@@ -1390,8 +1503,13 @@ export class ProductImportService {
     const definitionKindLabel =
       input.definitionKind.charAt(0).toUpperCase() +
       input.definitionKind.slice(1);
+    const orderedEntries = this.orderDefinitionEntriesByDepth(
+      aiEntries,
+      definitionLookup,
+      input.getDefinitionId,
+    );
 
-    for (const entry of aiEntries) {
+    for (const entry of orderedEntries) {
       const definitionId = input.getDefinitionId(entry);
 
       if (!definitionId) {
@@ -1475,10 +1593,21 @@ export class ProductImportService {
         }
 
         if (!matchedValueId && shouldCreateValue) {
+          const parentValueId = this.resolveDefinitionParentValueId(
+            matchedDefinition,
+            definitionLookup,
+            definitionMap,
+            input.definitionKind,
+          );
+
           this.logger.log(
             `${definitionKindLabel} ${definitionId}: creating missing value '${parsedValue.displayValue}'.`,
           );
-          matchedValueId = await input.createValue(definitionId, parsedValue);
+          matchedValueId = await input.createValue(
+            definitionId,
+            parsedValue,
+            parentValueId,
+          );
           this.logger.log(
             `${definitionKindLabel} ${definitionId}: created value id=${matchedValueId}`,
           );
@@ -1588,12 +1717,13 @@ export class ProductImportService {
             createValueNameAr: canonicalValue ?? localizedValue.name_ar,
           };
         },
-        createValue: async (specificationId, parsedValue) =>
+        createValue: async (specificationId, parsedValue, parentValueId) =>
           (
             await this.specificationsService.addValue(
               specificationId,
               parsedValue.createValueNameEn,
               parsedValue.createValueNameAr,
+              parentValueId,
             )
           ).id,
         buildResult: (specificationId, valueIds) => ({
@@ -1634,12 +1764,13 @@ export class ProductImportService {
           createValueNameAr: canonicalValue ?? rawValue,
         };
       },
-      createValue: async (attributeId, parsedValue) =>
+      createValue: async (attributeId, parsedValue, parentValueId) =>
         (
           await this.attributesService.addValue(
             attributeId,
             parsedValue.createValueNameEn,
             parsedValue.createValueNameAr,
+            parentValueId,
           )
         ).id,
       buildResult: (attributeId, valueIds) => ({

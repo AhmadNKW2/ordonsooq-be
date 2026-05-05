@@ -120,31 +120,178 @@ export class SpecificationsService {
     }
   }
 
-  private async validateSpecificationParentValue(
+  private async ensureSpecificationValueBelongsToSpecification(
+    valueId: number,
     specificationId: number,
-    parentValueId?: number | null,
-    currentValueId?: number,
+    errorMessage: string,
   ): Promise<void> {
+    const parentValue = await this.specificationValueRepository.findOne({
+      where: { id: valueId, specification_id: specificationId },
+      select: ['id'],
+    });
+
+    if (!parentValue) {
+      throw new NotFoundException(errorMessage);
+    }
+  }
+
+  private async validateSpecificationDefinitionParent(
+    parentSpecificationId?: number | null,
+    parentValueId?: number | null,
+  ): Promise<void> {
+    if (
+      (parentValueId !== undefined && parentValueId !== null) &&
+      (parentSpecificationId === undefined || parentSpecificationId === null)
+    ) {
+      throw new BadRequestException(
+        'parent_value_id cannot be set without parent_id',
+      );
+    }
+
+    if (
+      parentSpecificationId === undefined ||
+      parentSpecificationId === null
+    ) {
+      return;
+    }
+
+    const parentSpecification = await this.specificationRepository.findOne({
+      where: { id: parentSpecificationId },
+      select: ['id'],
+    });
+
+    if (!parentSpecification) {
+      throw new NotFoundException(
+        `Parent specification with ID ${parentSpecificationId} not found`,
+      );
+    }
+
     if (parentValueId === undefined || parentValueId === null) {
       return;
     }
 
+    await this.ensureSpecificationValueBelongsToSpecification(
+      parentValueId,
+      parentSpecificationId,
+      'parent_value_id must belong to the parent specification',
+    );
+  }
+
+  private async validateSpecificationValuesForParent(
+    parentSpecificationId: number | null | undefined,
+    values: Array<{ parent_value_id?: number | null }>,
+  ): Promise<void> {
+    if (
+      parentSpecificationId === undefined ||
+      parentSpecificationId === null ||
+      values.length === 0
+    ) {
+      return;
+    }
+
+    for (const value of values) {
+      if (value.parent_value_id === undefined || value.parent_value_id === null) {
+        throw new BadRequestException(
+          'Every value of a child specification must define parent_value_id',
+        );
+      }
+
+      await this.ensureSpecificationValueBelongsToSpecification(
+        value.parent_value_id,
+        parentSpecificationId,
+        'Specification value parent_value_id must belong to the parent specification',
+      );
+    }
+  }
+
+  private async validateExistingSpecificationValuesForParent(
+    specificationId: number,
+    parentSpecificationId?: number | null,
+  ): Promise<void> {
+    if (
+      parentSpecificationId === undefined ||
+      parentSpecificationId === null
+    ) {
+      return;
+    }
+
+    const values = await this.specificationValueRepository.find({
+      where: { specification_id: specificationId },
+      select: ['id', 'parent_value_id'],
+    });
+
+    for (const value of values) {
+      if (value.parent_value_id === undefined || value.parent_value_id === null) {
+        throw new BadRequestException(
+          'All existing values of a child specification must define parent_value_id',
+        );
+      }
+
+      await this.ensureSpecificationValueBelongsToSpecification(
+        value.parent_value_id,
+        parentSpecificationId,
+        'Specification value parent_value_id must belong to the parent specification',
+      );
+    }
+  }
+
+  private async validateSpecificationParentValueForSpecification(
+    specification: Pick<Specification, 'id' | 'parent_id'>,
+    parentValueId?: number | null,
+    currentValueId?: number,
+  ): Promise<void> {
     if (currentValueId !== undefined && parentValueId === currentValueId) {
       throw new BadRequestException(
         'parent_value_id cannot reference the same specification value',
       );
     }
 
-    const parentValue = await this.specificationValueRepository.findOne({
-      where: { id: parentValueId, specification_id: specificationId },
-      select: ['id'],
-    });
+    const isChildSpecification =
+      specification.parent_id !== undefined && specification.parent_id !== null;
 
-    if (!parentValue) {
-      throw new NotFoundException(
-        'Parent specification value was not found for this specification',
+    if (
+      isChildSpecification &&
+      (parentValueId === undefined || parentValueId === null)
+    ) {
+      throw new BadRequestException(
+        'parent_value_id is required for values of a child specification',
       );
     }
+
+    if (parentValueId === undefined || parentValueId === null) {
+      return;
+    }
+
+    await this.ensureSpecificationValueBelongsToSpecification(
+      parentValueId,
+      isChildSpecification ? specification.parent_id : specification.id,
+      isChildSpecification
+        ? 'Parent specification value was not found for the parent specification'
+        : 'Parent specification value was not found for this specification',
+    );
+  }
+
+  private async validateSpecificationParentValue(
+    specificationId: number,
+    parentValueId?: number | null,
+    currentValueId?: number,
+  ): Promise<void> {
+    const specification = await this.specificationRepository.findOne({
+      where: { id: specificationId },
+      select: ['id', 'parent_id'],
+    });
+
+    if (!specification) {
+      throw new NotFoundException(
+        `Specification with ID ${specificationId} not found`,
+      );
+    }
+
+    await this.validateSpecificationParentValueForSpecification(
+      specification,
+      parentValueId,
+      currentValueId,
+    );
   }
 
   private async syncCategoriesForSpecification(
@@ -211,16 +358,25 @@ export class SpecificationsService {
       throw new ConflictException('Specification with this name already exists');
     }
 
+    const { category_ids, values: valuesDto, ...specificationData } = createSpecificationDto;
+    const preparedValues = valuesDto
+      ? this.prepareSpecificationValuesPayload(valuesDto)
+      : [];
+
+    await this.validateSpecificationDefinitionParent(
+      createSpecificationDto.parent_id,
+      createSpecificationDto.parent_value_id,
+    );
+    await this.validateSpecificationValuesForParent(
+      createSpecificationDto.parent_id,
+      preparedValues,
+    );
+
     const maxSortOrder = await this.specificationRepository
       .createQueryBuilder('specification')
       .select('MAX(specification.sort_order)', 'max')
       .getRawOne();
     const nextSortOrder = (maxSortOrder?.max ?? -1) + 1;
-
-    const { category_ids, values: valuesDto, ...specificationData } = createSpecificationDto;
-    const preparedValues = valuesDto
-      ? this.prepareSpecificationValuesPayload(valuesDto)
-      : [];
 
     const specification = this.specificationRepository.create({
       ...specificationData,
@@ -351,6 +507,21 @@ export class SpecificationsService {
       }
     }
 
+    const nextParentId =
+      updateSpecificationDto.parent_id !== undefined
+        ? updateSpecificationDto.parent_id
+        : specification.parent_id;
+    const nextParentValueId =
+      updateSpecificationDto.parent_value_id !== undefined
+        ? updateSpecificationDto.parent_value_id
+        : specification.parent_value_id;
+
+    await this.validateSpecificationDefinitionParent(
+      nextParentId,
+      nextParentValueId,
+    );
+    await this.validateExistingSpecificationValuesForParent(id, nextParentId);
+
     const { category_ids, ...specificationData } = updateSpecificationDto;
 
     Object.assign(specification, specificationData);
@@ -385,14 +556,15 @@ export class SpecificationsService {
     const sanitizedValueEn = this.sanitizeRequiredValueName(valueEn, 'value_en');
     const sanitizedValueAr = this.sanitizeRequiredValueName(valueAr, 'value_ar');
 
+    await this.validateSpecificationParentValueForSpecification(
+      specification,
+      parentValueId,
+    );
+
     await this.ensureSpecificationValueUnique(
       specificationId,
       sanitizedValueEn,
       sanitizedValueAr,
-    );
-    await this.validateSpecificationParentValue(
-      specificationId,
-      parentValueId,
     );
 
     const maxSortOrder = await this.specificationValueRepository
@@ -454,15 +626,27 @@ export class SpecificationsService {
         ? updateDto.parent_value_id
         : value.parent_value_id;
 
+    const specification = await this.specificationRepository.findOne({
+      where: { id: value.specification_id },
+      select: ['id', 'parent_id'],
+    });
+
+    if (!specification) {
+      throw new NotFoundException(
+        `Specification with ID ${value.specification_id} not found`,
+      );
+    }
+
+    await this.validateSpecificationParentValueForSpecification(
+      specification,
+      nextParentValueId,
+      valueId,
+    );
+
     await this.ensureSpecificationValueUnique(
       value.specification_id,
       nextValueEn,
       nextValueAr,
-      valueId,
-    );
-    await this.validateSpecificationParentValue(
-      value.specification_id,
-      nextParentValueId,
       valueId,
     );
 

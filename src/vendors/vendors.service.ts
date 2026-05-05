@@ -27,6 +27,40 @@ import {
   getPrimaryMediaUrl,
   hydrateProductMedia,
 } from '../products/utils/product-media.util';
+import { Category } from '../categories/entities/category.entity';
+import { VendorCategory } from './entities/vendor-category.entity';
+import { CreateVendorCategoryDto } from './dto/create-vendor-category.dto';
+import {
+  ReplaceVendorCategoriesTreeDto,
+  ReplaceVendorCategoryTreeNodeDto,
+} from './dto/replace-vendor-categories-tree.dto';
+import { UpdateVendorCategoryDto } from './dto/update-vendor-category.dto';
+
+interface NormalizedVendorCategoryTreeNode {
+  title: string;
+  url: string;
+  category_ids: number[];
+  children: NormalizedVendorCategoryTreeNode[];
+}
+
+export interface SerializedVendorCategory {
+  id: number;
+  title: string;
+  url: string;
+  vendor_id: number;
+  parent_id: number | null;
+  category_ids: number[];
+  sort_order: number;
+  categories: Category[];
+  children: SerializedVendorCategory[];
+  created_at: Date;
+  updated_at: Date;
+}
+
+export type SerializedVendorCategoryListItem = Omit<
+  SerializedVendorCategory,
+  'children'
+>;
 
 @Injectable()
 export class VendorsService {
@@ -37,9 +71,382 @@ export class VendorsService {
     private vendorRepository: Repository<Vendor>,
     @InjectRepository(Product)
     private productsRepository: Repository<Product>,
+    @InjectRepository(Category)
+    private categoriesRepository: Repository<Category>,
     private r2StorageService: R2StorageService,
     private readonly productsService: ProductsService,
+    @InjectRepository(VendorCategory)
+    private vendorCategoryRepository: Repository<VendorCategory>,
   ) {}
+
+  private async ensureVendorExists(vendorId: number): Promise<Vendor> {
+    const vendor = await this.vendorRepository.findOne({
+      where: { id: vendorId },
+    });
+
+    if (!vendor) {
+      throw new NotFoundException(`Vendor with ID ${vendorId} not found`);
+    }
+
+    return vendor;
+  }
+
+  private normalizeVendorCategoryIds(
+    categoryIds?: number[],
+  ): number[] {
+    return [
+      ...new Set(
+        (categoryIds ?? [])
+          .map((value) => Number(value))
+          .filter((value) => Number.isInteger(value) && value > 0),
+      ),
+    ];
+  }
+
+  private normalizeVendorCategoryTreePayload(
+    nodes: ReplaceVendorCategoryTreeNodeDto[],
+    pathPrefix = 'categories',
+    seenUrls = new Set<string>(),
+  ): {
+    nodes: NormalizedVendorCategoryTreeNode[];
+    categoryIds: number[];
+  } {
+    const categoryIds = new Set<number>();
+    const normalizedNodes = nodes.map((node, index) => {
+      const path = `${pathPrefix}[${index}]`;
+      const title = typeof node.title === 'string' ? node.title.trim() : '';
+      const url = typeof node.url === 'string' ? node.url.trim() : '';
+
+      if (!title) {
+        throw new BadRequestException(`${path}.title is required`);
+      }
+
+      if (!url) {
+        throw new BadRequestException(`${path}.url is required`);
+      }
+
+      if (seenUrls.has(url)) {
+        throw new ConflictException(
+          `Vendor category URL '${url}' is duplicated in the tree payload`,
+        );
+      }
+
+      seenUrls.add(url);
+
+      const normalizedCategoryIds = this.normalizeVendorCategoryIds(
+        node.category_ids,
+      );
+      normalizedCategoryIds.forEach((categoryId) => categoryIds.add(categoryId));
+
+      const childResult = this.normalizeVendorCategoryTreePayload(
+        node.children ?? [],
+        `${path}.children`,
+        seenUrls,
+      );
+      childResult.categoryIds.forEach((categoryId) => categoryIds.add(categoryId));
+
+      return {
+        title,
+        url,
+        category_ids: normalizedCategoryIds,
+        children: childResult.nodes,
+      };
+    });
+
+    return {
+      nodes: normalizedNodes,
+      categoryIds: [...categoryIds],
+    };
+  }
+
+  private async validateVendorCategoryCategoryIds(
+    categoryIds: number[],
+  ): Promise<void> {
+    if (categoryIds.length === 0) {
+      return;
+    }
+
+    const categories = await this.categoriesRepository.find({
+      where: { id: In(categoryIds) },
+      select: ['id'],
+    });
+
+    if (categories.length !== categoryIds.length) {
+      throw new NotFoundException('One or more mapped categories were not found');
+    }
+  }
+
+  private async ensureVendorCategoryUrlIsUnique(
+    vendorId: number,
+    url: string,
+    currentId?: number,
+  ): Promise<void> {
+    const existing = await this.vendorCategoryRepository.findOne({
+      where: { vendor_id: vendorId, url },
+      select: ['id'],
+    });
+
+    if (existing && existing.id !== currentId) {
+      throw new ConflictException(
+        'Vendor category with this URL already exists for this vendor',
+      );
+    }
+  }
+
+  private async ensureVendorCategoryParent(
+    vendorId: number,
+    parentId?: number | null,
+    currentId?: number,
+  ): Promise<void> {
+    if (parentId === undefined || parentId === null) {
+      return;
+    }
+
+    if (currentId && parentId === currentId) {
+      throw new BadRequestException(
+        'parent_id cannot reference the same vendor category',
+      );
+    }
+
+    const parent = await this.vendorCategoryRepository.findOne({
+      where: { id: parentId, vendor_id: vendorId },
+      select: ['id'],
+    });
+
+    if (!parent) {
+      throw new NotFoundException(
+        'Parent vendor category was not found for this vendor',
+      );
+    }
+
+    if (!currentId) {
+      return;
+    }
+
+    const nodes = await this.vendorCategoryRepository.find({
+      where: { vendor_id: vendorId },
+      select: ['id', 'parent_id'],
+    });
+    const parentById = new Map(
+      nodes.map((node) => [node.id, node.parent_id ?? null]),
+    );
+
+    let nextParentId: number | null = parentId;
+    let guard = 0;
+    while (nextParentId !== null && guard <= nodes.length) {
+      if (nextParentId === currentId) {
+        throw new BadRequestException(
+          'parent_id would create a cycle in the vendor category tree',
+        );
+      }
+
+      nextParentId = parentById.get(nextParentId) ?? null;
+      guard += 1;
+    }
+  }
+
+  private async getNextVendorCategorySortOrder(
+    vendorId: number,
+    parentId?: number | null,
+  ): Promise<number> {
+    const queryBuilder = this.vendorCategoryRepository
+      .createQueryBuilder('vendorCategory')
+      .select('MAX(vendorCategory.sort_order)', 'max')
+      .where('vendorCategory.vendor_id = :vendorId', { vendorId });
+
+    if (parentId === undefined || parentId === null) {
+      queryBuilder.andWhere('vendorCategory.parent_id IS NULL');
+    } else {
+      queryBuilder.andWhere('vendorCategory.parent_id = :parentId', {
+        parentId,
+      });
+    }
+
+    const maxSortOrder = await queryBuilder.getRawOne();
+    return (maxSortOrder?.max ?? -1) + 1;
+  }
+
+  private async syncVendorCategoryMappings(
+    vendorCategoryId: number,
+    categoryIds: number[],
+  ): Promise<void> {
+    const relation = this.vendorCategoryRepository
+      .createQueryBuilder()
+      .relation(VendorCategory, 'categories')
+      .of(vendorCategoryId);
+
+    const currentCategories = (await relation.loadMany()) as Category[];
+    await relation.addAndRemove(
+      categoryIds,
+      currentCategories.map((category) => category.id),
+    );
+  }
+
+  private async createVendorCategoryTreeNodes(
+    vendorCategoryRepository: Repository<VendorCategory>,
+    vendorId: number,
+    nodes: NormalizedVendorCategoryTreeNode[],
+    parentId: number | null,
+  ): Promise<void> {
+    for (const [index, node] of nodes.entries()) {
+      const vendorCategory = vendorCategoryRepository.create({
+        vendor_id: vendorId,
+        title: node.title,
+        url: node.url,
+        parent_id: parentId,
+        sort_order: index,
+      });
+
+      const savedVendorCategory = await vendorCategoryRepository.save(vendorCategory);
+
+      if (node.category_ids.length > 0) {
+        await vendorCategoryRepository
+          .createQueryBuilder()
+          .relation(VendorCategory, 'categories')
+          .of(savedVendorCategory.id)
+          .add(node.category_ids);
+      }
+
+      await this.createVendorCategoryTreeNodes(
+        vendorCategoryRepository,
+        vendorId,
+        node.children,
+        savedVendorCategory.id,
+      );
+    }
+  }
+
+  private async findVendorCategoryEntity(
+    vendorId: number,
+    vendorCategoryId: number,
+  ): Promise<VendorCategory> {
+    const vendorCategory = await this.vendorCategoryRepository.findOne({
+      where: { id: vendorCategoryId, vendor_id: vendorId },
+      relations: ['categories'],
+    });
+
+    if (!vendorCategory) {
+      throw new NotFoundException('Vendor category not found');
+    }
+
+    return vendorCategory;
+  }
+
+  private async loadVendorCategoryEntities(
+    vendorIds: number[],
+  ): Promise<VendorCategory[]> {
+    if (vendorIds.length === 0) {
+      return [];
+    }
+
+    return this.vendorCategoryRepository.find({
+      where: { vendor_id: In(vendorIds) },
+      relations: ['categories'],
+      order: { sort_order: 'ASC', id: 'ASC' },
+    });
+  }
+
+  private serializeVendorCategory(
+    vendorCategory: VendorCategory,
+  ): SerializedVendorCategory {
+    const categories = [...(vendorCategory.categories ?? [])].sort(
+      (left, right) => left.id - right.id,
+    );
+
+    return {
+      id: vendorCategory.id,
+      title: vendorCategory.title,
+      url: vendorCategory.url,
+      vendor_id: vendorCategory.vendor_id,
+      parent_id: vendorCategory.parent_id,
+      category_ids: categories.map((category) => category.id),
+      sort_order: vendorCategory.sort_order,
+      categories,
+      children: [],
+      created_at: vendorCategory.created_at,
+      updated_at: vendorCategory.updated_at,
+    };
+  }
+
+  private buildVendorCategoryTree(
+    vendorCategories: VendorCategory[],
+  ): SerializedVendorCategory[] {
+    const sortedVendorCategories = [...vendorCategories].sort(
+      (left, right) => left.sort_order - right.sort_order || left.id - right.id,
+    );
+    const serializedById = new Map(
+      sortedVendorCategories.map((vendorCategory) => [
+        vendorCategory.id,
+        this.serializeVendorCategory(vendorCategory),
+      ]),
+    );
+    const roots: SerializedVendorCategory[] = [];
+
+    for (const vendorCategory of sortedVendorCategories) {
+      const serialized = serializedById.get(vendorCategory.id);
+      if (!serialized) {
+        continue;
+      }
+
+      if (
+        vendorCategory.parent_id !== null &&
+        vendorCategory.parent_id !== undefined &&
+        serializedById.has(vendorCategory.parent_id)
+      ) {
+        serializedById.get(vendorCategory.parent_id)?.children.push(serialized);
+        continue;
+      }
+
+      roots.push(serialized);
+    }
+
+    return roots;
+  }
+
+  private findVendorCategoryNode(
+    vendorCategories: SerializedVendorCategory[],
+    vendorCategoryId: number,
+  ): SerializedVendorCategory | null {
+    for (const vendorCategory of vendorCategories) {
+      if (vendorCategory.id === vendorCategoryId) {
+        return vendorCategory;
+      }
+
+      const childMatch = this.findVendorCategoryNode(
+        vendorCategory.children,
+        vendorCategoryId,
+      );
+      if (childMatch) {
+        return childMatch;
+      }
+    }
+
+    return null;
+  }
+
+  private async attachVendorCategoryTrees(vendors: Vendor[]): Promise<Vendor[]> {
+    const vendorIds = vendors.map((vendor) => vendor.id);
+    const vendorCategories = await this.loadVendorCategoryEntities(vendorIds);
+    const vendorCategoriesByVendorId = new Map<number, VendorCategory[]>();
+
+    for (const vendorCategory of vendorCategories) {
+      const bucket = vendorCategoriesByVendorId.get(vendorCategory.vendor_id) ?? [];
+      bucket.push(vendorCategory);
+      vendorCategoriesByVendorId.set(vendorCategory.vendor_id, bucket);
+    }
+
+    for (const vendor of vendors) {
+      (
+        vendor as unknown as {
+          vendor_categories: SerializedVendorCategory[];
+        }
+      ).vendor_categories = this.buildVendorCategoryTree(
+        vendorCategoriesByVendorId.get(vendor.id) ?? [],
+      );
+    }
+
+    return vendors;
+  }
 
   private slugify(text: string): string {
     return text
@@ -153,21 +560,17 @@ export class VendorsService {
   }
 
   async findAll(): Promise<Vendor[]> {
-    return await this.vendorRepository.find({
+    const vendors = await this.vendorRepository.find({
       where: { status: VendorStatus.ACTIVE },
       relations: ['products'],
       order: { sort_order: 'ASC', created_at: 'DESC' },
     });
+
+    return this.attachVendorCategoryTrees(vendors);
   }
 
   async findOne(id: number, productFilter?: FilterProductDto): Promise<Vendor> {
-    const vendor = await this.vendorRepository.findOne({
-      where: { id },
-    });
-
-    if (!vendor) {
-      throw new NotFoundException(`Vendor with ID ${id} not found`);
-    }
+    const vendor = await this.ensureVendorExists(id);
 
     const productsResult = await this.productsService.findAll({
       ...productFilter,
@@ -178,6 +581,7 @@ export class VendorsService {
     });
     (vendor as any).products = productsResult.data;
     (vendor as any).productsMeta = productsResult.meta;
+    (vendor as any).vendor_categories = await this.findVendorCategoriesTree(id);
 
     return vendor;
   }
@@ -200,8 +604,165 @@ export class VendorsService {
     });
     (vendor as any).products = productsResult.data;
     (vendor as any).productsMeta = productsResult.meta;
+    (vendor as any).vendor_categories = await this.findVendorCategoriesTree(
+      vendor.id,
+    );
 
     return vendor;
+  }
+
+  async createVendorCategory(
+    vendorId: number,
+    createVendorCategoryDto: CreateVendorCategoryDto,
+  ): Promise<SerializedVendorCategory> {
+    await this.ensureVendorExists(vendorId);
+
+    const categoryIds = this.normalizeVendorCategoryIds(
+      createVendorCategoryDto.category_ids,
+    );
+    await this.validateVendorCategoryCategoryIds(categoryIds);
+    await this.ensureVendorCategoryParent(
+      vendorId,
+      createVendorCategoryDto.parent_id ?? null,
+    );
+
+    const url = createVendorCategoryDto.url.trim();
+    await this.ensureVendorCategoryUrlIsUnique(vendorId, url);
+
+    const vendorCategory = this.vendorCategoryRepository.create({
+      vendor_id: vendorId,
+      title: createVendorCategoryDto.title.trim(),
+      url,
+      parent_id: createVendorCategoryDto.parent_id ?? null,
+      sort_order:
+        createVendorCategoryDto.sort_order ??
+        (await this.getNextVendorCategorySortOrder(
+          vendorId,
+          createVendorCategoryDto.parent_id ?? null,
+        )),
+    });
+
+    const savedVendorCategory = await this.vendorCategoryRepository.save(
+      vendorCategory,
+    );
+    await this.syncVendorCategoryMappings(savedVendorCategory.id, categoryIds);
+
+    return this.findOneVendorCategory(vendorId, savedVendorCategory.id);
+  }
+
+  async findVendorCategories(
+    vendorId: number,
+  ): Promise<SerializedVendorCategoryListItem[]> {
+    await this.ensureVendorExists(vendorId);
+
+    const vendorCategories = await this.loadVendorCategoryEntities([vendorId]);
+    return vendorCategories.map((vendorCategory) => {
+      const { children, ...serialized } = this.serializeVendorCategory(vendorCategory);
+      void children;
+      return serialized;
+    });
+  }
+
+  async findVendorCategoriesTree(
+    vendorId: number,
+  ): Promise<SerializedVendorCategory[]> {
+    await this.ensureVendorExists(vendorId);
+    const vendorCategories = await this.loadVendorCategoryEntities([vendorId]);
+    return this.buildVendorCategoryTree(vendorCategories);
+  }
+
+  async replaceVendorCategoriesTree(
+    vendorId: number,
+    replaceVendorCategoriesTreeDto: ReplaceVendorCategoriesTreeDto,
+  ): Promise<SerializedVendorCategory[]> {
+    await this.ensureVendorExists(vendorId);
+
+    const { nodes, categoryIds } = this.normalizeVendorCategoryTreePayload(
+      replaceVendorCategoriesTreeDto.categories,
+    );
+    await this.validateVendorCategoryCategoryIds(categoryIds);
+
+    await this.vendorCategoryRepository.manager.transaction(async (manager) => {
+      const vendorCategoryRepository = manager.getRepository(VendorCategory);
+
+      await vendorCategoryRepository.delete({ vendor_id: vendorId });
+      await this.createVendorCategoryTreeNodes(
+        vendorCategoryRepository,
+        vendorId,
+        nodes,
+        null,
+      );
+    });
+
+    return this.findVendorCategoriesTree(vendorId);
+  }
+
+  async findOneVendorCategory(
+    vendorId: number,
+    vendorCategoryId: number,
+  ): Promise<SerializedVendorCategory> {
+    const vendorCategories = await this.findVendorCategoriesTree(vendorId);
+    const vendorCategory = this.findVendorCategoryNode(
+      vendorCategories,
+      vendorCategoryId,
+    );
+
+    if (!vendorCategory) {
+      throw new NotFoundException('Vendor category not found');
+    }
+
+    return vendorCategory;
+  }
+
+  async updateVendorCategory(
+    vendorId: number,
+    vendorCategoryId: number,
+    updateVendorCategoryDto: UpdateVendorCategoryDto,
+  ): Promise<SerializedVendorCategory> {
+    await this.ensureVendorExists(vendorId);
+    const vendorCategory = await this.findVendorCategoryEntity(
+      vendorId,
+      vendorCategoryId,
+    );
+
+    const nextCategoryIds = this.normalizeVendorCategoryIds(
+      updateVendorCategoryDto.category_ids ??
+        vendorCategory.categories?.map((category) => category.id),
+    );
+    await this.validateVendorCategoryCategoryIds(nextCategoryIds);
+
+    const nextParentId =
+      updateVendorCategoryDto.parent_id !== undefined
+        ? updateVendorCategoryDto.parent_id
+        : vendorCategory.parent_id;
+    await this.ensureVendorCategoryParent(vendorId, nextParentId, vendorCategoryId);
+
+    const nextUrl = (updateVendorCategoryDto.url ?? vendorCategory.url).trim();
+    await this.ensureVendorCategoryUrlIsUnique(vendorId, nextUrl, vendorCategoryId);
+
+    vendorCategory.title = (updateVendorCategoryDto.title ?? vendorCategory.title).trim();
+    vendorCategory.url = nextUrl;
+    vendorCategory.parent_id = nextParentId ?? null;
+    vendorCategory.sort_order =
+      updateVendorCategoryDto.sort_order ?? vendorCategory.sort_order;
+
+    await this.vendorCategoryRepository.save(vendorCategory);
+    await this.syncVendorCategoryMappings(vendorCategoryId, nextCategoryIds);
+
+    return this.findOneVendorCategory(vendorId, vendorCategoryId);
+  }
+
+  async removeVendorCategory(
+    vendorId: number,
+    vendorCategoryId: number,
+  ): Promise<{ message: string }> {
+    const vendorCategory = await this.findVendorCategoryEntity(
+      vendorId,
+      vendorCategoryId,
+    );
+    await this.vendorCategoryRepository.remove(vendorCategory);
+
+    return { message: 'Vendor category deleted successfully' };
   }
 
   async update(

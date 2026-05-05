@@ -183,6 +183,158 @@ describe('ProductImportService', () => {
         specification_value_ids: [901],
       },
     ]);
-    expect(specificationsService.addValue).toHaveBeenCalledWith(9, '9', '9');
+    expect(specificationsService.addValue).toHaveBeenCalledWith(
+      9,
+      '9',
+      '9',
+      undefined,
+    );
+  });
+
+  it('creates child specification values with the configured parent_value_id', async () => {
+    specificationsService.addValue.mockResolvedValue({ id: 990 });
+
+    const result = await (
+      service as ProductImportService & {
+        resolveSpecifications: (
+          aiSpecifications: Array<{
+            specification_id: number;
+            values: Array<{
+              original_value: { name_en: string; name_ar: string };
+              matched_value_id: string;
+            }>;
+          }>,
+          availableSpecifications: Array<Record<string, unknown>>,
+        ) => Promise<
+          Array<{
+            specification_id: number;
+            specification_value_ids: number[];
+          }>
+        >;
+      }
+    ).resolveSpecifications(
+      [
+        {
+          specification_id: 19,
+          values: [
+            {
+              original_value: { name_en: 'Nano SIM', name_ar: 'Nano SIM' },
+              matched_value_id: 'not_exist',
+            },
+          ],
+        },
+      ],
+      [
+        {
+          id: 19,
+          name_en: 'SIM Type',
+          parent_id: 11,
+          parent_value_id: 330,
+          values: [],
+        },
+      ],
+    );
+
+    expect(result).toEqual([
+      {
+        specification_id: 19,
+        specification_value_ids: [990],
+      },
+    ]);
+    expect(specificationsService.addValue).toHaveBeenCalledWith(
+      19,
+      'Nano SIM',
+      'Nano SIM',
+      330,
+    );
+  });
+
+  it('creates child attribute values using the resolved parent value when parent_value_id is not fixed', async () => {
+    attributesService.addValue.mockResolvedValue({ id: 880 });
+
+    const result = await (
+      service as ProductImportService & {
+        resolveAttributes: (
+          aiAttributes: Array<{
+            attribute: { attribute_id: number; original_value: string };
+            values: Array<{
+              original_value: string;
+              matched_value_id: number | string;
+            }>;
+          }>,
+          availableAttributes: Array<Record<string, unknown>>,
+        ) => Promise<
+          Array<{
+            attribute_id: number;
+            attribute_value_ids: number[];
+          }>
+        >;
+      }
+    ).resolveAttributes(
+      [
+        {
+          attribute: {
+            attribute_id: 22,
+            original_value: 'Storage Option',
+          },
+          values: [
+            {
+              original_value: '256',
+              matched_value_id: 'not_exist',
+            },
+          ],
+        },
+        {
+          attribute: {
+            attribute_id: 11,
+            original_value: 'Storage Type',
+          },
+          values: [
+            {
+              original_value: 'SSD',
+              matched_value_id: 77,
+            },
+          ],
+        },
+      ],
+      [
+        {
+          id: 22,
+          name_en: 'Storage Option',
+          parent_id: 11,
+          level: 1,
+          values: [],
+        },
+        {
+          id: 11,
+          name_en: 'Storage Type',
+          level: 0,
+          values: [
+            {
+              id: 77,
+              value_en: 'SSD',
+              value_ar: 'SSD',
+            },
+          ],
+        },
+      ],
+    );
+
+    expect(result).toEqual([
+      {
+        attribute_id: 11,
+        attribute_value_ids: [77],
+      },
+      {
+        attribute_id: 22,
+        attribute_value_ids: [880],
+      },
+    ]);
+    expect(attributesService.addValue).toHaveBeenCalledWith(
+      22,
+      '256',
+      '256',
+      77,
+    );
   });
 });

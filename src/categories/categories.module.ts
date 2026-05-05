@@ -7,7 +7,6 @@ import { CategoryUrl } from './entities/category-url.entity';
 import { Product } from '../products/entities/product.entity';
 import { ProductCategory } from '../products/entities/product-category.entity';
 import { ProductsModule } from '../products/products.module';
-import { Vendor } from '../vendors/entities/vendor.entity';
 import { Attribute } from '../attributes/entities/attribute.entity';
 
 @Module({
@@ -17,7 +16,6 @@ import { Attribute } from '../attributes/entities/attribute.entity';
       CategoryUrl,
       Product,
       ProductCategory,
-      Vendor,
       Attribute,
     ]),
     ProductsModule,

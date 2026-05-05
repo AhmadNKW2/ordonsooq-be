@@ -9,6 +9,7 @@ import {
   OneToMany,
 } from 'typeorm';
 import { Rating } from '../../ratings/entities/rating.entity';
+import { VendorCategory } from './vendor-category.entity';
 
 export enum VendorStatus {
   ACTIVE = 'active',
@@ -83,6 +84,9 @@ export class Vendor {
 
   @OneToMany(() => Rating, (rating) => rating.vendor)
   comments: Rating[];
+
+  @OneToMany(() => VendorCategory, (vendorCategory) => vendorCategory.vendor)
+  vendor_categories: VendorCategory[];
 
   @CreateDateColumn()
   created_at: Date;

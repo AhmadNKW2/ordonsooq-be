@@ -12,7 +12,17 @@ import {
   Req,
   Put,
   Query,
+  ParseIntPipe,
 } from '@nestjs/common';
+import {
+  ApiBadRequestResponse,
+  ApiBody,
+  ApiConflictResponse,
+  ApiNotFoundResponse,
+  ApiOkResponse,
+  ApiOperation,
+  ApiParam,
+} from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { VendorsService } from './vendors.service';
@@ -30,6 +40,17 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles, UserRole } from '../common/decorators/roles.decorator';
 import { imageFileFilter } from '../common/utils/file-upload.helper';
 import { R2StorageService } from '../common/services/r2-storage.service';
+import { CreateVendorCategoryDto } from './dto/create-vendor-category.dto';
+import {
+  ReplaceVendorCategoriesTreeDto,
+  replaceVendorCategoriesTreeSwaggerExample,
+} from './dto/replace-vendor-categories-tree.dto';
+import { UpdateVendorCategoryDto } from './dto/update-vendor-category.dto';
+import { ApiErrorResponseDto } from '../common/swagger/api-response.dto';
+import type {
+  SerializedVendorCategory,
+  SerializedVendorCategoryListItem,
+} from './vendors.service';
 
 @Controller('vendors')
 export class VendorsController {
@@ -74,6 +95,204 @@ export class VendorsController {
   @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
   findArchived() {
     return this.vendorsService.findArchived();
+  }
+
+  @Post(':id/categories')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  createCategory(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() createVendorCategoryDto: CreateVendorCategoryDto,
+  ): Promise<SerializedVendorCategory> {
+    return this.vendorsService.createVendorCategory(id, createVendorCategoryDto);
+  }
+
+  @Get(':id/categories')
+  findCategories(
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<SerializedVendorCategoryListItem[]> {
+    return this.vendorsService.findVendorCategories(id);
+  }
+
+  @Get(':id/categories/tree')
+  findCategoryTree(
+    @Param('id', ParseIntPipe) id: number,
+  ): Promise<SerializedVendorCategory[]> {
+    return this.vendorsService.findVendorCategoriesTree(id);
+  }
+
+  @Put(':id/categories/tree')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  @ApiOperation({
+    summary: 'Replace the full vendor category tree in one payload',
+  })
+  @ApiParam({
+    name: 'id',
+    example: 2,
+    description: 'Vendor id.',
+  })
+  @ApiBody({
+    type: ReplaceVendorCategoriesTreeDto,
+    description:
+      'Replaces the current vendor category tree for this vendor. Existing vendor categories are removed and recreated from this nested payload. Array order is used as sibling order.',
+    examples: {
+      full_tree: {
+        summary: 'Replace the full vendor category tree',
+        value: replaceVendorCategoriesTreeSwaggerExample,
+      },
+    },
+  })
+  @ApiOkResponse({
+    description: 'Vendor category tree replaced successfully.',
+    schema: {
+      example: {
+        success: true,
+        data: [
+          {
+            id: 1,
+            title: 'Components',
+            url: '/components',
+            vendor_id: 2,
+            parent_id: null,
+            category_ids: [42],
+            sort_order: 0,
+            categories: [
+              {
+                id: 42,
+                name_en: 'Components',
+                slug: 'components',
+              },
+            ],
+            children: [
+              {
+                id: 2,
+                title: 'Desktop RAM',
+                url: '/components/desktop-ram',
+                vendor_id: 2,
+                parent_id: 1,
+                category_ids: [48],
+                sort_order: 0,
+                categories: [
+                  {
+                    id: 48,
+                    name_en: 'Desktop RAM',
+                    slug: 'desktop-ram',
+                  },
+                ],
+                children: [],
+                created_at: '2026-05-05T08:00:00.000Z',
+                updated_at: '2026-05-05T08:00:00.000Z',
+              },
+              {
+                id: 3,
+                title: 'CPU Coolers',
+                url: '/components/cpu-coolers',
+                vendor_id: 2,
+                parent_id: 1,
+                category_ids: [],
+                sort_order: 1,
+                categories: [],
+                children: [],
+                created_at: '2026-05-05T08:00:00.000Z',
+                updated_at: '2026-05-05T08:00:00.000Z',
+              },
+            ],
+            created_at: '2026-05-05T08:00:00.000Z',
+            updated_at: '2026-05-05T08:00:00.000Z',
+          },
+          {
+            id: 4,
+            title: 'Peripherals',
+            url: '/peripherals',
+            vendor_id: 2,
+            parent_id: null,
+            category_ids: [],
+            sort_order: 1,
+            categories: [],
+            children: [
+              {
+                id: 5,
+                title: 'Keyboards',
+                url: '/peripherals/keyboards',
+                vendor_id: 2,
+                parent_id: 4,
+                category_ids: [10],
+                sort_order: 0,
+                categories: [
+                  {
+                    id: 10,
+                    name_en: 'Keyboards',
+                    slug: 'keyboards',
+                  },
+                ],
+                children: [],
+                created_at: '2026-05-05T08:00:00.000Z',
+                updated_at: '2026-05-05T08:00:00.000Z',
+              },
+            ],
+            created_at: '2026-05-05T08:00:00.000Z',
+            updated_at: '2026-05-05T08:00:00.000Z',
+          },
+        ],
+        message: 'Success',
+        time: '2026-05-05T08:00:00.000Z',
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'Validation error or malformed tree payload.',
+    type: ApiErrorResponseDto,
+  })
+  @ApiConflictResponse({
+    description: 'Duplicate vendor category URL exists in the payload or vendor tree.',
+    type: ApiErrorResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Vendor or one of the mapped categories was not found.',
+    type: ApiErrorResponseDto,
+  })
+  replaceCategoryTree(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() replaceVendorCategoriesTreeDto: ReplaceVendorCategoriesTreeDto,
+  ): Promise<SerializedVendorCategory[]> {
+    return this.vendorsService.replaceVendorCategoriesTree(
+      id,
+      replaceVendorCategoriesTreeDto,
+    );
+  }
+
+  @Get(':id/categories/:categoryId')
+  findOneCategory(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('categoryId', ParseIntPipe) categoryId: number,
+  ): Promise<SerializedVendorCategory> {
+    return this.vendorsService.findOneVendorCategory(id, categoryId);
+  }
+
+  @Patch(':id/categories/:categoryId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  updateCategory(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('categoryId', ParseIntPipe) categoryId: number,
+    @Body() updateVendorCategoryDto: UpdateVendorCategoryDto,
+  ): Promise<SerializedVendorCategory> {
+    return this.vendorsService.updateVendorCategory(
+      id,
+      categoryId,
+      updateVendorCategoryDto,
+    );
+  }
+
+  @Delete(':id/categories/:categoryId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.CATALOG_MANAGER)
+  removeCategory(
+    @Param('id', ParseIntPipe) id: number,
+    @Param('categoryId', ParseIntPipe) categoryId: number,
+  ) {
+    return this.vendorsService.removeVendorCategory(id, categoryId);
   }
 
   @Get(':id')
