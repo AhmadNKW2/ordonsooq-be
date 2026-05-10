@@ -4,6 +4,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { Strategy } from 'passport-apple';
 import { ConfigService } from '@nestjs/config';
 import * as jwt from 'jsonwebtoken';
+import { getOAuthStateFromRequest } from '../oauth-return-to';
 
 @Injectable()
 //                                              ↓↓↓ THIS IS THE KEY FIX
@@ -46,6 +47,15 @@ export class AppleStrategy extends PassportStrategy(Strategy, 'apple', 6) {
       callbackURL,
       passReqToCallback: true,
       scope: ['name', 'email'],
+    });
+  }
+
+  override authenticate(req: any, options?: any) {
+    const state = getOAuthStateFromRequest(req);
+
+    return super.authenticate(req, {
+      ...options,
+      ...(state ? { state } : {}),
     });
   }
 

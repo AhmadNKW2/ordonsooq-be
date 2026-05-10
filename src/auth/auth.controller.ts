@@ -24,6 +24,11 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { ConfigService } from '@nestjs/config';
 import { UserRole } from '../users/entities/user.entity';
+import {
+  buildFrontendLoginUrl,
+  buildFrontendRedirectUrl,
+  getOAuthReturnToFromRequest,
+} from './oauth-return-to';
 
 @Controller('auth')
 export class AuthController {
@@ -82,6 +87,10 @@ export class AuthController {
     });
   }
 
+  private getFrontendBaseUrl(): string {
+    return this.configService.get('FRONTEND_URL') || 'http://localhost:3000';
+  }
+
   @Get('google')
   @UseGuards(AuthGuard('google'))
   async googleAuth(@Request() req) {}
@@ -105,9 +114,12 @@ export class AuthController {
       data.tokens.isStaticAccessToken,
     );
 
-    const frontendUrl =
-      this.configService.get('FRONTEND_URL') || 'http://localhost:3000';
-    return res.redirect(frontendUrl);
+    return res.redirect(
+      buildFrontendRedirectUrl(
+        this.getFrontendBaseUrl(),
+        getOAuthReturnToFromRequest(req),
+      ),
+    );
   }
 
   @Get('facebook')
@@ -133,9 +145,12 @@ export class AuthController {
       data.tokens.isStaticAccessToken,
     );
 
-    const frontendUrl =
-      this.configService.get('FRONTEND_URL') || 'http://localhost:3000';
-    return res.redirect(frontendUrl);
+    return res.redirect(
+      buildFrontendRedirectUrl(
+        this.getFrontendBaseUrl(),
+        getOAuthReturnToFromRequest(req),
+      ),
+    );
   }
 
   @Get('apple')
@@ -162,14 +177,20 @@ export class AuthController {
         data.tokens.isStaticAccessToken,
       );
 
-      const frontendUrl =
-        this.configService.get('FRONTEND_URL') || 'http://localhost:3000';
-      return res.redirect(frontendUrl);
+      return res.redirect(
+        buildFrontendRedirectUrl(
+          this.getFrontendBaseUrl(),
+          getOAuthReturnToFromRequest(req),
+        ),
+      );
     } catch (error) {
       console.error('=== APPLE CALLBACK ERROR ===');
       console.error('Error:', error);
       return res.redirect(
-        `${this.configService.get('FRONTEND_URL')}/login?error=auth_failed`,
+        buildFrontendLoginUrl(this.getFrontendBaseUrl(), {
+          error: 'auth_failed',
+          returnTo: getOAuthReturnToFromRequest(req),
+        }),
       );
     }
   }
