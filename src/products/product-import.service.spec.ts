@@ -890,8 +890,9 @@ describe('ProductImportService', () => {
     );
   });
 
-  it('keeps only the first AI attribute value for each attribute during import', async () => {
-    const result = await (
+  it('rejects AI attributes that return more than one value for the same attribute', async () => {
+    await expect(
+      (
       service as ProductImportService & {
         resolveAttributes: (
           aiAttributes: Array<{
@@ -909,51 +910,47 @@ describe('ProductImportService', () => {
           }>
         >;
       }
-    ).resolveAttributes(
-      [
-        {
-          attribute: {
-            attribute_id: 11,
-            original_value: 'Storage Type',
+      ).resolveAttributes(
+        [
+          {
+            attribute: {
+              attribute_id: 11,
+              original_value: 'Storage Type',
+            },
+            values: [
+              {
+                original_value: 'SSD',
+                matched_value_id: 77,
+              },
+              {
+                original_value: 'HDD',
+                matched_value_id: 78,
+              },
+            ],
           },
-          values: [
-            {
-              original_value: 'SSD',
-              matched_value_id: 77,
-            },
-            {
-              original_value: 'HDD',
-              matched_value_id: 78,
-            },
-          ],
-        },
-      ],
-      [
-        {
-          id: 11,
-          name_en: 'Storage Type',
-          level: 0,
-          values: [
-            {
-              id: 77,
-              value_en: 'SSD',
-              value_ar: 'SSD',
-            },
-            {
-              id: 78,
-              value_en: 'HDD',
-              value_ar: 'HDD',
-            },
-          ],
-        },
-      ],
+        ],
+        [
+          {
+            id: 11,
+            name_en: 'Storage Type',
+            level: 0,
+            values: [
+              {
+                id: 77,
+                value_en: 'SSD',
+                value_ar: 'SSD',
+              },
+              {
+                id: 78,
+                value_en: 'HDD',
+                value_ar: 'HDD',
+              },
+            ],
+          },
+        ],
+      )
+    ).rejects.toThrow(
+      'AI returned multiple values for attribute 11. Exactly one value is required per attribute.',
     );
-
-    expect(result).toEqual([
-      {
-        attribute_id: 11,
-        attribute_value_ids: [77],
-      },
-    ]);
   });
 });

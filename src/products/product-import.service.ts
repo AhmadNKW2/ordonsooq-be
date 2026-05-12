@@ -2232,7 +2232,17 @@ export class ProductImportService {
       const attributeId = this.extractPositiveInteger(
         attribute.attribute?.attribute_id,
       );
-      const normalizedValues = (attribute.values ?? []).slice(0, 1);
+      const attributeLabel = this.extractSimpleText(
+        attribute.attribute?.original_value,
+      );
+      const normalizedValues = attribute.values ?? [];
+
+      if (normalizedValues.length > 1) {
+        const attributeIdentifier = attributeId ?? attributeLabel ?? 'unknown';
+        throw new BadRequestException(  
+          `AI returned multiple values for attribute ${attributeIdentifier}. Exactly one value is required per attribute.`,
+        );
+      }
 
       if (!attributeId) {
         normalizedAttributes.push({
@@ -2253,7 +2263,14 @@ export class ProductImportService {
       }
 
       const existingEntry = normalizedAttributes[existingIndex];
-      if ((existingEntry.values?.length ?? 0) === 0 && normalizedValues.length) {
+      const existingValues = existingEntry.values ?? [];
+      if (existingValues.length > 0 && normalizedValues.length > 0) {
+        throw new BadRequestException(
+          `AI returned duplicate values for attribute ${attributeId}. Exactly one value is required per attribute.`,
+        );
+      }
+
+      if (existingValues.length === 0 && normalizedValues.length) {
         normalizedAttributes[existingIndex] = {
           ...existingEntry,
           values: normalizedValues,

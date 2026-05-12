@@ -44,6 +44,12 @@ describe('buildProductImportSystemPrompt', () => {
       'If the product input explicitly contains a usable value for a database attribute, you MUST return exactly ONE best explicit value that belongs to that attribute.',
     );
     expect(prompt).toContain(
+      'When the raw product input contains multiple candidate values for the same attribute, you MUST compare them against the full product context and choose the single correct value for this exact product.',
+    );
+    expect(prompt).toContain(
+      'Resolve attribute conflicts by strongest evidence in this order: structured raw attribute input, structured raw specification entries, source title, short description, full description, then reference URL.',
+    );
+    expect(prompt).toContain(
       'For allow_ai_inference = FALSE, if the product data does not explicitly contain this attribute, values MUST stay [] and you MUST NOT choose an existing DB value or create a new one.',
     );
     expect(prompt).toContain(
