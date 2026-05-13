@@ -32,6 +32,12 @@ describe('ProductsService detail attributes', () => {
     brand_id: null,
     quantity: 8,
     is_out_of_stock: false,
+    original_vendor_categories: [
+      { id: 44, name: 'Gaming Monitors' },
+      { id: 51 },
+    ],
+    original_vendor_category_id: 44,
+    original_vendor_category_name: null,
     cost: 100,
     price: 150,
     sale_price: null,
@@ -177,16 +183,32 @@ describe('ProductsService detail attributes', () => {
     });
   });
 
+  it('returns original vendor category arrays without legacy single fields', async () => {
+    productsRepository.findOne.mockResolvedValue({ ...productBase });
+
+    const result = await service.findOne(7);
+
+    expect(result.original_vendor_categories).toEqual([
+      { id: 44, name: 'Gaming Monitors' },
+      { id: 51 },
+    ]);
+    expect(result.original_vendor_categories_ids).toEqual([44, 51]);
+    expect(result).not.toHaveProperty('original_vendor_category_id');
+    expect(result).not.toHaveProperty('original_vendor_category_name');
+  });
+
   it('normalizes multiple original vendor categories while keeping order and deduping', () => {
     const result = (
       service as ProductsService & {
         normalizeOriginalVendorCategories: (params: {
+          categoryIds?: number[] | null;
           categories?: Array<{ id?: number; name?: string } | null>;
           legacyId?: number | null;
           legacyName?: string | null;
         }) => Array<{ id?: number; name?: string }>;
       }
     ).normalizeOriginalVendorCategories({
+      categoryIds: [51, 44, 51],
       categories: [
         { id: 44, name: 'Gaming Monitors' },
         { id: 51, name: 'LED Displays' },

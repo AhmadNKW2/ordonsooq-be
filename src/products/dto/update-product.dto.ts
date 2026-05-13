@@ -105,6 +105,17 @@ export class UpdateProductDto {
   vendor_id?: number;
 
   @ApiPropertyOptional({
+    example: [18, 24],
+    description:
+      'Ordered source vendor category IDs captured during import or manual sync',
+  })
+  @IsArray()
+  @ArrayUnique()
+  @IsNumber({}, { each: true })
+  @IsOptional()
+  original_vendor_categories_ids?: number[];
+
+  @ApiPropertyOptional({
     type: [OriginalVendorCategoryInputDto],
     example: [
       { id: 18, name: 'Gaming Monitors' },

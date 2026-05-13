@@ -765,9 +765,13 @@ export class ProductImportService {
       'in_stock',
       'sku',
       'record',
+      'original_vendor_categories_ids',
+      'originalVendorCategoryIds',
       'original_vendor_categories',
       'originalVendorCategories',
+      'vendor_categories_ids',
       'vendor_categories',
+      'vendorCategoryIds',
       'vendorCategories',
       'original_vendor_category_id',
       'originalVendorCategoryId',
@@ -2802,6 +2806,21 @@ export class ProductImportService {
       );
   }
 
+  private normalizeOriginalVendorCategoryIdCollection(
+    value: unknown,
+  ): OriginalVendorCategoryReference[] {
+    if (value === undefined || value === null) {
+      return [];
+    }
+
+    const values = Array.isArray(value) ? value : [value];
+
+    return values
+      .map((entry) => this.extractPositiveInteger(entry))
+      .filter((entry): entry is number => entry !== null)
+      .map((id) => ({ id }));
+  }
+
   private extractOriginalVendorCategories(
     input: Record<string, unknown>,
   ): OriginalVendorCategoryReference[] {
@@ -2822,6 +2841,16 @@ export class ProductImportService {
 
     return this.normalizeOriginalVendorCategories([
       ...(legacyPrimaryCategory ? [legacyPrimaryCategory] : []),
+      ...this.normalizeOriginalVendorCategoryIdCollection(
+        input.original_vendor_categories_ids,
+      ),
+      ...this.normalizeOriginalVendorCategoryIdCollection(
+        input.originalVendorCategoryIds,
+      ),
+      ...this.normalizeOriginalVendorCategoryIdCollection(
+        input.vendor_categories_ids,
+      ),
+      ...this.normalizeOriginalVendorCategoryIdCollection(input.vendorCategoryIds),
       ...this.normalizeOriginalVendorCategoryCollection(
         input.original_vendor_categories,
       ),

@@ -209,6 +209,26 @@ describe('ProductImportService', () => {
     );
   });
 
+  it('extracts original vendor category ids arrays from import payload aliases', () => {
+    const parsed = (service as any).parseRequest({
+      category_id: 9,
+      vendor_id: 2,
+      payload: {
+        title: 'Imported Monitor',
+        description: 'Imported description',
+        new_price: '99.99',
+        original_vendor_categories_ids: [44, '51', 44, null, 'invalid'],
+      },
+    });
+
+    expect(parsed.payload.original_vendor_categories).toEqual([
+      { id: 44 },
+      { id: 51 },
+    ]);
+    expect(parsed.payload.original_vendor_category_id).toBe(44);
+    expect(parsed.payload.original_vendor_category_name).toBeNull();
+  });
+
   it('keeps all category_ids from the import payload', () => {
     const parsed = (service as any).parseRequest({
       vendor_id: 2,

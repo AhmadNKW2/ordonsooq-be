@@ -175,7 +175,7 @@ describe('VendorsService vendor categories', () => {
     });
   });
 
-  it('lists vendor categories from deepest children to parents without sort_order', async () => {
+  it('lists vendor categories from deepest children to parents without sort_order and omits unmapped entries', async () => {
     vendorRepository.findOne.mockResolvedValue({ id: 5, name_en: 'Vendor 5' });
     vendorCategoryRepository.find.mockResolvedValue([
       {
@@ -237,7 +237,7 @@ describe('VendorsService vendor categories', () => {
 
     const result = await service.findVendorCategories(5);
 
-    expect(result.map((item) => item.id)).toEqual([3, 2, 4, 1, 5]);
+    expect(result.map((item) => item.id)).toEqual([3, 2, 4, 1]);
     expect(result[0]).toMatchObject({
       id: 3,
       reference_link: '/displays/oled/qd-oled',
@@ -249,6 +249,7 @@ describe('VendorsService vendor categories', () => {
       reference_link: '/displays',
       category_ids: [9],
     });
+    expect(result.find((item) => item.id === 5)).toBeUndefined();
   });
 
   it('replaces the full vendor category tree from one nested payload', async () => {

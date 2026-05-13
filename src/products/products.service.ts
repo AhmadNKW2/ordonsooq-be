@@ -254,14 +254,31 @@ export class ProductsService {
     ];
   }
 
+  private normalizeOriginalVendorCategoryIds(
+    categories?: Array<OriginalVendorCategoryReference | null | undefined>,
+  ): number[] {
+    return [
+      ...new Set(
+        (categories ?? [])
+          .map((category) => Number(category?.id))
+          .filter(
+            (categoryId) => Number.isInteger(categoryId) && categoryId > 0,
+          ),
+      ),
+    ];
+  }
+
   private normalizeOriginalVendorCategories(params: {
+    categoryIds?: number[] | null;
     categories?: Array<OriginalVendorCategoryReference | null | undefined> | null;
     legacyId?: number | null;
     legacyName?: string | null;
   }): OriginalVendorCategoryReference[] {
     const orderedKeys: string[] = [];
     const categoriesByKey = new Map<string, OriginalVendorCategoryReference>();
-    const sourceCategories = [
+    const sourceCategories: Array<
+      OriginalVendorCategoryReference | null | undefined
+    > = [
       ...(params.legacyId || params.legacyName
         ? [
             {
@@ -270,6 +287,9 @@ export class ProductsService {
             },
           ]
         : []),
+      ...this.normalizeProductIds(params.categoryIds ?? undefined).map(
+        (id): OriginalVendorCategoryReference => ({ id }),
+      ),
       ...(params.categories ?? []),
     ];
 
@@ -1570,6 +1590,7 @@ export class ProductsService {
         requestedState: dto.is_out_of_stock,
       });
       const originalVendorCategories = this.normalizeOriginalVendorCategories({
+        categoryIds: dto.original_vendor_categories_ids,
         categories: dto.original_vendor_categories,
         legacyId: dto.original_vendor_category_id ?? null,
         legacyName: dto.original_vendor_category_name ?? null,
@@ -2083,6 +2104,9 @@ export class ProductsService {
             productSpecification.specification_value?.id,
         ),
       ),
+      original_vendor_categories_ids: this.normalizeOriginalVendorCategoryIds(
+        product.original_vendor_categories,
+      ),
     };
   }
 
@@ -2236,6 +2260,9 @@ export class ProductsService {
       category_id,
       vendor_id,
       brand_id,
+      original_vendor_categories: rawOriginalVendorCategories,
+      original_vendor_category_id,
+      original_vendor_category_name,
       archived_at,
       archived_by,
       deleted_at,
@@ -2243,8 +2270,13 @@ export class ProductsService {
       ...cleanRest
     } = rest;
 
+    const originalVendorCategories = Array.isArray(rawOriginalVendorCategories)
+      ? rawOriginalVendorCategories
+      : [];
+
     return {
       ...cleanRest,
+      original_vendor_categories: originalVendorCategories,
       ...relationIds,
       brand: brandInfo,
       categories,
@@ -2371,8 +2403,15 @@ export class ProductsService {
       productCategories,
       category,
       brand,
+      original_vendor_categories: rawOriginalVendorCategories,
+      original_vendor_category_id,
+      original_vendor_category_name,
       ...rest
     } = product as any;
+
+    const originalVendorCategories = Array.isArray(rawOriginalVendorCategories)
+      ? rawOriginalVendorCategories
+      : [];
 
     // Transform media — flat sorted array
     const transformedMedia =
@@ -2420,6 +2459,10 @@ export class ProductsService {
 
     return {
       ...rest,
+      original_vendor_categories: originalVendorCategories,
+      original_vendor_categories_ids: this.normalizeOriginalVendorCategoryIds(
+        originalVendorCategories,
+      ),
       brand: brandInfo,
       categories,
       media: transformedMedia,
@@ -2573,11 +2616,13 @@ export class ProductsService {
       }
 
       if (
+        dto.original_vendor_categories_ids !== undefined ||
         dto.original_vendor_categories !== undefined ||
         dto.original_vendor_category_id !== undefined ||
         dto.original_vendor_category_name !== undefined
       ) {
         const originalVendorCategories = this.normalizeOriginalVendorCategories({
+          categoryIds: dto.original_vendor_categories_ids,
           categories: dto.original_vendor_categories,
           legacyId: dto.original_vendor_category_id ?? null,
           legacyName: dto.original_vendor_category_name ?? null,
