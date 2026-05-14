@@ -41,4 +41,31 @@ export class UpdateCategoryDto extends PartialType(CreateCategoryDto) {
   @IsArray()
   @IsNumber({}, { each: true })
   attribute_ids?: number[];
+
+  @ApiPropertyOptional({
+    type: [Number],
+    example: [3, 10, 11],
+    description:
+      'Specification IDs to keep linked to this category. Use an empty array to clear links.',
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined) return undefined;
+    if (value === '' || value === null) return [];
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return value
+          .split(',')
+          .map(Number)
+          .filter((n) => !isNaN(n));
+      }
+    }
+    return Array.isArray(value) ? value : [];
+  })
+  @IsArray()
+  @IsNumber({}, { each: true })
+  specification_ids?: number[];
 }
