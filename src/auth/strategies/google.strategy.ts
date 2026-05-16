@@ -2,6 +2,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { Strategy, VerifyCallback } from 'passport-google-oauth20';
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { getOAuthStateFromRequest } from '../oauth-return-to';
 
 @Injectable()
 export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
@@ -25,7 +26,13 @@ export class GoogleStrategy extends PassportStrategy(Strategy, 'google') {
   }
 
   override authenticate(req: any, options?: any) {
-    return super.authenticate(req, { ...options, prompt: 'select_account' });
+    const state = getOAuthStateFromRequest(req);
+
+    return super.authenticate(req, {
+      ...options,
+      prompt: 'select_account',
+      ...(state ? { state } : {}),
+    });
   }
 
   async validate(

@@ -57,6 +57,7 @@ interface ImportDefinition {
 interface ParsedImportRequest {
   payload: NormalizedImportPayload;
   categoryId: number;
+  categoryIds: number[];
   vendorId: number;
   model: string;
   sourceFile: string | null;
@@ -575,7 +576,7 @@ export class ProductImportService {
     body: Record<string, unknown>,
   ): Promise<CreateProductDto> {
     const request = this.parseRequest(body);
-    const catalog = await this.loadImportCatalog(request.categoryId);
+    const catalog = await this.loadImportCatalog(request.categoryIds);
     const aiResult = await this.callOpenAi(
       request.payload,
       catalog,
@@ -620,11 +621,8 @@ export class ProductImportService {
     const payloadCandidate = this.getObject(body.payload);
     const rawPayload = payloadCandidate ?? body;
     const payload = this.normalizePayload(rawPayload);
-    const categoryId =
-      this.extractPositiveInteger(body.category_id) ??
-      this.extractPositiveInteger(rawPayload.category_id) ??
-      this.extractFirstPositiveInteger(body.category_ids) ??
-      this.extractFirstPositiveInteger(rawPayload.category_ids);
+    const categoryIds = this.resolveCategoryIds(body, rawPayload);
+    const categoryId = categoryIds[0] ?? null;
     const vendorId =
       this.extractPositiveInteger(body.vendor_id) ??
       this.extractPositiveInteger(rawPayload.vendor_id);
@@ -662,6 +660,7 @@ export class ProductImportService {
     return {
       payload,
       categoryId,
+      categoryIds,
       vendorId,
       model,
       sourceFile,
@@ -766,9 +765,13 @@ export class ProductImportService {
       'in_stock',
       'sku',
       'record',
+      'original_vendor_categories_ids',
+      'originalVendorCategoryIds',
       'original_vendor_categories',
       'originalVendorCategories',
+      'vendor_categories_ids',
       'vendor_categories',
+      'vendorCategoryIds',
       'vendorCategories',
       'original_vendor_category_id',
       'originalVendorCategoryId',
@@ -881,12 +884,12 @@ export class ProductImportService {
   }
 
   private async loadImportCatalog(
-    categoryId: number,
+    categoryIds: number[],
   ): Promise<ProductImportCatalog> {
     const [brands, specifications, attributes] = await Promise.all([
       this.findActiveBrands(),
-      this.specificationsService.findAll([categoryId]),
-      this.attributesService.findAll([categoryId]),
+      this.specificationsService.findAll(categoryIds),
+      this.attributesService.findAll(categoryIds),
     ]);
 
     return {
@@ -951,7 +954,7 @@ export class ProductImportService {
         aiResult.description_ar,
         'AI description_ar',
       ),
-      category_ids: [request.categoryId],
+      category_ids: request.categoryIds,
       vendor_id: request.vendorId,
       visible: true,
       specifications: specificationsPayload,
@@ -2095,8 +2098,11 @@ export class ProductImportService {
   ): ImportAiAttribute[] {
     void payload;
 
+    const normalizedAiAttributes =
+      this.normalizeAiAttributesToSingleValue(aiAttributes);
+
     return this.enforceRequiredDefinitionValues(
-      aiAttributes,
+      normalizedAiAttributes,
       availableAttributes,
       {
         getDefinitionId: (attribute) =>
@@ -2179,7 +2185,10 @@ export class ProductImportService {
       attribute_value_ids: number[];
     }>
   > {
-    return this.resolveDefinitionValues(aiAttributes, availableAttributes, {
+    return this.resolveDefinitionValues(
+      this.normalizeAiAttributesToSingleValue(aiAttributes),
+      availableAttributes,
+      {
       getDefinitionId: (attribute) =>
         this.extractPositiveInteger(attribute.attribute?.attribute_id),
       getValues: (attribute) => attribute.values,
@@ -2213,7 +2222,67 @@ export class ProductImportService {
         attribute_id: attributeId,
         attribute_value_ids: valueIds,
       }),
-    });
+      },
+    );
+  }
+
+  private normalizeAiAttributesToSingleValue(
+    aiAttributes: ImportAiAttribute[],
+  ): ImportAiAttribute[] {
+    const normalizedAttributes: ImportAiAttribute[] = [];
+    const indexByAttributeId = new Map<number, number>();
+
+    for (const attribute of aiAttributes) {
+      const attributeId = this.extractPositiveInteger(
+        attribute.attribute?.attribute_id,
+      );
+      const attributeLabel = this.extractSimpleText(
+        attribute.attribute?.original_value,
+      );
+      const normalizedValues = attribute.values ?? [];
+
+      if (normalizedValues.length > 1) {
+        const attributeIdentifier = attributeId ?? attributeLabel ?? 'unknown';
+        throw new BadRequestException(  
+          `AI returned multiple values for attribute ${attributeIdentifier}. Exactly one value is required per attribute.`,
+        );
+      }
+
+      if (!attributeId) {
+        normalizedAttributes.push({
+          ...attribute,
+          values: normalizedValues,
+        });
+        continue;
+      }
+
+      const existingIndex = indexByAttributeId.get(attributeId);
+      if (existingIndex === undefined) {
+        indexByAttributeId.set(attributeId, normalizedAttributes.length);
+        normalizedAttributes.push({
+          ...attribute,
+          values: normalizedValues,
+        });
+        continue;
+      }
+
+      const existingEntry = normalizedAttributes[existingIndex];
+      const existingValues = existingEntry.values ?? [];
+      if (existingValues.length > 0 && normalizedValues.length > 0) {
+        throw new BadRequestException(
+          `AI returned duplicate values for attribute ${attributeId}. Exactly one value is required per attribute.`,
+        );
+      }
+
+      if (existingValues.length === 0 && normalizedValues.length) {
+        normalizedAttributes[existingIndex] = {
+          ...existingEntry,
+          values: normalizedValues,
+        };
+      }
+    }
+
+    return normalizedAttributes;
   }
 
   private isOpenAiNotExistSentinel(value: unknown): boolean {
@@ -2737,6 +2806,21 @@ export class ProductImportService {
       );
   }
 
+  private normalizeOriginalVendorCategoryIdCollection(
+    value: unknown,
+  ): OriginalVendorCategoryReference[] {
+    if (value === undefined || value === null) {
+      return [];
+    }
+
+    const values = Array.isArray(value) ? value : [value];
+
+    return values
+      .map((entry) => this.extractPositiveInteger(entry))
+      .filter((entry): entry is number => entry !== null)
+      .map((id) => ({ id }));
+  }
+
   private extractOriginalVendorCategories(
     input: Record<string, unknown>,
   ): OriginalVendorCategoryReference[] {
@@ -2757,6 +2841,16 @@ export class ProductImportService {
 
     return this.normalizeOriginalVendorCategories([
       ...(legacyPrimaryCategory ? [legacyPrimaryCategory] : []),
+      ...this.normalizeOriginalVendorCategoryIdCollection(
+        input.original_vendor_categories_ids,
+      ),
+      ...this.normalizeOriginalVendorCategoryIdCollection(
+        input.originalVendorCategoryIds,
+      ),
+      ...this.normalizeOriginalVendorCategoryIdCollection(
+        input.vendor_categories_ids,
+      ),
+      ...this.normalizeOriginalVendorCategoryIdCollection(input.vendorCategoryIds),
       ...this.normalizeOriginalVendorCategoryCollection(
         input.original_vendor_categories,
       ),
@@ -2881,6 +2975,43 @@ export class ProductImportService {
     }
 
     return null;
+  }
+
+  private extractPositiveIntegers(value: unknown): number[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return [...new Set(value.map((item) => this.extractPositiveInteger(item)).filter((item): item is number => item !== null))];
+  }
+
+  private resolveCategoryIds(
+    body: Record<string, unknown>,
+    rawPayload: Record<string, unknown>,
+  ): number[] {
+    const bodyCategoryIds = this.extractPositiveIntegers(body.category_ids);
+    if (bodyCategoryIds.length > 0) {
+      return bodyCategoryIds;
+    }
+
+    const bodyCategoryId = this.extractPositiveInteger(body.category_id);
+    if (bodyCategoryId) {
+      return [bodyCategoryId];
+    }
+
+    const payloadCategoryIds = this.extractPositiveIntegers(
+      rawPayload.category_ids,
+    );
+    if (payloadCategoryIds.length > 0) {
+      return payloadCategoryIds;
+    }
+
+    const payloadCategoryId = this.extractPositiveInteger(rawPayload.category_id);
+    if (payloadCategoryId) {
+      return [payloadCategoryId];
+    }
+
+    return [];
   }
 
   private extractFirstPositiveInteger(value: unknown): number | null {

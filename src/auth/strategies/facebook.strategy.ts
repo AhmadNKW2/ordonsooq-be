@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy } from 'passport-facebook';
 import { ConfigService } from '@nestjs/config';
+import { getOAuthStateFromRequest } from '../oauth-return-to';
 
 @Injectable()
 export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
@@ -22,6 +23,18 @@ export class FacebookStrategy extends PassportStrategy(Strategy, 'facebook') {
       callbackURL,
       scope: ['email', 'public_profile'],
       profileFields: ['id', 'displayName', 'photos', 'email', 'name'],
+    });
+  }
+
+  override authenticate(req: any, options?: any) {
+    const state = getOAuthStateFromRequest(req);
+    const authType =
+      typeof req?.query?.auth_type === 'string' ? req.query.auth_type : undefined;
+
+    return super.authenticate(req, {
+      ...options,
+      ...(authType ? { authType } : {}),
+      ...(state ? { state } : {}),
     });
   }
 

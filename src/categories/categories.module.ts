@@ -8,6 +8,7 @@ import { Product } from '../products/entities/product.entity';
 import { ProductCategory } from '../products/entities/product-category.entity';
 import { ProductsModule } from '../products/products.module';
 import { Attribute } from '../attributes/entities/attribute.entity';
+import { Specification } from '../specifications/entities/specification.entity';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { Attribute } from '../attributes/entities/attribute.entity';
       Product,
       ProductCategory,
       Attribute,
+      Specification,
     ]),
     ProductsModule,
   ],

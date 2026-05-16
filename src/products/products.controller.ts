@@ -232,7 +232,8 @@ export class ProductsController {
           createdAt: '2026-03-05T13:41:21.368+03:00',
           updatedAt: '2026-03-16T06:19:24.965+03:00',
         },
-        category_id: 9,
+        category_ids: [9, 12],
+        original_vendor_categories_ids: [44, 51],
         vendor: {
           id: 2,
           slug: 'midas-computer-center',
@@ -337,7 +338,7 @@ export class ProductsController {
       },
     },
     description:
-      'Send the raw product payload directly in the request body. This example matches the importer payload shape used by product.json.',
+      'Send the raw product payload directly in the request body. Use category_ids to assign the imported product to multiple categories; the first category is still used as the primary AI catalog category. You can also send original_vendor_categories_ids when only source vendor category IDs are available.',
   })
   importPayload(@Body() body: Record<string, unknown>, @Req() req: any) {
     return this.productImportService.importFromRequest(body, req.user?.id);
@@ -397,7 +398,7 @@ export class ProductsController {
           attributes: [
             {
               attribute_id: 3,
-              attribute_value_ids: [6, 7],
+              attribute_value_ids: [6],
             },
             {
               attribute_id: 10,
@@ -717,7 +718,7 @@ export class ProductsController {
           attributes: [
             {
               attribute_id: 21,
-              attribute_value_ids: [101, 102],
+              attribute_value_ids: [101],
             },
           ],
           media: [
@@ -765,7 +766,7 @@ export class ProductsController {
           attributes: [
             {
               attribute_id: 21,
-              attribute_value_ids: [101, 102],
+              attribute_value_ids: [101],
             },
           ],
           specifications: [

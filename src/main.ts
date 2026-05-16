@@ -72,6 +72,7 @@ async function bootstrap() {
     'https://www.ordonsooq.com',
     'https://ordonsooq-admin-fe.vercel.app',
     'http://localhost:3000',
+    'http://localhost:3001',
     'http://localhost:3002',
     'https://appleid.apple.com',
   ];
@@ -100,7 +101,7 @@ async function bootstrap() {
         return callback(null, true);
       }
       console.warn(`CORS blocked - Origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
+      callback(null, false);
     },
     // origin: true,
     credentials: true,

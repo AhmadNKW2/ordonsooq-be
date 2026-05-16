@@ -140,6 +140,7 @@ describe('ProductImportService', () => {
           raw_data: {},
         },
         categoryId: 9,
+        categoryIds: [9],
         vendorId: 2,
         model: 'gpt-5.4',
         sourceFile: null,
@@ -206,6 +207,169 @@ describe('ProductImportService', () => {
     expect(parsed.payload.original_vendor_category_name).toBe(
       'Gaming Monitors',
     );
+  });
+
+  it('extracts original vendor category ids arrays from import payload aliases', () => {
+    const parsed = (service as any).parseRequest({
+      category_id: 9,
+      vendor_id: 2,
+      payload: {
+        title: 'Imported Monitor',
+        description: 'Imported description',
+        new_price: '99.99',
+        original_vendor_categories_ids: [44, '51', 44, null, 'invalid'],
+      },
+    });
+
+    expect(parsed.payload.original_vendor_categories).toEqual([
+      { id: 44 },
+      { id: 51 },
+    ]);
+    expect(parsed.payload.original_vendor_category_id).toBe(44);
+    expect(parsed.payload.original_vendor_category_name).toBeNull();
+  });
+
+  it('keeps all category_ids from the import payload', () => {
+    const parsed = (service as any).parseRequest({
+      vendor_id: 2,
+      payload: {
+        title: 'Imported Monitor',
+        description: 'Imported description',
+        new_price: '99.99',
+        category_ids: [9, '12', 12, null, 'invalid', 18],
+      },
+    });
+
+    expect(parsed.categoryId).toBe(9);
+    expect(parsed.categoryIds).toEqual([9, 12, 18]);
+  });
+
+  it('loads the import catalog for all imported category ids', async () => {
+    const parseRequestSpy = jest.spyOn(service as any, 'parseRequest').mockReturnValue({
+      payload: {
+        title: 'Imported Monitor',
+        description: 'Imported description',
+        new_price: '99.99',
+        old_price: undefined,
+        price: undefined,
+        sale_price: undefined,
+        brand: null,
+        image: null,
+        images: [],
+        media: [],
+        specification: [],
+        attributes: [],
+        reference_link: null,
+        quantity: undefined,
+        stock: undefined,
+        sku: null,
+        record: null,
+        original_vendor_categories: [],
+        original_vendor_category_id: null,
+        original_vendor_category_name: null,
+        raw_data: {},
+      },
+      categoryId: 9,
+      categoryIds: [9, 12, 18],
+      vendorId: 2,
+      model: 'gpt-5.4',
+      sourceFile: null,
+    });
+    const loadImportCatalogSpy = jest
+      .spyOn(service as any, 'loadImportCatalog')
+      .mockResolvedValue({
+        brands: [],
+        specifications: [],
+        attributes: [],
+      });
+    const callOpenAiSpy = jest.spyOn(service as any, 'callOpenAi').mockResolvedValue({
+      title_en: 'Imported Monitor',
+      title_ar: 'شاشة مستوردة',
+      short_description_en: 'Imported short description',
+      short_description_ar: 'وصف قصير مستورد',
+      description_en: 'Imported long description',
+      description_ar: 'وصف طويل مستورد',
+      specifications: [],
+      attributes: [],
+    });
+    const buildCreateProductDtoSpy = jest
+      .spyOn(service as any, 'buildCreateProductDto')
+      .mockResolvedValue({
+        name_en: 'Imported Monitor',
+        name_ar: 'شاشة مستوردة',
+      });
+
+    await (service as any).buildImportedProductDto({
+      payload: {
+        title: 'Imported Monitor',
+        description: 'Imported description',
+        new_price: '99.99',
+      },
+      category_ids: [9, 12, 18],
+      vendor_id: 2,
+    });
+
+    expect(parseRequestSpy).toHaveBeenCalled();
+    expect(loadImportCatalogSpy).toHaveBeenCalledWith([9, 12, 18]);
+    expect(callOpenAiSpy).toHaveBeenCalled();
+    expect(buildCreateProductDtoSpy).toHaveBeenCalled();
+  });
+
+  it('builds a create dto with all imported category ids', async () => {
+    jest.spyOn(service as any, 'resolveSpecifications').mockResolvedValue([]);
+    jest.spyOn(service as any, 'resolveAttributes').mockResolvedValue([]);
+    jest.spyOn(service as any, 'buildMedia').mockResolvedValue([]);
+    jest.spyOn(service as any, 'resolveBrandForImport').mockResolvedValue(null);
+
+    const createProductDto = await (service as any).buildCreateProductDto(
+      {
+        payload: {
+          title: 'Imported Monitor',
+          description: 'Imported description',
+          new_price: '99.99',
+          old_price: undefined,
+          price: undefined,
+          sale_price: undefined,
+          brand: null,
+          image: null,
+          images: [],
+          media: [],
+          specification: [],
+          attributes: [],
+          reference_link: null,
+          quantity: undefined,
+          stock: undefined,
+          sku: null,
+          record: null,
+          original_vendor_categories: [],
+          original_vendor_category_id: null,
+          original_vendor_category_name: null,
+          raw_data: {},
+        },
+        categoryId: 9,
+        categoryIds: [9, 12, 18],
+        vendorId: 2,
+        model: 'gpt-5.4',
+        sourceFile: null,
+      },
+      {
+        title_en: 'Imported Monitor',
+        title_ar: 'شاشة مستوردة',
+        short_description_en: 'Imported short description',
+        short_description_ar: 'وصف قصير مستورد',
+        description_en: 'Imported long description',
+        description_ar: 'وصف طويل مستورد',
+        specifications: [],
+        attributes: [],
+      },
+      {
+        brands: [],
+        specifications: [],
+        attributes: [],
+      },
+    );
+
+    expect(createProductDto.category_ids).toEqual([9, 12, 18]);
   });
 
   it('copies original vendor category metadata into the create dto payload metadata', () => {
@@ -814,6 +978,70 @@ describe('ProductImportService', () => {
       '256',
       '256',
       77,
+    );
+  });
+
+  it('rejects AI attributes that return more than one value for the same attribute', async () => {
+    await expect(
+      (
+      service as ProductImportService & {
+        resolveAttributes: (
+          aiAttributes: Array<{
+            attribute: { attribute_id: number; original_value: string };
+            values: Array<{
+              original_value: string;
+              matched_value_id: number | string;
+            }>;
+          }>,
+          availableAttributes: Array<Record<string, unknown>>,
+        ) => Promise<
+          Array<{
+            attribute_id: number;
+            attribute_value_ids: number[];
+          }>
+        >;
+      }
+      ).resolveAttributes(
+        [
+          {
+            attribute: {
+              attribute_id: 11,
+              original_value: 'Storage Type',
+            },
+            values: [
+              {
+                original_value: 'SSD',
+                matched_value_id: 77,
+              },
+              {
+                original_value: 'HDD',
+                matched_value_id: 78,
+              },
+            ],
+          },
+        ],
+        [
+          {
+            id: 11,
+            name_en: 'Storage Type',
+            level: 0,
+            values: [
+              {
+                id: 77,
+                value_en: 'SSD',
+                value_ar: 'SSD',
+              },
+              {
+                id: 78,
+                value_en: 'HDD',
+                value_ar: 'HDD',
+              },
+            ],
+          },
+        ],
+      )
+    ).rejects.toThrow(
+      'AI returned multiple values for attribute 11. Exactly one value is required per attribute.',
     );
   });
 });

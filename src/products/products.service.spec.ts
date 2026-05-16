@@ -7,9 +7,48 @@ import { ProductAttribute } from './entities/product-attribute.entity';
 import { ProductAttributeValue } from './entities/product-attribute-value.entity';
 import { ProductSpecificationValue } from './entities/product-specification-value.entity';
 
+type BaseQueryBuilderMock = {
+  where: jest.Mock;
+  andWhere: jest.Mock;
+  clone: jest.Mock;
+  getCount: jest.Mock;
+};
+
+type PageQueryBuilderMock = {
+  select: jest.Mock;
+  addSelect: jest.Mock;
+  orderBy: jest.Mock;
+  skip: jest.Mock;
+  take: jest.Mock;
+  getRawMany: jest.Mock;
+};
+
+const createFindAllQueryBuilderMocks = () => {
+  const pageQuery: PageQueryBuilderMock = {
+    select: jest.fn().mockReturnThis(),
+    addSelect: jest.fn().mockReturnThis(),
+    orderBy: jest.fn().mockReturnThis(),
+    skip: jest.fn().mockReturnThis(),
+    take: jest.fn().mockReturnThis(),
+    getRawMany: jest.fn().mockResolvedValue([]),
+  };
+
+  const baseQuery: BaseQueryBuilderMock = {
+    where: jest.fn().mockReturnThis(),
+    andWhere: jest.fn().mockReturnThis(),
+    clone: jest.fn().mockReturnValue(pageQuery),
+    getCount: jest.fn().mockResolvedValue(0),
+  };
+
+  return { baseQuery, pageQuery };
+};
+
 describe('ProductsService detail attributes', () => {
   let service: ProductsService;
-  let productsRepository: { findOne: jest.Mock };
+  let productsRepository: {
+    findOne: jest.Mock;
+    createQueryBuilder: jest.Mock;
+  };
   let groupProductsRepository: { findOne: jest.Mock };
   let dataSource: { getRepository: jest.Mock };
   let repositoryByEntity: Map<unknown, { find: jest.Mock }>;
@@ -32,6 +71,12 @@ describe('ProductsService detail attributes', () => {
     brand_id: null,
     quantity: 8,
     is_out_of_stock: false,
+    original_vendor_categories: [
+      { id: 44, name: 'Gaming Monitors' },
+      { id: 51 },
+    ],
+    original_vendor_category_id: 44,
+    original_vendor_category_name: null,
     cost: 100,
     price: 150,
     sale_price: null,
@@ -44,6 +89,7 @@ describe('ProductsService detail attributes', () => {
   beforeEach(() => {
     productsRepository = {
       findOne: jest.fn(),
+      createQueryBuilder: jest.fn(),
     };
 
     groupProductsRepository = {
@@ -177,16 +223,32 @@ describe('ProductsService detail attributes', () => {
     });
   });
 
+  it('returns original vendor category arrays without legacy single fields', async () => {
+    productsRepository.findOne.mockResolvedValue({ ...productBase });
+
+    const result = await service.findOne(7);
+
+    expect(result.original_vendor_categories).toEqual([
+      { id: 44, name: 'Gaming Monitors' },
+      { id: 51 },
+    ]);
+    expect(result.original_vendor_categories_ids).toEqual([44, 51]);
+    expect(result).not.toHaveProperty('original_vendor_category_id');
+    expect(result).not.toHaveProperty('original_vendor_category_name');
+  });
+
   it('normalizes multiple original vendor categories while keeping order and deduping', () => {
     const result = (
       service as ProductsService & {
         normalizeOriginalVendorCategories: (params: {
+          categoryIds?: number[] | null;
           categories?: Array<{ id?: number; name?: string } | null>;
           legacyId?: number | null;
           legacyName?: string | null;
         }) => Array<{ id?: number; name?: string }>;
       }
     ).normalizeOriginalVendorCategories({
+      categoryIds: [51, 44, 51],
       categories: [
         { id: 44, name: 'Gaming Monitors' },
         { id: 51, name: 'LED Displays' },
@@ -200,5 +262,44 @@ describe('ProductsService detail attributes', () => {
       { id: 44, name: 'Gaming Monitors' },
       { id: 51, name: 'LED Displays' },
     ]);
+  });
+
+  it('includes active, review, and updated products by default for admin lists', async () => {
+    const { baseQuery } = createFindAllQueryBuilderMocks();
+    productsRepository.createQueryBuilder.mockReturnValue(baseQuery);
+
+    const result = await service.findAll({}, true);
+
+    expect(baseQuery.where).toHaveBeenCalledWith(
+      'product.status IN (:...defaultStatuses)',
+      {
+        defaultStatuses: [
+          ProductStatus.ACTIVE,
+          ProductStatus.REVIEW,
+          ProductStatus.UPDATED,
+        ],
+      },
+    );
+    expect(result).toEqual({
+      data: [],
+      meta: {
+        total: 0,
+        page: 1,
+        limit: 10,
+        totalPages: 0,
+      },
+    });
+  });
+
+  it('keeps public product lists limited to active products by default', async () => {
+    const { baseQuery } = createFindAllQueryBuilderMocks();
+    productsRepository.createQueryBuilder.mockReturnValue(baseQuery);
+
+    await service.findAll({}, false);
+
+    expect(baseQuery.where).toHaveBeenCalledWith(
+      'product.status = :defaultStatus',
+      { defaultStatus: ProductStatus.ACTIVE },
+    );
   });
 });

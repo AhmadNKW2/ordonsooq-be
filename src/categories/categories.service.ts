@@ -28,6 +28,7 @@ import { ProductsService } from '../products/products.service';
 import { VendorStatus } from '../vendors/entities/vendor.entity';
 import { R2StorageService } from '../common/services/r2-storage.service';
 import { Attribute } from '../attributes/entities/attribute.entity';
+import { Specification } from '../specifications/entities/specification.entity';
 import {
   getNormalizedProductChanges,
   ProductChangesDto,
@@ -53,6 +54,8 @@ export class CategoriesService {
     private productCategoriesRepository: Repository<ProductCategory>,
     @InjectRepository(Attribute)
     private attributesRepository: Repository<Attribute>,
+    @InjectRepository(Specification)
+    private specificationsRepository: Repository<Specification>,
     private r2StorageService: R2StorageService,
     private productsService: ProductsService,
   ) {}
@@ -63,6 +66,19 @@ export class CategoriesService {
         (attributeIds ?? [])
           .map((attributeId) => Number(attributeId))
           .filter((attributeId) => Number.isInteger(attributeId) && attributeId > 0),
+      ),
+    ];
+  }
+
+  private normalizeSpecificationIds(specificationIds?: number[]): number[] {
+    return [
+      ...new Set(
+        (specificationIds ?? [])
+          .map((specificationId) => Number(specificationId))
+          .filter(
+            (specificationId) =>
+              Number.isInteger(specificationId) && specificationId > 0,
+          ),
       ),
     ];
   }
@@ -130,6 +146,66 @@ export class CategoriesService {
 
     nodes.forEach((category) => {
       category.attributes = attributesByCategoryId.get(category.id) ?? [];
+    });
+  }
+
+  private async syncSpecificationsToCategory(
+    categoryId: number,
+    specificationIds: number[],
+  ): Promise<void> {
+    const normalizedSpecificationIds = this.normalizeSpecificationIds(
+      specificationIds,
+    );
+
+    if (normalizedSpecificationIds.length > 0) {
+      const specifications = await this.specificationsRepository.find({
+        where: { id: In(normalizedSpecificationIds) },
+        select: ['id'],
+      });
+
+      if (specifications.length !== normalizedSpecificationIds.length) {
+        throw new NotFoundException('One or more specifications not found');
+      }
+    }
+
+    const relation = this.categoriesRepository
+      .createQueryBuilder()
+      .relation(Category, 'specifications')
+      .of(categoryId);
+
+    const currentSpecifications =
+      (await relation.loadMany()) as Specification[];
+    await relation.addAndRemove(
+      normalizedSpecificationIds,
+      currentSpecifications.map((specification) => specification.id),
+    );
+  }
+
+  private async attachSpecificationsToCategories(
+    categories: Category[],
+  ): Promise<void> {
+    const nodes = this.flattenCategoryTree(categories);
+    if (nodes.length === 0) {
+      return;
+    }
+
+    const relationCategories = await this.categoriesRepository.find({
+      where: { id: In(nodes.map((category) => category.id)) },
+      relations: ['specifications'],
+    });
+
+    const specificationsByCategoryId = new Map(
+      relationCategories.map((category) => [
+        category.id,
+        [...(category.specifications ?? [])].sort(
+          (left, right) => left.sort_order - right.sort_order || left.id - right.id,
+        ),
+      ]),
+    );
+
+    nodes.forEach((category) => {
+      category.specifications =
+        specificationsByCategoryId.get(category.id) ?? [];
     });
   }
 
@@ -352,7 +428,13 @@ export class CategoriesService {
     const nextSortOrder = (maxSortOrder?.max ?? -1) + 1;
 
     // Map parent_id from DTO to parent_id for entity
-    const { parent_id, product_changes, attribute_ids, ...rest } = createCategoryDto;
+    const {
+      parent_id,
+      product_changes,
+      attribute_ids,
+      specification_ids,
+      ...rest
+    } = createCategoryDto;
     const slug = await this.generateUniqueSlug(rest.name_en);
 
     const category = this.categoriesRepository.create({
@@ -371,6 +453,13 @@ export class CategoriesService {
 
     if (attribute_ids !== undefined) {
       await this.syncAttributesToCategory(savedCategory.id, attribute_ids);
+    }
+
+    if (specification_ids !== undefined) {
+      await this.syncSpecificationsToCategory(
+        savedCategory.id,
+        specification_ids,
+      );
     }
 
     return this.findOne(savedCategory.id);
@@ -504,6 +593,7 @@ export class CategoriesService {
 
     const [data, total] = await queryBuilder.getManyAndCount();
     await this.attachAttributesToCategories(data);
+    await this.attachSpecificationsToCategories(data);
 
     return {
       data,
@@ -538,6 +628,7 @@ export class CategoriesService {
       .getMany();
 
     await this.attachAttributesToCategories(mainCategories);
+  await this.attachSpecificationsToCategories(mainCategories);
 
     return mainCategories;
   }
@@ -586,6 +677,7 @@ export class CategoriesService {
     (category as any).products = productsResult.data;
     (category as any).productsMeta = productsResult.meta;
     await this.attachAttributesToCategories([category]);
+    await this.attachSpecificationsToCategories([category]);
 
     return category;
   }
@@ -616,6 +708,7 @@ export class CategoriesService {
     (category as any).products = productsResult.data;
     (category as any).productsMeta = productsResult.meta;
     await this.attachAttributesToCategories([category]);
+    await this.attachSpecificationsToCategories([category]);
 
     return category;
   }
@@ -627,7 +720,8 @@ export class CategoriesService {
     const category = await this.findOne(id);
     const oldImageUrl = category.image;
 
-    const { product_changes, attribute_ids, ...updateData } = updateCategoryDto;
+    const { product_changes, attribute_ids, specification_ids, ...updateData } =
+      updateCategoryDto;
 
     if (updateData.name_en && updateData.name_en !== category.name_en) {
       category.slug = await this.generateUniqueSlug(updateData.name_en, id);
@@ -699,6 +793,10 @@ export class CategoriesService {
 
     if (attribute_ids !== undefined) {
       await this.syncAttributesToCategory(id, attribute_ids);
+    }
+
+    if (specification_ids !== undefined) {
+      await this.syncSpecificationsToCategory(id, specification_ids);
     }
 
     // Re-fetch to get updated relations

@@ -109,6 +109,17 @@ export class CreateProductDto {
   vendor_id?: number;
 
   @ApiPropertyOptional({
+    example: [18, 24],
+    description:
+      'Ordered source vendor category IDs captured during import or manual sync',
+  })
+  @IsArray()
+  @ArrayUnique()
+  @IsNumber({}, { each: true })
+  @IsOptional()
+  original_vendor_categories_ids?: number[];
+
+  @ApiPropertyOptional({
     type: [OriginalVendorCategoryInputDto],
     example: [
       { id: 18, name: 'Gaming Monitors' },
@@ -235,7 +246,7 @@ export class CreateProductDto {
 
   @ApiPropertyOptional({
     type: [ProductAttributeInputDto],
-    example: [{ attribute_id: 21, attribute_value_ids: [81, 82] }, { attribute_id: 22, attribute_value_ids: [90] }],
+    example: [{ attribute_id: 21, attribute_value_ids: [81] }, { attribute_id: 22, attribute_value_ids: [90] }],
   })
   @IsArray()
   @ValidateNested({ each: true })

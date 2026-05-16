@@ -681,7 +681,7 @@ export class VendorsService {
     const vendorCategories = await this.loadVendorCategoryEntities([vendorId]);
     return this.flattenVendorCategoryTreeByDepth(
       this.buildVendorCategoryTree(vendorCategories),
-    );
+    ).filter((vendorCategory) => vendorCategory.category_ids.length > 0);
   }
 
   async findVendorCategoriesTree(

@@ -29,6 +29,7 @@ import { ProductAttribute } from './entities/product-attribute.entity';
 import { ProductAttributeValue } from './entities/product-attribute-value.entity';
 import { ProductMedia } from './entities/product-media.entity';
 import { ProductSpecificationValue } from './entities/product-specification-value.entity';
+import { AttributeValue } from '../attributes/entities/attribute-value.entity';
 import { SpecificationValue } from '../specifications/entities/specification-value.entity';
 import { CartItem } from '../cart/entities/cart-item.entity';
 import { IndexingService, IndexableProduct } from '../search/indexing.service';
@@ -253,14 +254,31 @@ export class ProductsService {
     ];
   }
 
+  private normalizeOriginalVendorCategoryIds(
+    categories?: Array<OriginalVendorCategoryReference | null | undefined>,
+  ): number[] {
+    return [
+      ...new Set(
+        (categories ?? [])
+          .map((category) => Number(category?.id))
+          .filter(
+            (categoryId) => Number.isInteger(categoryId) && categoryId > 0,
+          ),
+      ),
+    ];
+  }
+
   private normalizeOriginalVendorCategories(params: {
+    categoryIds?: number[] | null;
     categories?: Array<OriginalVendorCategoryReference | null | undefined> | null;
     legacyId?: number | null;
     legacyName?: string | null;
   }): OriginalVendorCategoryReference[] {
     const orderedKeys: string[] = [];
     const categoriesByKey = new Map<string, OriginalVendorCategoryReference>();
-    const sourceCategories = [
+    const sourceCategories: Array<
+      OriginalVendorCategoryReference | null | undefined
+    > = [
       ...(params.legacyId || params.legacyName
         ? [
             {
@@ -269,6 +287,9 @@ export class ProductsService {
             },
           ]
         : []),
+      ...this.normalizeProductIds(params.categoryIds ?? undefined).map(
+        (id): OriginalVendorCategoryReference => ({ id }),
+      ),
       ...(params.categories ?? []),
     ];
 
@@ -1216,6 +1237,98 @@ export class ProductsService {
     });
   }
 
+  private normalizeProductAttributes(
+    attributes: ProductAttributeInputDto[],
+  ): ProductAttributeInputDto[] {
+    const seenAttributeIds = new Set<number>();
+
+    return attributes.map((attribute) => {
+      if (seenAttributeIds.has(attribute.attribute_id)) {
+        throw new BadRequestException(
+          `Duplicate attribute_id ${attribute.attribute_id} in payload`,
+        );
+      }
+
+      seenAttributeIds.add(attribute.attribute_id);
+
+      const attributeValueIds = [
+        ...new Set((attribute.attribute_value_ids ?? []).map(Number)),
+      ];
+
+      if (attributeValueIds.length !== 1) {
+        throw new BadRequestException(
+          `Attribute ${attribute.attribute_id} must have exactly one attribute value`,
+        );
+      }
+
+      return {
+        attribute_id: attribute.attribute_id,
+        attribute_value_ids: attributeValueIds,
+      };
+    });
+  }
+
+  private async resolveProductAttributeValueIds(
+    attributes: ProductAttributeInputDto[],
+  ): Promise<number[]> {
+    const normalizedAttributes = this.normalizeProductAttributes(attributes);
+    const requestedValueIds = normalizedAttributes.map(
+      (attribute) => attribute.attribute_value_ids[0],
+    );
+
+    if (requestedValueIds.length === 0) {
+      return [];
+    }
+
+    const attributeValues = await this.dataSource
+      .getRepository(AttributeValue)
+      .find({
+        where: { id: In(requestedValueIds) },
+        relations: ['attribute'],
+      });
+
+    if (attributeValues.length !== requestedValueIds.length) {
+      throw new BadRequestException(
+        'One or more attribute values were not found',
+      );
+    }
+
+    const attributeValueMap = new Map(
+      attributeValues.map((attributeValue) => [attributeValue.id, attributeValue]),
+    );
+
+    for (const attribute of normalizedAttributes) {
+      const attributeValueId = attribute.attribute_value_ids[0];
+      const attributeValue = attributeValueMap.get(attributeValueId);
+
+      if (!attributeValue) {
+        throw new BadRequestException(
+          `Attribute value ${attributeValueId} was not found`,
+        );
+      }
+
+      if (!attributeValue.is_active) {
+        throw new BadRequestException(
+          `Attribute value ${attributeValueId} is inactive`,
+        );
+      }
+
+      if (!attributeValue.attribute?.is_active) {
+        throw new BadRequestException(
+          `Attribute ${attribute.attribute_id} is inactive`,
+        );
+      }
+
+      if (attributeValue.attribute_id !== attribute.attribute_id) {
+        throw new BadRequestException(
+          `Attribute value ${attributeValueId} does not belong to attribute ${attribute.attribute_id}`,
+        );
+      }
+    }
+
+    return requestedValueIds;
+  }
+
   private async resolveProductSpecificationValueIds(
     specifications: ProductSpecificationInputDto[],
   ): Promise<number[]> {
@@ -1379,7 +1492,10 @@ export class ProductsService {
       return;
     }
 
-    const uniqueAttributeIds = [...new Set(attributes.map(a => a.attribute_id))];
+    const normalizedAttributes = this.normalizeProductAttributes(attributes);
+    const uniqueAttributeIds = normalizedAttributes.map(
+      (attribute) => attribute.attribute_id,
+    );
     await productAttributeRepository.save(
       uniqueAttributeIds.map(attribute_id =>
         productAttributeRepository.create({
@@ -1389,8 +1505,8 @@ export class ProductsService {
       )
     );
 
-    const attributeValueIds = attributes.flatMap(a => a.attribute_value_ids || []);
-    const uniqueAttributeValueIds = [...new Set(attributeValueIds)];
+    const uniqueAttributeValueIds =
+      await this.resolveProductAttributeValueIds(normalizedAttributes);
 
     if (uniqueAttributeValueIds.length > 0) {
       await productAttributeValueRepository.save(
@@ -1459,6 +1575,14 @@ export class ProductsService {
         }
       }
 
+      if (dto.attributes && dto.attributes.length > 0) {
+        await this.resolveProductAttributeValueIds(dto.attributes);
+      }
+
+      if (dto.specifications && dto.specifications.length > 0) {
+        await this.resolveProductSpecificationValueIds(dto.specifications);
+      }
+
       const slug = await this.generateUniqueSlug(dto.name_en);
       const initialQuantity = dto.quantity ?? 0;
       const initialIsOutOfStock = this.resolveIsOutOfStock({
@@ -1466,6 +1590,7 @@ export class ProductsService {
         requestedState: dto.is_out_of_stock,
       });
       const originalVendorCategories = this.normalizeOriginalVendorCategories({
+        categoryIds: dto.original_vendor_categories_ids,
         categories: dto.original_vendor_categories,
         legacyId: dto.original_vendor_category_id ?? null,
         legacyName: dto.original_vendor_category_name ?? null,
@@ -1619,6 +1744,14 @@ export class ProductsService {
     // Filter by status (override default ACTIVE if specified)
     if (status !== undefined) {
       baseQuery.where('product.status = :status', { status });
+    } else if (isAdmin) {
+      baseQuery.where('product.status IN (:...defaultStatuses)', {
+        defaultStatuses: [
+          ProductStatus.ACTIVE,
+          ProductStatus.REVIEW,
+          ProductStatus.UPDATED,
+        ],
+      });
     } else {
       baseQuery.where('product.status = :defaultStatus', {
         defaultStatus: ProductStatus.ACTIVE,
@@ -1979,6 +2112,9 @@ export class ProductsService {
             productSpecification.specification_value?.id,
         ),
       ),
+      original_vendor_categories_ids: this.normalizeOriginalVendorCategoryIds(
+        product.original_vendor_categories,
+      ),
     };
   }
 
@@ -2132,6 +2268,9 @@ export class ProductsService {
       category_id,
       vendor_id,
       brand_id,
+      original_vendor_categories: rawOriginalVendorCategories,
+      original_vendor_category_id,
+      original_vendor_category_name,
       archived_at,
       archived_by,
       deleted_at,
@@ -2139,8 +2278,13 @@ export class ProductsService {
       ...cleanRest
     } = rest;
 
+    const originalVendorCategories = Array.isArray(rawOriginalVendorCategories)
+      ? rawOriginalVendorCategories
+      : [];
+
     return {
       ...cleanRest,
+      original_vendor_categories: originalVendorCategories,
       ...relationIds,
       brand: brandInfo,
       categories,
@@ -2267,8 +2411,15 @@ export class ProductsService {
       productCategories,
       category,
       brand,
+      original_vendor_categories: rawOriginalVendorCategories,
+      original_vendor_category_id,
+      original_vendor_category_name,
       ...rest
     } = product as any;
+
+    const originalVendorCategories = Array.isArray(rawOriginalVendorCategories)
+      ? rawOriginalVendorCategories
+      : [];
 
     // Transform media — flat sorted array
     const transformedMedia =
@@ -2316,6 +2467,10 @@ export class ProductsService {
 
     return {
       ...rest,
+      original_vendor_categories: originalVendorCategories,
+      original_vendor_categories_ids: this.normalizeOriginalVendorCategoryIds(
+        originalVendorCategories,
+      ),
       brand: brandInfo,
       categories,
       media: transformedMedia,
@@ -2389,6 +2544,17 @@ export class ProductsService {
         }
       }
 
+      if (dto.attributes !== undefined && dto.attributes.length > 0) {
+        await this.resolveProductAttributeValueIds(dto.attributes);
+      }
+
+      if (
+        dto.specifications !== undefined &&
+        dto.specifications.length > 0
+      ) {
+        await this.resolveProductSpecificationValueIds(dto.specifications);
+      }
+
       // 2. Update basic product information
       const basicInfoFields = [
         'name_en',
@@ -2458,11 +2624,13 @@ export class ProductsService {
       }
 
       if (
+        dto.original_vendor_categories_ids !== undefined ||
         dto.original_vendor_categories !== undefined ||
         dto.original_vendor_category_id !== undefined ||
         dto.original_vendor_category_name !== undefined
       ) {
         const originalVendorCategories = this.normalizeOriginalVendorCategories({
+          categoryIds: dto.original_vendor_categories_ids,
           categories: dto.original_vendor_categories,
           legacyId: dto.original_vendor_category_id ?? null,
           legacyName: dto.original_vendor_category_name ?? null,

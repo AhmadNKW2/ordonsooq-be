@@ -100,5 +100,31 @@ export class CreateCategoryDto {
   @IsInt({ each: true })
   attribute_ids?: number[];
 
+  @ApiPropertyOptional({
+    type: [Number],
+    example: [3, 10, 11],
+    description: 'Specification IDs that should be linked to this category.',
+  })
+  @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined) return undefined;
+    if (value === '' || value === null) return [];
+    if (typeof value === 'string') {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return value
+          .split(',')
+          .map(Number)
+          .filter((n) => !isNaN(n));
+      }
+    }
+    return Array.isArray(value) ? value : [];
+  })
+  @IsArray()
+  @IsInt({ each: true })
+  specification_ids?: number[];
+
   // image will be handled separately in multipart/form-data
 }
