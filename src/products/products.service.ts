@@ -1744,6 +1744,14 @@ export class ProductsService {
     // Filter by status (override default ACTIVE if specified)
     if (status !== undefined) {
       baseQuery.where('product.status = :status', { status });
+    } else if (isAdmin) {
+      baseQuery.where('product.status IN (:...defaultStatuses)', {
+        defaultStatuses: [
+          ProductStatus.ACTIVE,
+          ProductStatus.REVIEW,
+          ProductStatus.UPDATED,
+        ],
+      });
     } else {
       baseQuery.where('product.status = :defaultStatus', {
         defaultStatus: ProductStatus.ACTIVE,
