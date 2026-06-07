@@ -714,6 +714,52 @@ describe('ProductImportService', () => {
     expect(brandsService.create).not.toHaveBeenCalled();
   });
 
+  it('normalizes arabic inch wording in AI output to إنش', () => {
+    const normalized = (service as any).normalizeAiResult({
+      title_ar: 'شاشة Samsung 27 بوصة منحنية',
+      meta_title_ar: 'شاشة 27 بوصة',
+      short_description_ar: '<ul><li>قياس 27 بوصة</li></ul>',
+      description_ar: '<p>شاشة قياس 27 بوصة مع حامل.</p>',
+      meta_description_ar: 'شاشة ألعاب 27 بوصة',
+      specifications: [
+        {
+          specification_id: 9,
+          values: [
+            {
+              original_value: {
+                name_en: '27-inch',
+                name_ar: '27 بوصة',
+              },
+              matched_value_id: 'not_exist',
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(normalized).toEqual({
+      title_ar: 'شاشة Samsung 27 إنش منحنية',
+      meta_title_ar: 'شاشة 27 إنش',
+      short_description_ar: '<ul><li>قياس 27 إنش</li></ul>',
+      description_ar: '<p>شاشة قياس 27 إنش مع حامل.</p>',
+      meta_description_ar: 'شاشة ألعاب 27 إنش',
+      specifications: [
+        {
+          specification_id: 9,
+          values: [
+            {
+              original_value: {
+                name_en: '27-inch',
+                name_ar: '27 إنش',
+              },
+              matched_value_id: 'not_exist',
+            },
+          ],
+        },
+      ],
+    });
+  });
+
   it('reuses existing unit-based specification values before creating duplicates', async () => {
     const result = await (service as any).resolveSpecifications(
       [

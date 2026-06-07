@@ -56,13 +56,19 @@ describe('buildProductImportSystemPrompt', () => {
       'For attributes, return at most ONE value object per database attribute.',
     );
     expect(prompt).toContain(
-      'For title_ar, the naming order MUST be exactly: Arabic product title/type first, then the brand in English, then product attributes/details only if they are truly present in the product data then the remaining product details in the best recommended order, and the product model MUST come last.',
+      'If the model is a readable marketing/model phrase such as "iPhone 15 Pro Max", place the full model immediately after the brand in both title_en and title_ar.',
     );
     expect(prompt).toContain(
-      'Do NOT place the model before the attributes/details in title_ar. The final token/group in title_ar should be the model when a model exists.',
+      'If the model is mostly a technical/random alphanumeric code such as "GX16089A", place it immediately after the brand when the model is one or two words/tokens only.',
     );
     expect(prompt).toContain(
-      'Example title_ar pattern: "شاشة Samsung 27 بوصة منحنية Odyssey G5".',
+      'If the model is mostly a technical/random alphanumeric code and it is more than two words/tokens, place it at the end of the title after the main product details.',
+    );
+    expect(prompt).toContain(
+      'In all Arabic AI-generated product text, use "إنش" for inch. NEVER use "بوصة".',
+    );
+    expect(prompt).toContain(
+      'Example title_ar pattern with readable model after brand: "هاتف Apple iPhone 15 Pro Max 256GB".',
     );
     expect(prompt).toContain(
       'Example: from "Intel Core i7-12700F", CPU = "Intel", CPU Series = "Core i7", CPU Model = "12700F".',

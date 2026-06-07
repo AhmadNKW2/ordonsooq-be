@@ -30,6 +30,7 @@ import { normalizeProductMeasurements } from './utils/product-measurements.util'
 const OPEN_AI_NOT_EXIST_SENTINEL = 'not_exist';
 const INTERNAL_NEW_VALUE_MATCH = Symbol('internal_new_value_match');
 const NUMERIC_TOKEN_REGEX = /\d+(?:\.\d+)?/g;
+const ARABIC_INCH_REGEX = /بوص(?:ة|ات)/g;
 const DEFAULT_OPENAI_LOG_PATH = resolvePath(
   process.cwd(),
   'logs',
@@ -592,11 +593,13 @@ export class ProductImportService {
   ): Promise<CreateProductDto> {
     const request = this.parseRequest(body);
     const catalog = await this.loadImportCatalog(request.categoryIds);
-    const aiResult = await this.callOpenAi(
-      request.payload,
-      catalog,
-      request.model,
-      request.sourceFile,
+    const aiResult = this.normalizeAiResult(
+      await this.callOpenAi(
+        request.payload,
+        catalog,
+        request.model,
+        request.sourceFile,
+      ),
     );
 
     return this.buildCreateProductDto(request, aiResult, catalog);
@@ -1299,6 +1302,31 @@ export class ProductImportService {
     } catch {
       return null;
     }
+  }
+
+  private normalizeAiResult(aiResult: ImportAiResult): ImportAiResult {
+    return this.normalizeArabicAiValue(aiResult) as ImportAiResult;
+  }
+
+  private normalizeArabicAiValue(value: unknown): unknown {
+    if (typeof value === 'string') {
+      return value.replace(ARABIC_INCH_REGEX, 'إنش');
+    }
+
+    if (Array.isArray(value)) {
+      return value.map((entry) => this.normalizeArabicAiValue(entry));
+    }
+
+    if (!value || typeof value !== 'object') {
+      return value;
+    }
+
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entryValue]) => [
+        key,
+        this.normalizeArabicAiValue(entryValue),
+      ]),
+    );
   }
 
   private extractOpenAiText(body: Record<string, unknown>): string {
