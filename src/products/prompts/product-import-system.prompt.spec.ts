@@ -56,6 +56,15 @@ describe('buildProductImportSystemPrompt', () => {
       'For attributes, return at most ONE value object per database attribute.',
     );
     expect(prompt).toContain(
+      'For title_ar, the naming order MUST be exactly: Arabic product title/type first, then the brand in English, then product attributes/details only if they are truly present in the product data then the remaining product details in the best recommended order, and the product model MUST come last.',
+    );
+    expect(prompt).toContain(
+      'Do NOT place the model before the attributes/details in title_ar. The final token/group in title_ar should be the model when a model exists.',
+    );
+    expect(prompt).toContain(
+      'Example title_ar pattern: "شاشة Samsung 27 بوصة منحنية Odyssey G5".',
+    );
+    expect(prompt).toContain(
       'Example: from "Intel Core i7-12700F", CPU = "Intel", CPU Series = "Core i7", CPU Model = "12700F".',
     );
     expect(prompt).toContain(
