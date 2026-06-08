@@ -221,6 +221,15 @@ export class FilterProductDto {
   @IsNumber({}, { each: true })
   vendor_ids?: number[];
 
+  @IsOptional()
+  @Transform(({ obj, key }) => {
+    const value = obj[key];
+    if (value === 'false' || value === false || value === '0') return false;
+    return [true, 'true', '1', 1].includes(value);
+  })
+  @IsBoolean()
+  has_no_vendor?: boolean;
+
   /** Single original vendor category ID (backward compat). */
   @IsOptional()
   @Transform(({ value, obj }) => {
@@ -266,6 +275,15 @@ export class FilterProductDto {
   @IsArray()
   @IsNumber({}, { each: true })
   brand_ids?: number[];
+
+  @IsOptional()
+  @Transform(({ obj, key }) => {
+    const value = obj[key];
+    if (value === 'false' || value === false || value === '0') return false;
+    return [true, 'true', '1', 1].includes(value);
+  })
+  @IsBoolean()
+  has_no_brand?: boolean;
 
   // ─── Creator filter ──────────────────────────────────
   @IsOptional()

@@ -31,6 +31,8 @@ const OPEN_AI_NOT_EXIST_SENTINEL = 'not_exist';
 const INTERNAL_NEW_VALUE_MATCH = Symbol('internal_new_value_match');
 const NUMERIC_TOKEN_REGEX = /\d+(?:\.\d+)?/g;
 const ARABIC_INCH_REGEX = /بوص(?:ة|ات)/g;
+const FALLBACK_BRAND_NAME_EN = 'Others';
+const FALLBACK_BRAND_NAME_AR = 'اخرى';
 const DEFAULT_OPENAI_LOG_PATH = resolvePath(
   process.cwd(),
   'logs',
@@ -1214,8 +1216,60 @@ export class ProductImportService {
     }
 
     this.logger.log(
-      'No brand resolved from AI, payload.brand fallback, or backend text detection; creating product without brand_id.',
+      'No brand resolved from AI, payload.brand fallback, or backend text detection; falling back to Others brand.',
     );
+
+    const fallbackBrand = await this.resolveFallbackBrand(brands);
+
+    this.logger.log(
+      `Resolved fallback brand '${this.getBrandDisplayName(fallbackBrand, FALLBACK_BRAND_NAME_EN)}' -> id=${fallbackBrand.id}`,
+    );
+
+    return fallbackBrand.id;
+  }
+
+  private async resolveFallbackBrand(brands: Brand[]): Promise<Brand> {
+    const existingFallbackBrand = this.findFallbackBrand(brands);
+
+    if (existingFallbackBrand) {
+      return existingFallbackBrand;
+    }
+
+    try {
+      const createdBrand = await this.brandsService.create({
+        name_en: FALLBACK_BRAND_NAME_EN,
+        name_ar: FALLBACK_BRAND_NAME_AR,
+      });
+      brands.push(createdBrand);
+      return createdBrand;
+    } catch (error) {
+      const refreshedBrands = await this.findActiveBrands();
+      const refreshedFallbackBrand = this.findFallbackBrand(refreshedBrands);
+
+      if (refreshedFallbackBrand) {
+        return refreshedFallbackBrand;
+      }
+
+      throw error;
+    }
+  }
+
+  private findFallbackBrand(brands: Brand[]): Brand | null {
+    const normalizedFallbackNames = new Set([
+      this.normalizeLookupText(FALLBACK_BRAND_NAME_EN),
+      this.normalizeLookupText(FALLBACK_BRAND_NAME_AR),
+    ]);
+
+    for (const brand of brands) {
+      const brandNames = [brand.name_en, brand.name_ar]
+        .map((name) => this.requireOptionalString(name))
+        .filter((name): name is string => !!name)
+        .map((name) => this.normalizeLookupText(name));
+
+      if (brandNames.some((name) => normalizedFallbackNames.has(name))) {
+        return brand;
+      }
+    }
 
     return null;
   }

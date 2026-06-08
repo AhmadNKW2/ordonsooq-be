@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Brand } from '../brands/entities/brand.entity';
 import { Category } from '../categories/entities/category.entity';
 import { Vendor } from '../vendors/entities/vendor.entity';
@@ -184,6 +184,36 @@ describe('ProductImportService', () => {
       input_json: inputBody,
     });
     expect(result).toBe(createdProduct);
+  });
+
+  it('returns the duplicate reference-link message from AI product creation', async () => {
+    const inputBody = {
+      payload: {
+        title: 'Imported Monitor',
+        description: 'Imported description',
+        new_price: '99.99',
+      },
+      category_id: 9,
+      vendor_id: 2,
+    };
+    const createProductDto = {
+      name_en: 'Imported Monitor',
+      name_ar: 'شاشة مستوردة',
+      reference_link: 'https://mcc-jo.com/product/imported-monitor',
+    };
+
+    productsService.create.mockRejectedValue(
+      new BadRequestException('reference link existed'),
+    );
+
+    jest
+      .spyOn(service as any, 'buildImportedProductDto')
+      .mockResolvedValue(createProductDto);
+
+    await expect(service.importFromRequest(inputBody)).rejects.toThrow(
+      'reference link existed',
+    );
+    expect(productInputJsonRepository.save).not.toHaveBeenCalled();
   });
 
   it('extracts original vendor category metadata from import payload aliases', () => {
@@ -712,6 +742,90 @@ describe('ProductImportService', () => {
       brandCreated: false,
     });
     expect(brandsService.create).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the existing Others brand when no brand can be resolved', async () => {
+    const brands = [
+      { id: 7, name_en: 'Others', name_ar: 'اخرى' },
+      { id: 9, name_en: 'Asus', name_ar: 'أسوس' },
+    ] as Brand[];
+
+    const result = await (service as any).resolveBrandForImport(
+      brands,
+      {
+        title: 'Universal 6-Port PDU Power Distribution Unit For Cabinets',
+        description:
+          'Universal 6-Port PDU Power Distribution Unit for Cabinets',
+        new_price: '19.99',
+        old_price: undefined,
+        price: undefined,
+        sale_price: undefined,
+        brand: null,
+        image: null,
+        images: [],
+        media: [],
+        specification: [],
+        attributes: [],
+        reference_link:
+          'https://mcc-jo.com/product/universal-6-port-pdu-power-distribution-unit-for-cabinets',
+        quantity: undefined,
+        stock: undefined,
+        sku: null,
+        record: null,
+        original_vendor_categories: [],
+        original_vendor_category_id: null,
+        original_vendor_category_name: null,
+        raw_data: {},
+      },
+      null,
+    );
+
+    expect(result).toBe(7);
+    expect(brandsService.create).not.toHaveBeenCalled();
+  });
+
+  it('creates the Others brand when no brand can be resolved and fallback is missing', async () => {
+    brandsService.create.mockResolvedValue({
+      id: 7,
+      name_en: 'Others',
+      name_ar: 'اخرى',
+    });
+
+    const result = await (service as any).resolveBrandForImport(
+      [],
+      {
+        title: 'Universal 6-Port PDU Power Distribution Unit For Cabinets',
+        description:
+          'Universal 6-Port PDU Power Distribution Unit for Cabinets',
+        new_price: '19.99',
+        old_price: undefined,
+        price: undefined,
+        sale_price: undefined,
+        brand: null,
+        image: null,
+        images: [],
+        media: [],
+        specification: [],
+        attributes: [],
+        reference_link:
+          'https://mcc-jo.com/product/universal-6-port-pdu-power-distribution-unit-for-cabinets',
+        quantity: undefined,
+        stock: undefined,
+        sku: null,
+        record: null,
+        original_vendor_categories: [],
+        original_vendor_category_id: null,
+        original_vendor_category_name: null,
+        raw_data: {},
+      },
+      null,
+    );
+
+    expect(result).toBe(7);
+    expect(brandsService.create).toHaveBeenCalledWith({
+      name_en: 'Others',
+      name_ar: 'اخرى',
+    });
   });
 
   it('normalizes arabic inch wording in AI output to إنش', () => {

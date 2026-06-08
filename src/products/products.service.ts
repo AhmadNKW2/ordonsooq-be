@@ -412,6 +412,44 @@ export class ProductsService {
     return orderedKeys.map((key) => categoriesByKey.get(key) ?? {});
   }
 
+  private normalizeReferenceLink(referenceLink?: string | null): string | null {
+    const normalizedReferenceLink = referenceLink?.trim();
+    return normalizedReferenceLink ? normalizedReferenceLink : null;
+  }
+
+  private async ensureReferenceLinkIsUnique(
+    referenceLink?: string | null,
+    excludeProductId?: number,
+  ): Promise<string | null> {
+    const normalizedReferenceLink =
+      this.normalizeReferenceLink(referenceLink);
+
+    if (!normalizedReferenceLink) {
+      return null;
+    }
+
+    const existingProductQuery = this.productsRepository
+      .createQueryBuilder('product')
+      .select(['product.id'])
+      .where('btrim(product.reference_link) = :referenceLink', {
+        referenceLink: normalizedReferenceLink,
+      });
+
+    if (excludeProductId !== undefined) {
+      existingProductQuery.andWhere('product.id != :excludeProductId', {
+        excludeProductId,
+      });
+    }
+
+    const existingProduct = await existingProductQuery.getOne();
+
+    if (existingProduct) {
+      throw new BadRequestException('reference link existed');
+    }
+
+    return normalizedReferenceLink;
+  }
+
   private resolveIsOutOfStock(params: {
     quantity: number;
     requestedState?: boolean;
@@ -1678,6 +1716,9 @@ export class ProductsService {
         legacyName: dto.original_vendor_category_name ?? null,
       });
       const primaryOriginalVendorCategory = originalVendorCategories[0] ?? null;
+      const normalizedReferenceLink = await this.ensureReferenceLinkIsUnique(
+        dto.reference_link,
+      );
 
       // 1. Create basic product (primary category is first in the list)
       const product = this.productsRepository.create({
@@ -1690,7 +1731,7 @@ export class ProductsService {
         short_description_ar: dto.short_description_ar,
         long_description_en: dto.long_description_en,
         long_description_ar: dto.long_description_ar,
-        reference_link: dto.reference_link ?? null,
+        reference_link: normalizedReferenceLink,
         category_id: dto.category_ids?.[0],
         vendor_id: dto.vendor_id,
         original_vendor_categories: originalVendorCategories,
@@ -1777,6 +1818,13 @@ export class ProductsService {
         message: 'Product created successfully.',
       };
     } catch (error) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException
+      ) {
+        throw error;
+      }
+
       throw new BadRequestException(
         `Failed to create product: ${getErrorMessage(error)}`,
       );
@@ -1792,8 +1840,10 @@ export class ProductsService {
       categoryId,
       vendorId,
       vendor_ids,
+      has_no_vendor,
       brandId,
       brand_ids,
+      has_no_brand,
       attributes_ids,
       attributes_values_ids,
       specifications_ids,
@@ -1815,6 +1865,26 @@ export class ProductsService {
     } = filterDto;
     const normalizedCategoryIds = getCategoryIds(filterDto);
     const normalizedVendorId = getSingleVendorId(filterDto);
+    const normalizedVendorIds = [
+      ...new Set(
+        [normalizedVendorId, ...(vendor_ids ?? [])].filter(
+          (candidate): candidate is number =>
+            typeof candidate === 'number' &&
+            Number.isInteger(candidate) &&
+            candidate > 0,
+        ),
+      ),
+    ];
+    const normalizedBrandIds = [
+      ...new Set(
+        [brandId, ...(brand_ids ?? [])].filter(
+          (candidate): candidate is number =>
+            typeof candidate === 'number' &&
+            Number.isInteger(candidate) &&
+            candidate > 0,
+        ),
+      ),
+    ];
     const normalizedOriginalVendorCategoryId =
       getOriginalVendorCategoryId(filterDto);
 
@@ -1907,18 +1977,19 @@ export class ProductsService {
       );
     }
 
-    // Filter by single vendor (backward compat)
-    if (normalizedVendorId !== undefined) {
-      baseQuery.andWhere('product.vendor_id = :vendorId', {
-        vendorId: normalizedVendorId,
-      });
-    }
-
-    // Filter by multiple vendors
-    if (vendor_ids && vendor_ids.length > 0) {
+    if (normalizedVendorIds.length > 0 && has_no_vendor) {
+      baseQuery.andWhere(
+        '(product.vendor_id IN (:...vendor_ids) OR product.vendor_id IS NULL)',
+        {
+          vendor_ids: normalizedVendorIds,
+        },
+      );
+    } else if (normalizedVendorIds.length > 0) {
       baseQuery.andWhere('product.vendor_id IN (:...vendor_ids)', {
-        vendor_ids,
+        vendor_ids: normalizedVendorIds,
       });
+    } else if (has_no_vendor) {
+      baseQuery.andWhere('product.vendor_id IS NULL');
     }
 
     if (normalizedOriginalVendorCategoryId !== undefined) {
@@ -1938,14 +2009,19 @@ export class ProductsService {
       );
     }
 
-    // Filter by single brand (backward compat)
-    if (brandId) {
-      baseQuery.andWhere('product.brand_id = :brandId', { brandId });
-    }
-
-    // Filter by multiple brands
-    if (brand_ids && brand_ids.length > 0) {
-      baseQuery.andWhere('product.brand_id IN (:...brand_ids)', { brand_ids });
+    if (normalizedBrandIds.length > 0 && has_no_brand) {
+      baseQuery.andWhere(
+        '(product.brand_id IN (:...brand_ids) OR product.brand_id IS NULL)',
+        {
+          brand_ids: normalizedBrandIds,
+        },
+      );
+    } else if (normalizedBrandIds.length > 0) {
+      baseQuery.andWhere('product.brand_id IN (:...brand_ids)', {
+        brand_ids: normalizedBrandIds,
+      });
+    } else if (has_no_brand) {
+      baseQuery.andWhere('product.brand_id IS NULL');
     }
 
     // Filter by creator
@@ -2738,6 +2814,13 @@ export class ProductsService {
         }
       });
 
+      if (dto.reference_link !== undefined) {
+        basicInfoChanges.reference_link = await this.ensureReferenceLinkIsUnique(
+          dto.reference_link,
+          id,
+        );
+      }
+
       if (
         dto.quantity !== undefined ||
         dto.is_out_of_stock !== undefined
@@ -2783,6 +2866,14 @@ export class ProductsService {
       await queryRunner.commitTransaction();
     } catch (error) {
       await queryRunner.rollbackTransaction();
+
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException
+      ) {
+        throw error;
+      }
+
       throw new BadRequestException(
         `Failed to update product: ${getErrorMessage(error)}`,
       );
@@ -2833,6 +2924,13 @@ export class ProductsService {
         message: 'Product updated successfully',
       };
     } catch (error) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof NotFoundException
+      ) {
+        throw error;
+      }
+
       throw new BadRequestException(
         `Failed to update product: ${getErrorMessage(error)}`,
       );

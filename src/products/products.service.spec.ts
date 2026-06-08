@@ -332,6 +332,39 @@ describe('ProductsService detail attributes', () => {
     );
   });
 
+  it('filters products without a vendor when requested', async () => {
+    const { baseQuery } = createFindAllQueryBuilderMocks();
+    productsRepository.createQueryBuilder.mockReturnValue(baseQuery);
+
+    await service.findAll({ has_no_vendor: true }, true);
+
+    expect(baseQuery.andWhere).toHaveBeenCalledWith('product.vendor_id IS NULL');
+  });
+
+  it('includes vendorless products alongside selected vendors', async () => {
+    const { baseQuery } = createFindAllQueryBuilderMocks();
+    productsRepository.createQueryBuilder.mockReturnValue(baseQuery);
+
+    await service.findAll({ vendor_ids: [5, 9], has_no_vendor: true }, true);
+
+    expect(baseQuery.andWhere).toHaveBeenCalledWith(
+      '(product.vendor_id IN (:...vendor_ids) OR product.vendor_id IS NULL)',
+      { vendor_ids: [5, 9] },
+    );
+  });
+
+  it('includes brandless products alongside selected brands', async () => {
+    const { baseQuery } = createFindAllQueryBuilderMocks();
+    productsRepository.createQueryBuilder.mockReturnValue(baseQuery);
+
+    await service.findAll({ brand_ids: [3], has_no_brand: true }, true);
+
+    expect(baseQuery.andWhere).toHaveBeenCalledWith(
+      '(product.brand_id IN (:...brand_ids) OR product.brand_id IS NULL)',
+      { brand_ids: [3] },
+    );
+  });
+
   it('hides out-of-stock product details from public requests', async () => {
     productsRepository.findOne.mockResolvedValue({
       ...productBase,
