@@ -12,7 +12,11 @@ import {
   IsEnum,
 } from 'class-validator';
 import { Type } from 'class-transformer';
-import { ProductStatus } from '../entities/product.entity';
+import {
+  ProductDimensionUnit,
+  ProductStatus,
+  ProductWeightUnit,
+} from '../entities/product.entity';
 import { PreserveRawNumberInput } from '../../common/decorators/preserve-raw-number-input.decorator';
 import { ProductSpecificationInputDto } from './product-specification.dto';
 import { OriginalVendorCategoryInputDto } from './original-vendor-category.dto';
@@ -198,6 +202,14 @@ export class UpdateProductDto {
   @IsOptional()
   weight?: number;
 
+  @ApiPropertyOptional({
+    enum: ProductWeightUnit,
+    example: ProductWeightUnit.KILOGRAM,
+  })
+  @IsEnum(ProductWeightUnit)
+  @IsOptional()
+  weight_unit?: ProductWeightUnit;
+
   @ApiPropertyOptional({ example: 19, description: 'Length in cm' })
   @IsNumber()
   @IsOptional()
@@ -212,6 +224,14 @@ export class UpdateProductDto {
   @IsNumber()
   @IsOptional()
   height?: number;
+
+  @ApiPropertyOptional({
+    enum: ProductDimensionUnit,
+    example: ProductDimensionUnit.CENTIMETER,
+  })
+  @IsEnum(ProductDimensionUnit)
+  @IsOptional()
+  dimension_unit?: ProductDimensionUnit;
 
   // ============== Stock ==============
 

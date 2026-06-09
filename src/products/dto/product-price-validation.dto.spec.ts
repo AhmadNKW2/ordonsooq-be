@@ -110,4 +110,26 @@ describe('Product price payload validation', () => {
       );
     },
   );
+
+  it('accepts measurement units on update payloads', async () => {
+    const result = await transformBody(
+      {
+        ...basePayload,
+        weight: 2.5,
+        weight_unit: 'kg',
+        length: 30,
+        width: 20,
+        height: 10,
+        dimension_unit: 'cm',
+      },
+      UpdateProductDto,
+    );
+
+    expect(result.weight).toBe(2.5);
+    expect(result.weight_unit).toBe('kg');
+    expect(result.length).toBe(30);
+    expect(result.width).toBe(20);
+    expect(result.height).toBe(10);
+    expect(result.dimension_unit).toBe('cm');
+  });
 });
